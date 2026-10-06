@@ -144,6 +144,19 @@ entity main is
       fram_data_i             : in  std_logic_vector(15 downto 0);  -- read data
       fram_ready_i            : in  std_logic;
 
+      -- IDE board (ide_board.vhd in mega65.vhd, RIPPLE-compatible, autoconfig'd by
+      -- cpu_wrapper after the Fast RAM board). ide_ena_i puts it into the autoconfig
+      -- chain (latched at every CPU reset); ide_sel_o is high for a CPU bus cycle to the
+      -- configured board. Address (fram_addr_o(16 downto 1) = offset within the board),
+      -- direction, strobes and write data are the fram_* outputs above: cpu_wrapper
+      -- drives them from the CPU for every bus cycle. ide_rst_o = Amiga reset or the
+      -- CPU's RESET instruction (the Zorro reset line: it also un-configures the board).
+      ide_ena_i               : in  std_logic;
+      ide_sel_o               : out std_logic;
+      ide_data_i              : in  std_logic_vector(15 downto 0);
+      ide_ready_i             : in  std_logic;
+      ide_rst_o               : out std_logic;
+
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
       -- Drive map from the OSM "Drive Settings" submenu (static in clk_main;
       -- changes trigger the amiga_cold_boot reset in mega65.vhd):
@@ -388,6 +401,11 @@ architecture synthesis of main is
          ramlds         : out std_logic;
          ramuds         : out std_logic;
          ramshared      : out std_logic;
+
+         ide_ena        : in  std_logic;
+         ext_sel        : out std_logic;
+         ext_dout       : in  std_logic_vector(15 downto 0);
+         ext_ready      : in  std_logic;
 
          toccata_ena    : out std_logic;
          toccata_base   : out std_logic_vector(7 downto 0);
@@ -647,6 +665,14 @@ begin
    fram_addr_o <= cpu_ramaddr(22 downto 1);
    fram_we_o   <= '1' when cpu_state = "11" else '0';
 
+   -- IDE board reset: the same condition that resets cpu_wrapper's autoconfig chain
+   ide_rst_proc : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         ide_rst_o <= not (cpu_reset_n and cpu_reset_out_n);
+      end if;
+   end process ide_rst_proc;
+
    i_cpu_wrapper : cpu_wrapper
       port map (
          reset           => cpu_reset_n,         -- active low, from minimig
@@ -689,6 +715,11 @@ begin
          ramlds          => fram_lds_n_o,
          ramuds          => fram_uds_n_o,
          ramshared       => open,
+
+         ide_ena         => ide_ena_i,           -- IDE board in the autoconfig chain
+         ext_sel         => ide_sel_o,
+         ext_dout        => ide_data_i,
+         ext_ready       => ide_ready_i,
 
          toccata_ena     => open,
          toccata_base    => open,

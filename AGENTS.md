@@ -780,6 +780,30 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   assembles natively, ROM differs from the A10 baseline only in the 14 words
   using the two heap constants.
 
+- **`WIP-V2-A11-JS-01` (cont.) - IDE BOARD FOR HDF IMAGES, HDL PART. Fork
+  increment, 2026-10-06/07: R6-built (WNS +0.309, BRAM 362.5/365), NOT
+  hardware-tested; the firmware ATA server is the next step.** A Zorro II
+  IDE controller register-compatible with RIPPLE (manufacturer 5194,
+  product 7) so that the GPL lide.device boot ROM autoboots Kickstart 1.3
+  from an HDF on the SD card. `cpu_wrapper.v` (submodule develop) puts the
+  board into the autoconfig chain after the Fast RAM board (`ide_ena`,
+  latched at CPU reset; the RESET instruction un-configures it) and routes
+  its cycles off the chip bus through a new `ext_*` port. NEW
+  `CORE/vhdl/ide_board.vhd`: RIPPLE ROM mapping (whole board before the
+  first write, then +64K and A13 = A12), task file at +0x1000 (register n
+  at n x 0x200, A11..A9, so lide's MOVEM bursts stay on the data
+  register), control block at A14; BSY on a command write and DRQ off with
+  the 256th word in hardware, everything else by the firmware through QNICE
+  device 0x0107 (`C_DEV_AMIGA_IDE`; register map in the file header).
+  `/amiga/lide.rom` (32 KB) is an OPTIONAL auto-load ROM streamed into
+  device 0x0108 (`C_DEV_AMIGA_IDEROM`, a fourth `adf_mount_wrapper` used as
+  a plain byte bridge) at HyperRAM `C_HMAP_IDE_ROM` 0x0380; the board reads
+  it through an avm_fifo, so the HyperRAM arbiter now has 6 masters. The
+  board joins the chain only when the firmware sets control bit 1 (0x118).
+  No new XDC: the qnice<->main clock-pair max_delay covers the two LUTRAM
+  buffers. Note for test writers: lide reads with MOVEM from data+460 so the
+  68000's extra MOVEM read hits the error register.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
@@ -908,7 +932,8 @@ the deep material lives in `doc/` (see "Key documents").
   invariant in §5a is load-bearing and now has to hold PER DRIVE). A unit
   is announced write-protected until the firmware arms its WR_EN, on SD
   change, and while remounting.
-  No IDE. Keyboard + joysticks + mouse work.
+  IDE: one RIPPLE-compatible board for an HDF image (fork, in progress).
+  Keyboard + joysticks + mouse work.
 - Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
   HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →
   `CORE/vhdl/audio_filters.vhd` (bit-faithful Minimig.sv port reusing M2M's

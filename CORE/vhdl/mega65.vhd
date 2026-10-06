@@ -314,6 +314,19 @@ signal main_fram_wrdata       : std_logic_vector(15 downto 0);
 signal main_fram_rddata       : std_logic_vector(15 downto 0);
 signal main_fram_ready        : std_logic;
 
+-- IDE board (ide_board.vhd): cpu_wrapper's ext_* port. Address, direction, strobes and
+-- write data are shared with the Fast RAM port above (main_fram_*).
+signal main_ide_ena           : std_logic;
+signal main_ide_sel           : std_logic;
+signal main_ide_rddata        : std_logic_vector(15 downto 0);
+signal main_ide_ready         : std_logic;
+signal main_ide_rst           : std_logic;
+signal main_iderom_avm_read          : std_logic;
+signal main_iderom_avm_address       : std_logic_vector(31 downto 0);
+signal main_iderom_avm_readdata      : std_logic_vector(15 downto 0);
+signal main_iderom_avm_readdatavalid : std_logic;
+signal main_iderom_avm_waitrequest   : std_logic;
+
 -- bank selects (combinational decode of the banked address)
 signal main_chip_sel          : std_logic;
 signal main_slow_sel          : std_logic;
@@ -466,6 +479,14 @@ signal qnice_adf_wrt_track    : std_logic_vector(7 downto 0);
 signal qnice_adf_wrt_req      : std_logic_vector(2 downto 0);
 signal qnice_adf_wrt_ack      : std_logic_vector(2 downto 0);
 
+-- IDE board: firmware interface (0x0107) and the boot ROM loader (0x0108)
+signal qnice_ide_ce           : std_logic;
+signal qnice_ide_data         : std_logic_vector(15 downto 0);
+signal qnice_ide_wait         : std_logic;
+signal qnice_iderom_ce        : std_logic;
+signal qnice_iderom_data      : std_logic_vector(15 downto 0);
+signal qnice_iderom_wait      : std_logic;
+
 -- Hardware Floppy front-end (physical_fdd_top runs on qnice_clk; every
 -- magnetic constant is hardware-proven at exactly 50 MHz) + diag device 0x0104
 signal qnice_fdd_track0_n     : std_logic;
@@ -603,16 +624,38 @@ signal hr_adf_avm_readdata        : t_adf_word;
 signal hr_adf_avm_readdatavalid   : std_logic_vector(2 downto 0);
 signal hr_adf_avm_waitrequest     : std_logic_vector(2 downto 0);
 
+-- IDE board: the boot ROM loader's Avalon master (QNICE->hr CDC inside the wrapper) and
+-- the board's ROM reads (main->hr, avm_fifo below)
+signal hr_ldr_avm_write           : std_logic;
+signal hr_ldr_avm_read            : std_logic;
+signal hr_ldr_avm_address         : std_logic_vector(31 downto 0);
+signal hr_ldr_avm_writedata       : std_logic_vector(15 downto 0);
+signal hr_ldr_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal hr_ldr_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal hr_ldr_avm_readdata        : std_logic_vector(15 downto 0);
+signal hr_ldr_avm_readdatavalid   : std_logic;
+signal hr_ldr_avm_waitrequest     : std_logic;
+signal hr_rom_avm_write           : std_logic;
+signal hr_rom_avm_read            : std_logic;
+signal hr_rom_avm_address         : std_logic_vector(31 downto 0);
+signal hr_rom_avm_writedata       : std_logic_vector(15 downto 0);
+signal hr_rom_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal hr_rom_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal hr_rom_avm_readdata        : std_logic_vector(15 downto 0);
+signal hr_rom_avm_readdatavalid   : std_logic;
+signal hr_rom_avm_waitrequest     : std_logic;
+
 -- flattened arbiter interface (avm_arbit_general uses packed vectors)
-signal hr_arb_write               : std_logic_vector(3 downto 0);
-signal hr_arb_read                : std_logic_vector(3 downto 0);
-signal hr_arb_address             : std_logic_vector(4 * 32 - 1 downto 0);
-signal hr_arb_writedata           : std_logic_vector(4 * 16 - 1 downto 0);
-signal hr_arb_byteenable          : std_logic_vector(4 *  2 - 1 downto 0);
-signal hr_arb_burstcount          : std_logic_vector(4 *  8 - 1 downto 0);
-signal hr_arb_readdata            : std_logic_vector(4 * 16 - 1 downto 0);
-signal hr_arb_readdatavalid       : std_logic_vector(3 downto 0);
-signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
+constant C_ARB_SLAVES             : natural := 6;
+signal hr_arb_write               : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal hr_arb_read                : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal hr_arb_address             : std_logic_vector(C_ARB_SLAVES * 32 - 1 downto 0);
+signal hr_arb_writedata           : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
+signal hr_arb_byteenable          : std_logic_vector(C_ARB_SLAVES *  2 - 1 downto 0);
+signal hr_arb_burstcount          : std_logic_vector(C_ARB_SLAVES *  8 - 1 downto 0);
+signal hr_arb_readdata            : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
+signal hr_arb_readdatavalid       : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal hr_arb_waitrequest         : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
@@ -1117,6 +1160,11 @@ begin
          fram_data_o          => main_fram_wrdata,
          fram_data_i          => main_fram_rddata,
          fram_ready_i         => main_fram_ready,
+         ide_ena_i            => main_ide_ena,
+         ide_sel_o            => main_ide_sel,
+         ide_data_i           => main_ide_rddata,
+         ide_ready_i          => main_ide_ready,
+         ide_rst_o            => main_ide_rst,
 
          -- Floppy configuration, plus the Hardware Floppy CIA-B taps,
          -- conditioned real drive status and reconstructed word stream
@@ -1221,6 +1269,48 @@ begin
       ); -- i_fastram_sdram
 
    ---------------------------------------------------------------------------------------------
+   -- IDE board: RIPPLE-compatible Zorro II IDE controller, main_clk domain for the Amiga side
+   --
+   -- An HDF on the SD card is the drive; the QNICE firmware serves the ATA commands through
+   -- device C_DEV_AMIGA_IDE. Its boot ROM (lide.device) is read from HyperRAM
+   -- (C_HMAP_IDE_ROM, loaded through C_DEV_AMIGA_IDEROM). The board joins the autoconfig
+   -- chain only when the firmware enables it (board_ena_o, latched at the next CPU reset).
+   ---------------------------------------------------------------------------------------------
+
+   i_ide_board : entity work.ide_board
+      generic map (
+         G_ROM_BASE              => C_HMAP_IDE_ROM(9 downto 0) & x"000"
+      )
+      port map (
+         clk_i                   => main_clk,
+         rst_i                   => main_ide_rst,
+         sel_i                   => main_ide_sel,
+         rw_i                    => not main_fram_we,
+         uds_n_i                 => main_fram_uds_n,
+         lds_n_i                 => main_fram_lds_n,
+         addr_i                  => main_fram_addr(16 downto 1),
+         data_i                  => main_fram_wrdata,
+         data_o                  => main_ide_rddata,
+         ready_o                 => main_ide_ready,
+         board_ena_o             => main_ide_ena,
+
+         rom_avm_read_o          => main_iderom_avm_read,
+         rom_avm_address_o       => main_iderom_avm_address,
+         rom_avm_waitrequest_i   => main_iderom_avm_waitrequest,
+         rom_avm_readdata_i      => main_iderom_avm_readdata,
+         rom_avm_readdatavalid_i => main_iderom_avm_readdatavalid,
+
+         qnice_clk_i             => qnice_clk_i,
+         qnice_rst_i             => qnice_rst_i,
+         qnice_addr_i            => qnice_dev_addr_i,
+         qnice_data_i            => qnice_dev_data_i,
+         qnice_ce_i              => qnice_ide_ce,
+         qnice_we_i              => qnice_dev_we_i,
+         qnice_data_o            => qnice_ide_data,
+         qnice_wait_o            => qnice_ide_wait
+      ); -- i_ide_board
+
+   ---------------------------------------------------------------------------------------------
    -- Amiga memory decode (main_clk domain)
    ---------------------------------------------------------------------------------------------
 
@@ -1309,6 +1399,8 @@ begin
    --   0x0104  C_DEV_AMIGA_FDD   Hardware Floppy diagnostics (read-only bank)
    --   0x0105  C_DEV_AMIGA_ADF1  df1 ADF mount buffer
    --   0x0106  C_DEV_AMIGA_ADF2  df2 ADF mount buffer
+   --   0x0107  C_DEV_AMIGA_IDE     IDE board: firmware ATA interface (ide_board.vhd)
+   --   0x0108  C_DEV_AMIGA_IDEROM  IDE board: boot ROM loader into HyperRAM
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
    -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
@@ -1322,6 +1414,8 @@ begin
       qnice_kick_we_u  <= '0';
       qnice_kick_we_l  <= '0';
       qnice_adf_ce     <= "000";
+      qnice_ide_ce     <= '0';
+      qnice_iderom_ce  <= '0';
 
       case qnice_dev_id_i is
 
@@ -1348,6 +1442,17 @@ begin
             qnice_adf_ce(2)  <= qnice_dev_ce_i;
             qnice_dev_data_o <= qnice_adf_data(2);
             qnice_dev_wait_o <= qnice_adf_wait(2);
+
+         -- IDE board: registered readout (falling edge), zero wait states
+         when C_DEV_AMIGA_IDE =>
+            qnice_ide_ce     <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_ide_data;
+            qnice_dev_wait_o <= qnice_ide_wait;
+
+         when C_DEV_AMIGA_IDEROM =>
+            qnice_iderom_ce  <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_iderom_data;
+            qnice_dev_wait_o <= qnice_iderom_wait;
 
          -- Hardware Floppy diagnostics: registered readout (the diag bank
          -- latches the addressed word on the falling edge and this arm sees
@@ -2124,7 +2229,9 @@ begin
 
    assert unsigned(C_HMAP_ADF_DF0_GUARD) < unsigned(C_HMAP_ADF_DF1) and
           unsigned(C_HMAP_ADF_DF1_GUARD) < unsigned(C_HMAP_ADF_DF2) and
-          unsigned(C_HMAP_ADF_DF2_GUARD) < unsigned(C_HMAP_TOP_GUARD) and
+          unsigned(C_HMAP_ADF_DF2_GUARD) < unsigned(C_HMAP_IDE_ROM) and
+          unsigned(C_HMAP_IDE_ROM) + 4   = unsigned(C_HMAP_IDE_ROM_GUARD) and
+          unsigned(C_HMAP_IDE_ROM_GUARD) < unsigned(C_HMAP_TOP_GUARD) and
           unsigned(C_HMAP_TOP_GUARD)     < unsigned(C_HMAP_SIZE)
       report "HyperRAM: the drive pools are not ordered and guarded"
       severity failure;
@@ -2168,6 +2275,45 @@ begin
             hr_waitrequest_i     => hr_adf_avm_waitrequest(u)
          ); -- i_adf_mount_wrapper
    end generate gen_adf_wrapper;
+
+   -- IDE boot ROM loader: a fourth mount wrapper, used only as its byte-window bridge (the
+   -- optional auto-load streams lide.rom in without the CSR handshake, so the ADF size
+   -- validator and the write-back CSR stay idle). Even ROM bytes land in bits 7:0.
+   i_iderom_wrapper : entity work.adf_mount_wrapper
+      generic map (
+         G_BASE_ADDRESS => C_HMAP_IDE_ROM(9 downto 0) & x"000"
+      )
+      port map (
+         qnice_clk_i          => qnice_clk_i,
+         qnice_rst_i          => qnice_rst_i,
+         qnice_addr_i         => qnice_dev_addr_i,
+         qnice_data_i         => qnice_dev_data_i,
+         qnice_ce_i           => qnice_iderom_ce,
+         qnice_we_i           => qnice_dev_we_i,
+         qnice_data_o         => qnice_iderom_data,
+         qnice_wait_o         => qnice_iderom_wait,
+
+         qnice_disk_mounted_o => open,
+         qnice_disk_tracks_o  => open,
+
+         qnice_write_en_o     => open,
+         qnice_any_dirty_o    => open,
+         qnice_wrt_track_i    => x"00",
+         qnice_wrt_req_i      => '0',
+         qnice_wrt_ack_o      => open,
+
+         hr_clk_i             => hr_clk_i,
+         hr_rst_i             => hr_rst_i,
+         hr_write_o           => hr_ldr_avm_write,
+         hr_read_o            => hr_ldr_avm_read,
+         hr_address_o         => hr_ldr_avm_address,
+         hr_writedata_o       => hr_ldr_avm_writedata,
+         hr_byteenable_o      => hr_ldr_avm_byteenable,
+         hr_burstcount_o      => hr_ldr_avm_burstcount,
+         hr_readdata_i        => hr_ldr_avm_readdata,
+         hr_readdatavalid_i   => hr_ldr_avm_readdatavalid,
+         hr_waitrequest_i     => hr_ldr_avm_waitrequest
+      ); -- i_iderom_wrapper
 
    ---------------------------------------------------------------------------------------------
    -- HDMI flicker-free core-speed FSM (issue #12), hr_clk domain
@@ -2302,12 +2448,47 @@ begin
          m_avm_readdatavalid_i => hr_flp_avm_readdatavalid
       ); -- i_avm_fifo_adf
 
-   -- Flatten the four masters into the packed arbiter interface. Slave 0 is
+   -- IDE board ROM reads: main_clk -> hr_clk, single-word reads (same reset rule as above)
+   i_avm_fifo_iderom : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => main_clk,
+         s_rst_i               => main_reset_m2m_i,
+         s_avm_waitrequest_o   => main_iderom_avm_waitrequest,
+         s_avm_write_i         => '0',
+         s_avm_read_i          => main_iderom_avm_read,
+         s_avm_address_i       => main_iderom_avm_address,
+         s_avm_writedata_i     => x"0000",
+         s_avm_byteenable_i    => "11",
+         s_avm_burstcount_i    => x"01",
+         s_avm_readdata_o      => main_iderom_avm_readdata,
+         s_avm_readdatavalid_o => main_iderom_avm_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => hr_rom_avm_waitrequest,
+         m_avm_write_o         => hr_rom_avm_write,
+         m_avm_read_o          => hr_rom_avm_read,
+         m_avm_address_o       => hr_rom_avm_address,
+         m_avm_writedata_o     => hr_rom_avm_writedata,
+         m_avm_byteenable_o    => hr_rom_avm_byteenable,
+         m_avm_burstcount_o    => hr_rom_avm_burstcount,
+         m_avm_readdata_i      => hr_rom_avm_readdata,
+         m_avm_readdatavalid_i => hr_rom_avm_readdatavalid
+      ); -- i_avm_fifo_iderom
+
+   -- Flatten the six masters into the packed arbiter interface. Slave 0 is
    -- the track engine (the only latency-sensitive one - Paula is waiting for
    -- its sector), slaves 1..3 are the three mount wrappers, which only run
-   -- while the Shell streams an image from the SD card.
-   hr_arb_write <= hr_adf_avm_write & hr_flp_avm_write;
-   hr_arb_read  <= hr_adf_avm_read  & hr_flp_avm_read;
+   -- while the Shell streams an image from the SD card, slave 4 is the IDE
+   -- boot ROM loader (startup only) and slave 5 the IDE board's ROM reads.
+   hr_arb_write <= hr_rom_avm_write & hr_ldr_avm_write & hr_adf_avm_write & hr_flp_avm_write;
+   hr_arb_read  <= hr_rom_avm_read  & hr_ldr_avm_read  & hr_adf_avm_read  & hr_flp_avm_read;
 
    hr_arb_address(31 downto 0)      <= hr_flp_avm_address;
    hr_arb_writedata(15 downto 0)    <= hr_flp_avm_writedata;
@@ -2327,11 +2508,27 @@ begin
       hr_adf_avm_waitrequest(u)   <= hr_arb_waitrequest(u + 1);
    end generate gen_arb_flatten;
 
+   hr_arb_address(5 * 32 - 1 downto 4 * 32)   <= hr_ldr_avm_address;
+   hr_arb_writedata(5 * 16 - 1 downto 4 * 16) <= hr_ldr_avm_writedata;
+   hr_arb_byteenable(5 * 2 - 1 downto 4 * 2)  <= hr_ldr_avm_byteenable;
+   hr_arb_burstcount(5 * 8 - 1 downto 4 * 8)  <= hr_ldr_avm_burstcount;
+   hr_ldr_avm_readdata                        <= hr_arb_readdata(5 * 16 - 1 downto 4 * 16);
+   hr_ldr_avm_readdatavalid                   <= hr_arb_readdatavalid(4);
+   hr_ldr_avm_waitrequest                     <= hr_arb_waitrequest(4);
+
+   hr_arb_address(6 * 32 - 1 downto 5 * 32)   <= hr_rom_avm_address;
+   hr_arb_writedata(6 * 16 - 1 downto 5 * 16) <= hr_rom_avm_writedata;
+   hr_arb_byteenable(6 * 2 - 1 downto 5 * 2)  <= hr_rom_avm_byteenable;
+   hr_arb_burstcount(6 * 8 - 1 downto 5 * 8)  <= hr_rom_avm_burstcount;
+   hr_rom_avm_readdata                        <= hr_arb_readdata(6 * 16 - 1 downto 5 * 16);
+   hr_rom_avm_readdatavalid                   <= hr_arb_readdatavalid(5);
+   hr_rom_avm_waitrequest                     <= hr_arb_waitrequest(5);
+
    -- round-robin per whole transaction; the masters never compete in practice
    -- (a mount streams while the engine is idle and vice versa)
    i_avm_arbit_adf : entity work.avm_arbit_general
       generic map (
-         G_NUM_SLAVES   => 4,
+         G_NUM_SLAVES   => C_ARB_SLAVES,
          G_FREQ_HZ      => 100_000_000,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16

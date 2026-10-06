@@ -124,6 +124,8 @@ constant C_HMAP_ADF_DF1       : std_logic_vector(15 downto 0) := x"0280";     --
 constant C_HMAP_ADF_DF1_GUARD : std_logic_vector(15 downto 0) := x"02F3";     -- 8 kB guard behind the df1 pool
 constant C_HMAP_ADF_DF2       : std_logic_vector(15 downto 0) := x"0300";     -- df2: ADF image pool, 115 windows, ends x"0372"
 constant C_HMAP_ADF_DF2_GUARD : std_logic_vector(15 downto 0) := x"0373";     -- 8 kB guard behind the df2 pool
+constant C_HMAP_IDE_ROM       : std_logic_vector(15 downto 0) := x"0380";     -- IDE board: lide.rom (32 KB), 4 windows, ends x"0383"
+constant C_HMAP_IDE_ROM_GUARD : std_logic_vector(15 downto 0) := x"0384";     -- 8 kB guard behind the IDE boot ROM (1-word reads only)
 constant C_HMAP_TOP_GUARD     : std_logic_vector(15 downto 0) := x"03FF";     -- 8 kB guard at the top of the die: a burst past the
                                                                               -- last region must never wrap around to x"0000"
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- total HyperRAM = 1024 windows = 8 MB
@@ -184,6 +186,15 @@ constant C_DEV_AMIGA_ADF2     : std_logic_vector(15 downto 0) := x"0106";
 -- ADF drive and is not moved, because the diag register map is documented by number
 -- in .research/HANDOVER-hardware-floppy-round2.md.
 constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
+
+-- IDE board (ide_board.vhd, a RIPPLE-compatible Zorro II IDE controller for an HDF on the
+-- SD card): 0x0107 = the firmware's ATA interface (sector buffers, task file, commit, see the
+-- header of ide_board.vhd); 0x0108 = its boot ROM (lide.device, /amiga/lide.rom) in
+-- HyperRAM at C_HMAP_IDE_ROM, a fourth adf_mount_wrapper used as a plain byte-window bridge
+-- (the optional auto-load streams into it without the CSR handshake).
+-- Keep each constant on ONE line - make_rom.sh scrapes them.
+constant C_DEV_AMIGA_IDE      : std_logic_vector(15 downto 0) := x"0107";
+constant C_DEV_AMIGA_IDEROM   : std_logic_vector(15 downto 0) := x"0108";
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System
@@ -251,10 +262,18 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_
 constant KICK_ROM_NAME           : string := "/amiga/kick.rom" & ENDSTR;
 constant KICK_ROM_NAME_START     : std_logic_vector(15 downto 0) := x"0000";
 
-constant C_CRTROMS_AUTO_NUM      : natural := 1;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string  := KICK_ROM_NAME;
+-- The IDE board's boot ROM: lide.device by LIV2 (github.com/LIV2/lide.device, GPL-2.0),
+-- the 32 KB "lide.rom" built for RIPPLE. OPTIONAL: without it the IDE board stays out of
+-- the autoconfig chain (the firmware enables it only when the ROM was loaded).
+constant LIDE_ROM_NAME           : string := "/amiga/lide.rom" & ENDSTR;
+constant LIDE_ROM_NAME_START     : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(KICK_ROM_NAME'length, 16));
+
+constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string  := KICK_ROM_NAME & LIDE_ROM_NAME;
 constant C_CRTROMS_AUTO          : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_KICK,
                                                          C_CRTROMTYPE_MANDATORY, KICK_ROM_NAME_START,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_IDEROM,
+                                                         C_CRTROMTYPE_OPTIONAL, LIDE_ROM_NAME_START,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------
