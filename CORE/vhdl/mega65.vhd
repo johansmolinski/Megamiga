@@ -218,6 +218,22 @@ port (
    f_rdata_i               : in  std_logic;
    f_diskchanged_i         : in  std_logic;
 
+   -- SDRAM (R4/R5/R6 only: IS42S16320F, 32M x 16): the 8 MB Zorro II Fast RAM,
+   -- threaded as plain wires from the board tops (M2M-UPSTREAM sdram-pins, the
+   -- floppy-pins pattern). The R3 top has no SDRAM and leaves these unconnected;
+   -- the R3 build then also ignores the Fast RAM menu bit (see C_HAS_SDRAM).
+   sdram_clk_o             : out   std_logic;
+   sdram_cke_o             : out   std_logic;
+   sdram_ras_n_o           : out   std_logic;
+   sdram_cas_n_o           : out   std_logic;
+   sdram_we_n_o            : out   std_logic;
+   sdram_cs_n_o            : out   std_logic;
+   sdram_ba_o              : out   std_logic_vector(1 downto 0);
+   sdram_a_o               : out   std_logic_vector(12 downto 0);
+   sdram_dqml_o            : out   std_logic;
+   sdram_dqmh_o            : out   std_logic;
+   sdram_dq_io             : inout std_logic_vector(15 downto 0);
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -283,6 +299,20 @@ signal main_ram_bhe_n         : std_logic;
 signal main_ram_ble_n         : std_logic;
 signal main_ram_we_n          : std_logic;
 signal main_ram_oe_n          : std_logic;
+
+-- 8 MB Zorro II Fast RAM: cpu_wrapper's "ram*" port, served by fastram_sdram
+-- below in the same clock domain (no CDC). main_fastram_en is the menu bit gated
+-- by the board: R3 has no SDRAM, so there the Amiga never sees the board.
+constant C_HAS_SDRAM          : boolean := G_BOARD /= "MEGA65_R3";
+signal main_fastram_en        : std_logic;
+signal main_fram_sel          : std_logic;
+signal main_fram_we           : std_logic;
+signal main_fram_addr         : std_logic_vector(22 downto 1);
+signal main_fram_uds_n        : std_logic;
+signal main_fram_lds_n        : std_logic;
+signal main_fram_wrdata       : std_logic_vector(15 downto 0);
+signal main_fram_rddata       : std_logic_vector(15 downto 0);
+signal main_fram_ready        : std_logic;
 
 -- bank selects (combinational decode of the banked address)
 signal main_chip_sel          : std_logic;
@@ -734,7 +764,13 @@ constant C_MENU_OSMKEY_COMBO  : natural := 139;
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 143;
+-- Lives in the Memory submenu (lines 143..149) since WIP-V2-A11-JS-01.
+constant C_MENU_SLOWRAM       : natural := 146;
+
+-- Fast RAM (8 MB) toggle: single-select, default OFF. '1' = the 8 MB Zorro II Fast RAM
+-- board at $200000 is present (autoconfig'd by Kickstart). R4/R5/R6 only, gated with
+-- C_HAS_SDRAM. Like Slow RAM a topology change: amiga_cold_boot cold-boots the Amiga.
+constant C_MENU_FASTRAM       : natural := 147;
 
 begin
 
@@ -959,10 +995,13 @@ begin
    -- same way (drive count is reset-latched in Paula, units are enumerated at
    -- boot). This local controller deliberately does not drive either M2M
    -- reset: the menu, QNICE and the framework remain alive.
+   main_fastram_en <= main_osm_control_i(C_MENU_FASTRAM) when C_HAS_SDRAM else '0';
+
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
          clk_i             => main_clk,
          slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
+         fast_ram_i        => main_fastram_en,
          drv_map_i         => main_drv_map,
          amiga_reset_o     => amiga_cold_reset,
          chip_scrub_o      => amiga_chip_scrub,
@@ -1066,6 +1105,19 @@ begin
          -- topology is installed before Kickstart rebuilds its memory list.
          slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
 
+         -- 8 MB Zorro II Fast RAM: presence (latched by cpu_wrapper's autoconfig at every
+         -- CPU reset, so it also takes effect through the cold boot above) and the CPU's
+         -- Fast RAM bus, served by fastram_sdram below
+         fast_ram_i           => main_fastram_en,
+         fram_sel_o           => main_fram_sel,
+         fram_we_o            => main_fram_we,
+         fram_addr_o          => main_fram_addr,
+         fram_uds_n_o         => main_fram_uds_n,
+         fram_lds_n_o         => main_fram_lds_n,
+         fram_data_o          => main_fram_wrdata,
+         fram_data_i          => main_fram_rddata,
+         fram_ready_i         => main_fram_ready,
+
          -- Floppy configuration, plus the Hardware Floppy CIA-B taps,
          -- conditioned real drive status and reconstructed word stream
          -- (front-end below)
@@ -1131,6 +1183,42 @@ begin
          pot2_y_i             => main_pot2_y_i,
          rtc_i                => main_rtc_i
       ); -- i_main
+
+   ---------------------------------------------------------------------------------------------
+   -- 8 MB Zorro II Fast RAM in the board SDRAM (R4/R5/R6), main_clk domain
+   --
+   -- Synchronous to the core clock: the controller follows the flicker-free clock switch
+   -- like everything else in the core, so there is no clock-domain crossing. Reset only
+   -- by the clock generator (never by an Amiga reset), so the SDRAM is initialized once
+   -- after power-up and the Fast RAM contents survive resets like on real hardware.
+   -- On R3 the pins do not exist and main_fram_sel can never assert (main_fastram_en
+   -- is '0', so the board is never autoconfig'd); synthesis trims the controller.
+   ---------------------------------------------------------------------------------------------
+
+   i_fastram_sdram : entity work.fastram_sdram
+      port map (
+         clk_i          => main_clk,
+         rst_i          => main_rst,
+         sel_i          => main_fram_sel,
+         we_i           => main_fram_we,
+         addr_i         => main_fram_addr,
+         uds_n_i        => main_fram_uds_n,
+         lds_n_i        => main_fram_lds_n,
+         data_i         => main_fram_wrdata,
+         data_o         => main_fram_rddata,
+         ready_o        => main_fram_ready,
+         sdram_clk_o    => sdram_clk_o,
+         sdram_cke_o    => sdram_cke_o,
+         sdram_ras_n_o  => sdram_ras_n_o,
+         sdram_cas_n_o  => sdram_cas_n_o,
+         sdram_we_n_o   => sdram_we_n_o,
+         sdram_cs_n_o   => sdram_cs_n_o,
+         sdram_ba_o     => sdram_ba_o,
+         sdram_a_o      => sdram_a_o,
+         sdram_dqml_o   => sdram_dqml_o,
+         sdram_dqmh_o   => sdram_dqmh_o,
+         sdram_dq_io    => sdram_dq_io
+      ); -- i_fastram_sdram
 
    ---------------------------------------------------------------------------------------------
    -- Amiga memory decode (main_clk domain)

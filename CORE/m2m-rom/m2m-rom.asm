@@ -2666,14 +2666,17 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 148 menu items are a 1411-character string plus the 20-word
-; menu structure plus FOUR per-item arrays = 20 + 1411 + 1 + 4 x 148 + 1 =
-; 2025 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
-; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
-; 12 x 25 = 300 words. Total demand is 2325 words, rounded up to the next
-; 32-word boundary: 2336 words, leaving 11 words headroom. Round to 32 and no
-; further. Every word reserved here is taken directly from the file browser -
-; FB_HEAP starts at HEAP + MENU_HEAP_SIZE (M2M/rom/shell.asm) - and a small
+; LOG_HEAP2): the 154 menu items are a 1471-character string plus the 20-word
+; menu structure plus FOUR per-item arrays = 20 + 1471 + 1 + 4 x 154 + 1 =
+; 2109 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; per submenu (9), manual ROM (3) and vdrive (0) plus one scratch buffer =
+; 13 x 25 = 325 words. Total demand is 2434 words, rounded up to the next
+; 32-word boundary: 2464 words, leaving 30 words headroom. (WIP-V2-A11-JS-01:
+; the Memory submenu with the Fast RAM toggle grew the menu 148 -> 154 items,
+; demand 2325 -> 2434, MENU_HEAP_SIZE 2336 -> 2464, both HEAP_SIZE -128.)
+; Round to 32 and no further. Every word reserved here is taken directly
+; from the file browser - FB_HEAP starts at HEAP + MENU_HEAP_SIZE
+; (M2M/rom/shell.asm) - and a small
 ; quantum still absorbs the usual menu-text tweak without an edit. Allocating
 ; tight is safe because a shortfall is LOUD, never silent: HELP_MENU checks
 ; the permanent structure against MENU_HEAP_SIZE (ERR_FATAL_HEAP1) and the
@@ -2685,14 +2688,14 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; HEAP_SIZE constants below by the same delta.
 ; .research/check_osm_menu.py recomputes all of this from config.vhd.
 ;
-; HELP_MENU_INIT additionally borrows 20 + 3 x 148 = 464 words of this region
+; HELP_MENU_INIT additionally borrows 20 + 3 x 154 = 482 words of this region
 ; as transient scratch for the boot-time dependency validation (_HLP_DEPVAL in
 ; M2M/rom/options.asm) - far below the permanent demand, so it never binds.
 ;
 ; The fourth per-item array and the 19th->20th structure word are the menu
 ; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
 ; 1 to 3 with the second and third simulated floppy drive.
-MENU_HEAP_SIZE  .EQU 2336
+MENU_HEAP_SIZE  .EQU 2464
 
 #ifndef RELEASE
 
@@ -2709,13 +2712,13 @@ MENU_HEAP_SIZE  .EQU 2336
 ; HEAP 0x8280 + 30080 = 0xF800, VAR$STACK_START 0xFEE0, so 1760 words remain
 ; for a STACK_SIZE of 1536 - a 224-word margin, slightly better than the 1728
 ; words the 30208 total used to leave.
-HEAP_SIZE       .EQU 4704                       ; 7040 - 2336 = 4704
+HEAP_SIZE       .EQU 4576                       ; 7040 - 2464 = 4576
 HEAP            .BLOCK 1
 
-; in RELEASE mode: 27.09k of heap for folders with many files
+; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27744                      ; 30080 - 2336 = 27744
+HEAP_SIZE       .EQU 27616                      ; 30080 - 2464 = 27616
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

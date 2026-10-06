@@ -3,7 +3,7 @@
 --
 -- A normal 68000 reset is a warm boot: Kickstart reuses the ExecBase pointer stored at
 -- Chip RAM $000004 and therefore keeps the old Exec memory list. That is wrong after the
--- OSM changes the physical memory topology (currently the Slow RAM / A501 toggle).
+-- OSM changes the physical memory topology (the Slow RAM / A501 and the Fast RAM toggles).
 --
 -- This controller turns such a topology change into a cold boot of the emulated Amiga only.
 -- It holds Minimig in reset and asks the Chip RAM wrapper to clear the two 16-bit words at
@@ -28,6 +28,7 @@ entity amiga_cold_boot is
    port (
       clk_i             : in  std_logic;
       slow_ram_i        : in  std_logic;
+      fast_ram_i        : in  std_logic;                     -- 8 MB Zorro II Fast RAM present
       drv_map_i         : in  std_logic_vector(7 downto 0);  -- Drive Settings: {count, mode per unit}
 
       amiga_reset_o     : out std_logic;
@@ -47,6 +48,7 @@ architecture synthesis of amiga_cold_boot is
 
    signal state            : t_state := IDLE;
    signal slow_ram_applied : std_logic := '1'; -- OSM default is A501 enabled
+   signal fast_ram_applied : std_logic := '0'; -- OSM default is no Fast RAM (and R3 has none)
    signal drv_map_applied  : std_logic_vector(7 downto 0) := "00" & "10" & "10" & "00";
                                        -- OSM default: one drive, df0 Disk Image,
                                        -- df1 and df2 Off (see mega65.vhd C_DRV_*)
@@ -70,7 +72,8 @@ begin
       if rising_edge(clk_i) then
          case state is
             when IDLE =>
-               if slow_ram_i /= slow_ram_applied or drv_map_i /= drv_map_applied then
+               if slow_ram_i /= slow_ram_applied or fast_ram_i /= fast_ram_applied or
+                  drv_map_i /= drv_map_applied then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
                end if;
@@ -93,6 +96,7 @@ begin
                -- the reset. If one changes again after this edge, IDLE detects the mismatch and
                -- immediately performs another complete cold boot; no request can be lost.
                slow_ram_applied <= slow_ram_i;
+               fast_ram_applied <= fast_ram_i;
                drv_map_applied  <= drv_map_i;
                state            <= IDLE;
          end case;

@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V2-A10";
+constant CORE_VERSION : string := "WIP-V2-A11-JS-01";
 
 constant SCR_WELCOME : string :=
 
@@ -100,8 +100,8 @@ constant HELP_1 : string :=
    " THE MACHINE\n\n" &
 
    " Amiga 500, 68000 CPU, OCS, PAL only\n" &
-   " 512 KB Chip RAM + 512 KB Slow RAM\n" &
-   " (the A501 Slow RAM can be disabled)\n" &
+   " 512 KB Chip RAM, 512 KB Slow RAM and\n" &
+   " 8 MB Fast RAM (R4+), in Memory menu\n" &
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
@@ -120,7 +120,7 @@ constant HELP_1 : string :=
 
    " Not implemented, yet:\n" &
    " Kickstart newer than 1.3\n" &
-   " ECS/AGA, NTSC, Fast RAM, hard disks\n\n" &
+   " ECS/AGA, NTSC, hard disks\n\n" &
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";
@@ -501,7 +501,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 148; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 154; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -524,7 +524,8 @@ constant OPTM_SIZE         : natural := 148; -- amount of items including empty 
 -- variant for df1 and df2 each), HDMI Settings submenu view = 9 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
 -- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
--- Stereo Mix submenu view = 8 lines, OSM-open key submenu view = 8 lines.
+-- Stereo Mix submenu view = 8 lines, OSM-open key submenu view = 8 lines,
+-- Memory submenu view = 6 lines.
 -- The main view is the tallest, so OPTM_DY tracks it.
 --
 -- CEILING: OPTM_DY + 2 (frame) must not exceed CHARS_DY = VGA_DY / FONT_DY = 36
@@ -561,10 +562,16 @@ constant OPTM_DY           : natural := 34;
 --   line 131: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
 --   lines 136..139: OSM-open key radio (C_MENU_OSMKEY_*); Help (136, default) / F11 /
 --                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
---   line 143: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
+--   line 146: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
 --            removes the 512 KB at $C00000 from the Amiga memory map (issue #20).
 --            The HDL cold-boots only the emulated Amiga on a change, so that
 --            amiga_config.vhd replays the userio config while QNICE keeps running.
+--   line 147: Fast RAM (8 MB) toggle (C_MENU_FASTRAM), default OFF; enables the
+--            8 MB Zorro II Fast RAM at $200000 in the board SDRAM. R4/R5/R6 only:
+--            mega65.vhd ignores the bit on R3, which has no SDRAM. A change
+--            cold-boots the Amiga like the Slow RAM toggle.
+--   Both memory toggles live in the Memory submenu (lines 143..149), because the
+--   main menu has no room for another line (see the CEILING note above).
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 51..58 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
@@ -752,11 +759,19 @@ constant OPTM_ITEMS        : string :=
    " Back to main menu\n"   &    -- 141: close submenu
 
    "\n"                     &    -- 142: line
-   " Slow RAM (A501)\n"     &    -- 143: single-select toggle, default ON (issue #20)
-   "\n"                     &    -- 144: line
-   " About & Help\n"        &    -- 145: help
-   "\n"                     &    -- 146: line
-   " Close Menu\n";              -- 147: close
+
+   " Memory\n"              &    -- 143: Memory submenu (no %s)
+   " Memory\n"              &    -- 144: headline (inside submenu)
+   "\n"                     &    -- 145: line
+   " Slow RAM (A501)\n"     &    -- 146: single-select toggle, default ON (issue #20)
+   " Fast RAM (8 MB)\n"     &    -- 147: single-select toggle, default OFF (R4+ only)
+   "\n"                     &    -- 148: line
+   " Back to main menu\n"   &    -- 149: close submenu
+
+   "\n"                     &    -- 150: line
+   " About & Help\n"        &    -- 151: help
+   "\n"                     &    -- 152: line
+   " Close Menu\n";              -- 153: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -792,6 +807,7 @@ constant OPTM_G_DF2MODE    : integer := 21;  -- df2 mode radio: Disk Image / Har
 -- Group numbers must be monotonic increasing, so a later feature lands at the
 -- end of the list even when it belongs to an earlier section of the menu.
 constant OPTM_G_HDMIDVI    : integer := 22;  -- DVI (no sound) toggle; read in HDL (mega65.vhd)
+constant OPTM_G_FASTRAM    : integer := 23;  -- Fast RAM (8 MB) toggle; read and locally cold-booted in mega65.vhd
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -1011,12 +1027,20 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 141: Close submenu / back to main menu
 
                                              OPTM_G_LINE,                              -- 142: Line
+
+                                             OPTM_G_SUBMENU,                           -- 143: Memory submenu head
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 144: Headline "Memory"
+                                             OPTM_G_LINE,                              -- 145: Line
                                              OPTM_G_SLOWRAM + OPTM_G_SINGLESEL
-                                                            + OPTM_G_STDSEL,           -- 143: Slow RAM (A501) (single-select, default ON)
-                                             OPTM_G_LINE,                              -- 144: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 145: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 146: Line
-                                             OPTM_G_CLOSE                              -- 147: Close Menu
+                                                            + OPTM_G_STDSEL,           -- 146: Slow RAM (A501) (single-select, default ON)
+                                             OPTM_G_FASTRAM + OPTM_G_SINGLESEL,        -- 147: Fast RAM (8 MB) (single-select, default OFF)
+                                             OPTM_G_LINE,                              -- 148: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 149: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 150: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 151: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 152: Line
+                                             OPTM_G_CLOSE                              -- 153: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

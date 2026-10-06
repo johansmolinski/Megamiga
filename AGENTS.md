@@ -721,6 +721,65 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   and Return select and SAVE the `Smooth` scaling filter while the screen
   stays black. Working doc: `.research/HANDOVER-dvi-osm.md`.
 
+- **`WIP-V2-A11-JS-01` - 8 MB ZORRO II FAST RAM (R4/R5/R6). Fork
+  increment (not by sy2002; version suffix `-JS-01` on purpose, and
+  `make_release.py` will reject it - its regex only knows `WIP-V<n>-A<m>[X<k>]`).
+  Implemented + simulated 2026-10-06, NOT yet synthesized/hardware-tested.**
+  The Amiga gets MiSTer's 68000 Zorro II Fast RAM board back: 8 MB at
+  `$200000-$9FFFFF`, autoconfig'd by Kickstart, served from the board SDRAM
+  (IS42S16320F) that R4+ have and R3 lacks. Pieces:
+  (1) `cpu_wrapper.v` (submodule, develop): the four June-2026 tie-offs
+  undone with provenance comments - `ramsel` = original minus `sel_dd` (keeps
+  the $DD4000 always-ack defence), `ramlds/ramuds/ramdin`, `ramaddr`, and
+  `DTACKn = ramsel ? ~ramready : chip_dtack`. Zorro II maps 1:1 onto
+  `ramaddr[22:1]` (`$800000-$9FFFFF` wraps onto the first 2 MB, distinct
+  storage). `fastramcfg` 3 = 8 MB (1/2 = 2/4 MB), latched at every CPU reset.
+  (2) NEW `CORE/vhdl/fastram_sdram.vhd`: SDRAM controller SYNCHRONOUS to the
+  core clock (no CDC; follows the flicker-free BUFGMUX switch, SDR SDRAM has
+  no DLL), CL2/BL1, ACT-RD/WR-NOP-PRE per access, refresh every 192 clocks
+  from IDLE or DONE. Pin timing without I/O constraints by construction:
+  IOB registers, SDRAM clock = inverted core clock via ODDR (~17 ns
+  setup/hold), read data captured on the FALLING edge 2.5 clocks after READ
+  (~20 ns setup / ~8 ns hold; a rising-edge capture fails for slow clock-out
+  delay). Load-bearing CPU-protocol rules: a write starts only once UDS/LDS
+  are asserted (data valid), `ready_o` is gated by `sel_i` AND the bus
+  direction, and a transaction also ends on a direction change - 68000 TAS
+  keeps AS asserted across its read and write halves. Reset only by the
+  clock generator, so Fast RAM survives Amiga resets. 4 clocks to DTACK
+  after the request (141 ns vs a 564 ns bus cycle; +<=3 wait states when a
+  refresh collides).
+  (3) `mega65.vhd`/`main.vhd`: `C_HAS_SDRAM = G_BOARD /= "MEGA65_R3"` gates
+  the menu bit (`main_fastram_en`), which drives `fastramcfg` and
+  `amiga_cold_boot` (new `fast_ram_i`, power-on applied value '0' = the
+  menu default, so no spurious t=0 cold boot). (4) **M2M exception 10
+  `sdram-pins`**: the R4/R5/R6 board tops route the 11 SDRAM pin groups into
+  `MEGA65_Core` (floppy-pins pattern; R3 top untouched, its core ports stay
+  open). Needs the maintainer's sign-off before any upstreaming.
+  (5) MENU: the main view was full (OPTM_DY 34 = 36 rows), so line 143
+  `Slow RAM (A501)` became a `Memory` submenu (143..149) holding `Slow RAM
+  (A501)` (146, `C_MENU_SLOWRAM`, default ON) and `Fast RAM (8 MB)` (147,
+  `C_MENU_FASTRAM`, `OPTM_G_FASTRAM` = 23, default OFF); OPTM_SIZE 148 ->
+  154, OPTM_DY unchanged, demand 2325 -> 2434, `MENU_HEAP_SIZE` 2336 -> 2464,
+  both `HEAP_SIZE` -128 (totals and `HEAP`=0x8280 unchanged). HELP_1 row
+  count unchanged. Settings file `/amiga/aexp-WIP-V2-A11-JS-01.cfg` = 154 x
+  0xFF. All four .xpr list the new file.
+  VERIFIED (scratch tooling, ghdl 5.0.1 / Verilator 5.032 / iverilog 12):
+  a ghdl TB with a timing-checking SDRAM model (init, tRCD/tRP/tRAS/tRC/
+  tRFC/tWR/tMRD, refresh interval, setup/hold, CL2 tAC/tOH window, DQ
+  contention) and a 68000 bus model (byte/word writes with S3/S4 timing, TAS,
+  wait-state bound 3) over 23k transactions at four pin-delay corners, eight
+  seeds and native/fast/stretched clocks - 0 errors; boundary sweep matches the hand
+  budget (reads fail at clock-out + input delay ~29.5 ns); 7 of 8 mutants
+  killed, the survivor (no tRFC NOPs) is equivalent (3 inherent idle clocks
+  > tRFC). END-TO-END in Verilator: REAL fx68k + modified cpu_wrapper.v +
+  the ghdl-converted controller run a 68000 program (autoconfig ID +
+  configure, long/word/byte writes, two TAS, window corners, MOVEM, code
+  executing from Fast RAM, 256-word pattern) - PASS; red controls (original
+  cpu_wrapper.v, fastramcfg=000) fail. ghdl analyzes/elaborates the R3 and
+  R6 hierarchies (framework stubbed) and config.vhd; QNICE firmware
+  assembles natively, ROM differs from the A10 baseline only in the 14 words
+  using the two heap constants.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
@@ -798,8 +857,10 @@ the deep material lives in `doc/` (see "Key documents").
 - Amiga 500, **OCS only** (no ECS/AGA), **PAL only**, 68000 (fx68k,
   cycle-exact)
 - 512 KB Chip RAM (`$000000`–`$07FFFF`) + 512 KB Slow RAM (`$C00000`–`$C7FFFF`,
-  the "trapdoor" expansion) + 256 KB Kickstart 1.3 — **all in FPGA BRAM**,
-  no SDRAM involved (R3 has none; R4+ SDRAM is unused). The Slow RAM is
+  the "trapdoor" expansion) + 256 KB Kickstart 1.3 — **all in FPGA BRAM**.
+  Optional 8 MB Zorro II Fast RAM ($200000-$9FFFFF) in the R4+ board SDRAM
+  (`fastram_sdram.vhd`, OSM Memory submenu, default off; R3 has no SDRAM,
+  see WIP-V2-A11-JS-01). The Slow RAM is
   OSM-switchable: "Slow RAM (A501)" toggle, default on (issue #20, for
   programs like Rogue that break with expansion RAM; **implemented
   2026-07-16, NOT yet synthesized/HW-tested**). The toggle drives
@@ -1012,7 +1073,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with NINE sanctioned
+- `M2M/` — the framework. **NEVER modify**, with TEN sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -1089,6 +1150,11 @@ the deep material lives in `doc/` (see "Key documents").
   sy2002-approved 2026-08-04. When this goes upstream it should grow the
   `OPTM_FOREGROUND` flag of the C64 original, so the "does the menu own the
   screen" test lives in the framework instead of in each caller.
+  (10) `sdram-pins` — the R4/R5/R6 board tops route the SDRAM pins into
+  `MEGA65_Core` for the 8 MB Zorro II Fast RAM (`fastram_sdram.vhd`), the
+  floppy-pins pattern (board top -> core direct, `framework.vhd` untouched,
+  original tie-offs kept as comments). Added in the JS fork 2026-10-06,
+  NOT maintainer-approved yet.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
@@ -1242,7 +1308,9 @@ the deep material lives in `doc/` (see "Key documents").
     to that point, so the A10 edit moved both `HEAP_SIZE` constants down by 32,
     not by the 128 the old rounding rule would have cost) —
     `.research/check_osm_menu.py` recomputes all of this from
-    `config.vhd`.
+    `config.vhd`. WIP-V2-A11-JS-01 (Memory submenu with the Fast RAM toggle)
+    grew the menu to 154 items: demand 2434, `MENU_HEAP_SIZE` 2464 (headroom
+    30), both `HEAP_SIZE` constants -128 (debug 4576, release 27616).
     **Firmware VARIABLES count too**, even though this rule is about the menu:
     they sit below the heap, so every word added there pushes `HEAP` up and
     comes straight out of the stack. The per-drive write-back and the live
@@ -1313,6 +1381,9 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Architecture cheat sheet
 
+- **Fast RAM bus** (R4+, when enabled): Zorro II cycles leave the chip bus in
+  `cpu_wrapper.v` (`ramsel`, DTACK from `ramready`) and go to
+  `fastram_sdram.vhd` on the core clock; everything else is unchanged.
 - **Memory bus**: with 68000 + no fast RAM, ALL memory traffic (CPU +
   chipset DMA) flows through minimig's single SRAM-style port
   (`ram_addr[22:1]` word address + `_bhe/_ble/_we/_oe`). The address is

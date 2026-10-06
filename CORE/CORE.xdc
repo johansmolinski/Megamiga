@@ -98,3 +98,15 @@ set_max_delay -datapath_only 20.000 \
 ##   combinational gating), so the async CLR pins get same-clock
 ##   recovery/removal checks that Vivado analyzes automatically - verify
 ##   them in the timing report of every build.
+## - SDRAM Fast RAM (CORE/vhdl/fastram_sdram.vhd, R4/R5/R6 only): the SDRAM pins
+##   deliberately carry no set_input_delay/set_output_delay. The controller runs on
+##   main_clk (28.4 MHz), forwards the INVERTED main_clk through an ODDR as the SDRAM
+##   clock (~17 ns setup/hold on every command/address/data pin) and captures read
+##   data on the falling edge (~20 ns setup / ~8 ns hold); the budget is in the
+##   header of fastram_sdram.vhd. It assumes the pin registers sit in the IOBs
+##   (HDL attribute IOB="TRUE"): after implementation, check that cmd/a/ba/dqm/
+##   dq_out/dq_t/dq_in of CORE/i_fastram_sdram were packed into the IOBs (e.g. the
+##   ILOGIC/OLOGIC flip-flop counts in the utilization report, and no IOB-packing
+##   warnings for these cells in the implementation log). The falling-edge capture
+##   -> rising-edge FSM hop is an ordinary half-period main_clk path that Vivado
+##   times automatically.

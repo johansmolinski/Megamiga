@@ -37,6 +37,8 @@ Features
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
   total; the Slow RAM can be switched off in the menu for the few games
   that need a chip-RAM-only A500
+* Optional 8 MB Zorro II Fast RAM on MEGA65 boards with SDRAM (R4, R5, R6),
+  switched off by default
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
   as a disk image — switched on by default: mount standard 880 KB `*.adf`
   disk images via the on-screen-menu, read and write — and hand one of the
@@ -74,12 +76,30 @@ expansion memory, which the Amiga's custom chips cannot display. **Rogue**
 is a well-known example: with Slow RAM switched on it fails to draw the
 dungeon and the player. On a real A500 the fix was to pull the trapdoor
 card out of the machine; here it is a menu item. Open the menu with
-<kbd>Help</kbd> and deselect **Slow RAM (A501)**: the Amiga automatically
+<kbd>Help</kbd>, go to the **Memory** submenu and deselect
+**Slow RAM (A501)**: the Amiga automatically
 reboots as a 512 KB chip-RAM-only A500, authentic down to the detail that
 the expansion memory area behaves exactly like on a machine without the
 trapdoor card. The setting is remembered, so switch it back on for
 software that wants the full 1 MB. The battery-backed real-time clock —
 on real hardware a part of the A501 — stays available either way.
+
+### Fast RAM (8 MB)
+
+On MEGA65 boards with SDRAM (revisions R4, R5 and R6) the Amiga can have an
+8 MB Zorro II Fast RAM expansion, like the memory side-car boards that were
+plugged into the expansion port of a real A500. Kickstart finds it on its own
+(autoconfig) and places it at `$200000`, so the Amiga then has 9 MB of RAM
+in total. The 68000 runs from Fast RAM without waiting for the custom
+chips, so programs, Workbench and anything that loads into memory become
+noticeably faster, and much larger programs fit.
+
+Fast RAM is switched **off** by default, because a stock A500 had none and
+a few old games and demos do not cope with it. To switch it on, open the
+menu with <kbd>Help</kbd>, go to the **Memory** submenu and select
+**Fast RAM (8 MB)**: the Amiga automatically reboots with the new memory
+configuration, and the setting is remembered. The MEGA65 R3 has no SDRAM;
+there the menu item has no effect.
 
 ### Floppy disks
 
@@ -465,7 +485,8 @@ gaps remain in this release:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
 * No hard disk support
-* OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
+* OCS and PAL only: no ECS, no AGA, no NTSC
+* Fast RAM only on boards with SDRAM (R4, R5, R6), not on the R3
 
 The development history — all the alpha and beta work-in-progress builds — is
 documented in [doc/inofficial.md](doc/inofficial.md).

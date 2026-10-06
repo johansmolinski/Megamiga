@@ -127,6 +127,23 @@ entity main is
       -- while the Amiga is in reset and encoded in the replayed userio memory config.
       slow_ram_i              : in  std_logic;
 
+      -- 8 MB Zorro II Fast RAM (R4/R5/R6 board SDRAM, see fastram_sdram.vhd).
+      -- fast_ram_i: '1' = the Fast RAM board is present. Static OSM bit (gated by
+      -- the board in mega65.vhd); cpu_wrapper latches it into its autoconfig
+      -- chain at every CPU reset, and a change triggers the amiga_cold_boot reset.
+      -- fram_*: cpu_wrapper's "ram*" port = the CPU's Fast RAM bus cycle. sel is
+      -- high for the whole cycle (AS asserted, address in the autoconfig'd window),
+      -- the strobes are active low, and ready drives the CPU's DTACK.
+      fast_ram_i              : in  std_logic;
+      fram_sel_o              : out std_logic;
+      fram_we_o               : out std_logic;                      -- '1' = write cycle
+      fram_addr_o             : out std_logic_vector(22 downto 1);  -- word address
+      fram_uds_n_o            : out std_logic;
+      fram_lds_n_o            : out std_logic;
+      fram_data_o             : out std_logic_vector(15 downto 0);  -- write data
+      fram_data_i             : in  std_logic_vector(15 downto 0);  -- read data
+      fram_ready_i            : in  std_logic;
+
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
       -- Drive map from the OSM "Drive Settings" submenu (static in clk_main;
       -- changes trigger the amiga_cold_boot reset in mega65.vhd):
@@ -416,6 +433,11 @@ architecture synthesis of main is
    signal cpu_reset_out_n  : std_logic;                       -- fx68k RESET instruction feedback
    signal cpu_nmi_addr     : std_logic_vector(31 downto 0);
 
+   -- CPU <-> Fast RAM (cpu_wrapper's "ram*" port)
+   signal cpu_fastramcfg   : std_logic_vector(2 downto 0);
+   signal cpu_ramaddr      : std_logic_vector(28 downto 1);
+   signal cpu_state        : std_logic_vector(1 downto 0);    -- 3 = data write
+
    -- fx68k phase enables, see .research/phase-a/cpu_wrapper.md:
    -- one clk28 wide each, 7.09 MHz rate, 180 degrees apart, aligned to c1/c3
    signal cpu_ph1          : std_logic := '0';
@@ -612,8 +634,18 @@ begin
    end process cpu_phase_proc;
 
    ---------------------------------------------------------------------------
-   -- CPU: fx68k via cpu_wrapper (68000, no caches, no fast RAM)
+   -- CPU: fx68k via cpu_wrapper (68000, no caches, optional Zorro II Fast RAM)
    ---------------------------------------------------------------------------
+
+   -- fastramcfg for the 68000: 1/2/3 = 2/4/8 MB Zorro II board at $200000
+   -- (cpu_wrapper.v autoconfig); 0 = no board. Latched at every CPU reset.
+   cpu_fastramcfg <= "011" when fast_ram_i = '1' else "000";
+
+   -- cpu_wrapper's Zorro II mapping puts the 8 MB window $200000-$9FFFFF 1:1 onto
+   -- ramaddr[22:1] ($800000-$9FFFFF wraps onto the first 2 MB); bits 28:23 only
+   -- steer MiSTer's SDRAM/DDR3 split and are constant for Zorro II.
+   fram_addr_o <= cpu_ramaddr(22 downto 1);
+   fram_we_o   <= '1' when cpu_state = "11" else '0';
 
    i_cpu_wrapper : cpu_wrapper
       port map (
@@ -626,7 +658,7 @@ begin
 
          cpucfg          => "00",                -- 68000; MUST be constant so the
                                                  -- removed-TG68K muxes constant-fold
-         fastramcfg      => "000",               -- no Zorro fast RAM
+         fastramcfg      => cpu_fastramcfg,      -- 8 MB Zorro II Fast RAM or none
          cachecfg        => "000",               -- no caches
          bootrom         => '0',                 -- normal A500 memory map
 
@@ -649,19 +681,19 @@ begin
          fastchip_selack => '0',
          fastchip_ready  => '0',
 
-         ramsel          => open,
-         ramaddr         => open,
-         ramdin          => open,
-         ramdout         => x"0000",
-         ramready        => '0',
-         ramlds          => open,
-         ramuds          => open,
+         ramsel          => fram_sel_o,
+         ramaddr         => cpu_ramaddr,
+         ramdin          => fram_data_o,
+         ramdout         => fram_data_i,
+         ramready        => fram_ready_i,
+         ramlds          => fram_lds_n_o,
+         ramuds          => fram_uds_n_o,
          ramshared       => open,
 
          toccata_ena     => open,
          toccata_base    => open,
 
-         cpustate        => open,
+         cpustate        => cpu_state,
          cacr            => open,
          nmi_addr        => cpu_nmi_addr
       ); -- i_cpu_wrapper
