@@ -21,6 +21,18 @@ if [ ! -f ../../M2M/QNICE/assembler/qasm ]; then
 fi;
 
 ##############################################################################
+# AExp specific: refresh dist_kit/sysdef.asm
+#
+# The firmware assembles the QNICE FAT32 library from source
+# (../../M2M/QNICE/monitor), but takes the constants from the generated copy
+# ../../M2M/QNICE/dist_kit/sysdef.asm, which is only refreshed when the QNICE
+# tool chain is rebuilt. Copy it here, so a newer library (for example the
+# fast seek with its new error codes) never assembles against stale constants.
+##############################################################################
+
+cp ../../M2M/QNICE/monitor/sysdef.asm ../../M2M/QNICE/dist_kit/sysdef.asm
+
+##############################################################################
 # AExp specific: Generate osm_const.asm
 ##############################################################################
 

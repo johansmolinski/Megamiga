@@ -1,6 +1,7 @@
 [submodule "QNICE"]
 	path = M2M/QNICE
-	url = https://github.com/sy2002/QNICE-FPGA
+	url = https://github.com/johansmolinski/QNICE-FPGA
+	branch = fat32-fastseek
 [submodule "CORE/Minimig_MiSTerMEGA65"]
 	path = CORE/Minimig_MiSTerMEGA65
 	url = https://github.com/johansmolinski/Minimig_MiSTerMEGA65.git

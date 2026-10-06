@@ -1220,6 +1220,17 @@ the deep material lives in `doc/` (see "Key documents").
   original files has a dated provenance comment with original code kept
   commented out. `rtl/minimig_m65.v` is our VHDL-friendly rename shim
   (minimig.v has leading-underscore ports = illegal VHDL identifiers).
+- `M2M/QNICE/` — git submodule, the QNICE-FPGA fork
+  johansmolinski/QNICE-FPGA, branch **fat32-fastseek** (based on the commit
+  M2M V2.0.1 pins, `2eb27dd`). It adds a fast `FAT32$FILE_SEEK` (cluster
+  stepping, FAT sector cache, forward from the current position, exact EOF,
+  `FAT32$ERR_CHAIN` on damaged chains), extent maps (`FAT32$FILE_MAP` +
+  `FAT32$FILE_SEEK_MAP`, syscalls `f32_fmap`/`f32_fseekm`) and fixes
+  `FAT32$FLUSH` returning a stale R9 for R8 = 0. Tests:
+  `M2M/QNICE/test_programs/fat32_seek/run.sh` (emulator + generated FAT32
+  images, `--compare REV`, `--mutants`). The firmware assembles this library
+  from source but takes constants from the generated `dist_kit/sysdef.asm`,
+  which `CORE/m2m-rom/make_rom.sh` therefore refreshes on every build.
 - `CORE/CORE-R{3,4,5,6}.xpr` — one Vivado project per board.
 - `doc/` — the knowledge base. `.research/` — untracked local research
   notes (integration specs, review reports); never committed.
