@@ -19,7 +19,7 @@ WORK-IN-PROGRES see doc/inofficial.md
 * New option "DVI (no sound)" in the HDMI menu: sends a plain DVI signal
   instead of HDMI, for displays that stay black on an HDMI stream.
 
-* Authentic A500 sound: A500 Filter + LED Filter (both default on)
+* Authentic A500 sound: A500 Filter + LED Filter (both on by default)
 
 * Stereo Mix option
 
