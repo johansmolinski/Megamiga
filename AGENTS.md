@@ -866,6 +866,20 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `kick.rom`/`lide.rom`/`aexp_screen.cfg` names, all AExp provenance comments
   and the docs in `doc/`, which describe the AExp base.
 
+- **Megamiga 0.1.2 (development, 2026-10-08): direct SD block I/O + HD LED,
+  hardware-confirmed by the user ("works fine").** With `HDF_MAPOK` the ATA
+  server no longer uses the FAT32 byte API: `IDE_LBA2BLK` maps LBA -> SD block
+  through the extent map (`HDF_SPC_SHIFT`, cached extent `HDF_EXT_*`), and
+  `IDE_READ_FAST`/`IDE_WRITE_FAST` do ONE block read/write per sector via
+  `FAT32$CALL_DEV`, copying the 512 bytes between `IO$SD_DATA` and the IDE
+  buffer. The shared SD sector buffer is borrowed with `_F32_RELEASE_BUF`
+  (flush a dirty owner, owner := nobody) - load-bearing, the emulator test's
+  dirty-steal check fails without it. More than 64 extents -> the old byte
+  path. About 26,800 fewer QNICE instructions per sector. Drive LED: red while
+  the IDE board is busy (`activity_o` = BSY or DRQ, stretched to 50 ms in
+  mega65.vhd), priority red > yellow (ADF dirty) > green (floppy).
+  `CORE_VERSION` 0.1.2, settings file `megamiga-0.1.2.cfg`.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
