@@ -1273,6 +1273,16 @@ the deep material lives in `doc/` (see "Key documents").
   m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
   m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
   produce a `.def`-identical ROM vs the VM build).
+  **The firmware ROM must end below `0x7000`**: M2M maps the 4K RAMROM/device
+  window at `0x7000`-`0x7FFF`, so only 28672 words of the 32K-word QNICE ROM
+  are usable; `make_rom.sh` enforces this (ported from the C64 core): it
+  derives the image size from the serialized addresses rather than from
+  the `.rom` line count, which qasm2rom inflates with the zero words of the
+  RAM variables, cross-checks it against the `END_OF_ROM` label (which must
+  stay the last ROM item before `.ORG 0x8000`), trims the variable words
+  off the image and fails the Vivado build loudly on overflow or on a
+  layout qasm2rom cannot serialize. `WIP-V2-B1` uses 27533 words, 1139
+  free; the VM log line to look for is `Shell ROM: N/28672 words.`
 - **The QNICE submodule tracks `dev-V1.61`** (`.gitmodules` `branch`,
   currently `2541cce`, 2026-09-22; update with `git submodule update --remote
   M2M/QNICE`, the pre-synth hook reassembles the firmware against the new
