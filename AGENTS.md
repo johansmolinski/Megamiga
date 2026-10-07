@@ -846,6 +846,11 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   1.3 Format allocates one buffer per CYLINDER: an RDB with 16 x 63 needs 516
   KB ("Out of memory" on a 1 MB A500); use small cylinders for 1.3-era images
   (test images: `~/aexp-work/hdf/mkrdb.py out.hdf cyls heads sectors`).
+  The release bundles a PATCHED lide.rom: fork johansmolinski/lide.device,
+  branch `aexp-td-format-fix` (Release-40.12 + fe2246d: TD_FORMAT/ETD_FORMAT
+  clear io_Actual), built in upstream's CI image `liv2/amiga-gcc`
+  (`make all`); a full Format then works on hardware (~1 s per 32 KB
+  cylinder - the per-byte FAT32 API is the bottleneck).
   Debugging recipe: Run/Stop + Cursor Up + Help = QNICE monitor on the JTAG
   UART (115200); `~/aexp-work/qmon.py` types into it; device 0x0107 window 0
   at 0x7100.. = events, task-file snapshot, last commit, control.

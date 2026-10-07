@@ -175,10 +175,14 @@ the partitions as `DH0:`, `DH1:` and so on. Reads and writes go straight to
 the file on the SD card - there is no copy in memory and nothing to wait for
 before a reset.
 
-1. Copy `lide.rom` (from the core's release package, or the `lide.rom` asset
-   of a [lide.device release](https://github.com/LIV2/lide.device/releases))
-   to `/amiga/lide.rom`. Without it the core works as before, just without
-   the hard disk.
+1. Copy the `lide.rom` from the core's release package to `/amiga/lide.rom`.
+   Without it the core works as before, just without the hard disk. The
+   release ships lide.device 40.12 with one fix for Workbench 1.3's Format
+   (source: branch `aexp-td-format-fix` of
+   [johansmolinski/lide.device](https://github.com/johansmolinski/lide.device/tree/aexp-td-format-fix));
+   the official `lide.rom` of a
+   [lide.device release](https://github.com/LIV2/lide.device/releases) works
+   too, except for a full format (see below).
 2. Copy your `*.hdf` image to the SD card.
 3. Open the menu with <kbd>Help</kbd>, go to **Drive Settings** and select
    **HDF:** at the bottom. Pick the image in the file browser. The Amiga
@@ -193,12 +197,13 @@ either use OFS partitions, or put the FastFileSystem into the RDB (rdbtool
 `fsadd`), which lide.device then loads at boot. The image size must be a
 multiple of 512 bytes; FAT32 limits a file to 4 GB.
 
-To format a partition on the Amiga, use `Format DRIVE DH0: NAME Work QUICK`.
-A full format (without `QUICK`) currently fails with "Error during format":
-lide.device (up to version 40.12) mixes up the block address of Workbench
-1.3's format command. `QUICK` is a complete, valid format. Workbench 1.3's
-Format also needs one cylinder's worth of free memory, so partition images
-for an unexpanded A500 with small cylinders (for example 2 heads x 32
+To format a partition on the Amiga, use `Format DRIVE DH0: NAME Work`, or
+add `QUICK` to only write the empty file system (much faster, and just as
+valid). With the official lide.device up to version 40.12 a full format fails
+with "Error during format": it mixes up the block address of Workbench 1.3's
+format command, which the patched `lide.rom` of the release fixes. Workbench
+1.3's Format also needs one cylinder's worth of free memory, so partition
+images for an unexpanded A500 with small cylinders (for example 2 heads x 32
 sectors), or switch on the Fast RAM.
 
 Hard disk access is a little slower than on a real IDE disk, because the
