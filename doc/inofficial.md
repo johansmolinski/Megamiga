@@ -19,6 +19,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
 | WIP-V2-A9     | 08/31/26 | 3edf736 | Physical disk writing implemented
 | WIP-V2-A10    | 09/22/26 | e6546d9 | Added DVI option (issue #25). Only one drive (df0: in ADF mode) per default for maximum compatibility (issue #29).
+| WIP-V2-B1     | 10/07/26 | f820f75 | First Version 2 beta. Four chipset fixes backported from the MiSTer Minimig core: CIA timer count modes, blitter fill-mode freeze, VHPOSR beam-position readback, interlace field flag (issue #28).
 
 ## Version 1
 
