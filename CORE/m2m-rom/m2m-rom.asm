@@ -2021,7 +2021,8 @@ HDF_PREP        INCRB
 
                 ; the Shell would stream the file into the device: move its
                 ; read pointer to the end, so that it reads EOF right away
-_HDFP_SEEK      MOVE    R0, R8
+_HDFP_SEEK      RSUB    HDF_GEOM_INIT, 1        ; direct block I/O state
+                MOVE    R0, R8
                 MOVE    R2, R9
                 MOVE    R3, R10
                 MOVE    HDF_MAP, R11
@@ -2067,6 +2068,32 @@ _HDFP_FATERR    MOVE    1, R8
                 MOVE    WRN_HDF_FAT, R9
 
 _HDFP_RET       DECRB
+                RET
+
+; HDF_GEOM_INIT: state of the direct block I/O for a freshly mapped HDF:
+; log2 of the sectors per cluster of its device, extent cache at the start
+; Input/Output: none; all registers preserved
+HDF_GEOM_INIT   INCRB
+                MOVE    HDF_FDH, R0
+                MOVE    @R0, R0                 ; device handle
+                ADD     FAT32$DEV_SECT_PER_CLUS, R0
+                MOVE    @R0, R0                 ; R0: sectors per cluster
+                XOR     R1, R1                  ; R1: shift
+_HGI_L          CMP     R0, 1
+                RBRA    _HGI_D, !N              ; R0 <= 1: done
+                AND     0xFFFB, SR
+                SHR     1, R0
+                ADD     1, R1
+                RBRA    _HGI_L, 1
+_HGI_D          MOVE    HDF_SPC_SHIFT, R0
+                MOVE    R1, @R0
+                MOVE    HDF_EXT_IDX, R0
+                MOVE    0, @R0
+                MOVE    HDF_EXT_CLO, R0
+                MOVE    0, @R0
+                MOVE    HDF_EXT_CHI, R0
+                MOVE    0, @R0
+                DECRB
                 RET
 
 ; IDE_RESET_AMIGA: a short reset pulse for the core (M2M$CSR reset bit)
@@ -2402,7 +2429,13 @@ _ISK_RET        DECRB
 ; IDE_READ_SECT: read sector IDE_LBA into the buffer of the board and raise DRQ
 ; Output: none; R8..R12 clobbered
 IDE_READ_SECT   INCRB
-                RSUB    IDE_SEEK, 1
+                MOVE    HDF_MAPOK, R0           ; extent map: direct block I/O
+                CMP     1, @R0
+                RBRA    _IRS_SLOW, !Z
+                RSUB    IDE_READ_FAST, 1
+                RBRA    _IRS_ERR, C
+                RBRA    _IRS_DONE, 1
+_IRS_SLOW       RSUB    IDE_SEEK, 1
                 CMP     0, R9
                 RBRA    _IRS_ERR, !Z
                 RSUB    IDE_SEL, 1
@@ -2425,7 +2458,7 @@ _IRS_L          MOVE    R2, R8                  ; high byte = byte 2i
                 SUB     1, R1
                 RBRA    _IRS_L, !Z
 
-                MOVE    IDE_ST_DRQ, R8          ; the CPU may read now
+_IRS_DONE       MOVE    IDE_ST_DRQ, R8          ; the CPU may read now
                 XOR     R9, R9
                 XOR     R10, R10
                 RSUB    IDE_COMMIT, 1
@@ -2443,7 +2476,13 @@ _IRS_RET        DECRB
 ; Output: C=0: OK; C=1: failed, the command was finished with an error;
 ;         R8..R12 clobbered
 IDE_WRITE_SECT  INCRB
-                RSUB    IDE_SEEK, 1
+                MOVE    HDF_MAPOK, R0           ; extent map: direct block I/O
+                CMP     1, @R0
+                RBRA    _IWS_SLOW, !Z
+                RSUB    IDE_WRITE_FAST, 1
+                RBRA    _IWS_ERR, C
+                RBRA    _IWS_OK, 1
+_IWS_SLOW       RSUB    IDE_SEEK, 1
                 CMP     0, R9
                 RBRA    _IWS_ERR, !Z
                 RSUB    IDE_SEL, 1
@@ -2471,7 +2510,7 @@ _IWS_L          MOVE    @R0++, R3
                 SYSCALL(f32_fflush, 1)          ; one SD sector buffer is
                 CMP     0, R9                   ; shared, see FLUSH_ADF_STEP)
                 RBRA    _IWS_ERR, !Z
-                RSUB    IDE_SEL, 1
+_IWS_OK         RSUB    IDE_SEL, 1
                 AND     0xFFFB, SR              ; C=0
                 RBRA    _IWS_RET, 1
 
@@ -2480,6 +2519,259 @@ _IWS_ERR        RSUB    IDE_SEL, 1
                 RSUB    IDE_ERROR, 1
                 OR      0x0004, SR              ; C=1
 _IWS_RET        DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; Direct block I/O (used whenever the extent map describes the whole file)
+;
+; The FAT32 byte API costs a library call per byte plus, for a write, a read of
+; the sector before it is overwritten. With the extent map, the SD block of an
+; HDF sector is a lookup without any medium access, so a sector is ONE block
+; read or write, and its 512 bytes are copied directly between the buffer of
+; the SD controller and the buffer of the IDE board.
+;
+; The SD controller has ONE 512-byte buffer for every SD user. FAT32 handles
+; track it by the address of the handle that filled it (FAT32$DEV_BUFFERED_FDH)
+; and flush it on an owner change. Before using it directly, _F32_RELEASE_BUF
+; therefore flushes a dirty owner and marks the buffer as owned by nobody, so
+; every handle re-reads its sector on its next access.
+; ----------------------------------------------------------------------------
+
+; IDE_SHR32 / IDE_SHL32: R9:R8 (hi:lo) shifted right/left by R10 bits (0..15)
+; Output: R8/R9; all other registers preserved
+IDE_SHR32       INCRB
+                MOVE    R10, R0
+                RBRA    _IS3R_RET, Z
+_IS3R_L         MOVE    R9, R1                  ; bit 0 of hi -> bit 15 of lo
+                AND     0x0001, R1
+                AND     0xFFFD, SR
+                SHL     15, R1
+                AND     0xFFFB, SR
+                SHR     1, R8
+                OR      R1, R8
+                AND     0xFFFB, SR
+                SHR     1, R9
+                SUB     1, R0
+                RBRA    _IS3R_L, !Z
+_IS3R_RET       DECRB
+                RET
+
+IDE_SHL32       INCRB
+                MOVE    R10, R0
+                RBRA    _IS3L_RET, Z
+_IS3L_L         MOVE    R8, R1                  ; bit 15 of lo -> bit 0 of hi
+                AND     0xFFFB, SR
+                SHR     15, R1
+                AND     0xFFFD, SR
+                SHL     1, R9
+                OR      R1, R9
+                AND     0xFFFD, SR
+                SHL     1, R8
+                SUB     1, R0
+                RBRA    _IS3L_L, !Z
+_IS3L_RET       DECRB
+                RET
+
+; IDE_LBA2BLK: the SD block of the HDF sector IDE_LBA_LO/HI
+;
+; cluster index ci = LBA >> HDF_SPC_SHIFT, sector in cluster = the rest; the
+; extent holding ci is searched from the one found last time (HDF_EXT_IDX,
+; HDF_EXT_CLO/HI = the cluster index the extent starts at), so sequential access
+; costs one comparison. block = DEV_CLUSTER + ((cluster - 2) << shift) + sector.
+;
+; Output: C=0: R9:R8 = SD block; C=1: not in the map (a damaged map)
+;         R10..R12 clobbered
+IDE_LBA2BLK     INCRB
+                MOVE    IDE_LBA_LO, R8
+                MOVE    @R8, R8
+                MOVE    IDE_LBA_HI, R9
+                MOVE    @R9, R9
+                MOVE    HDF_SPC_SHIFT, R2
+                MOVE    @R2, R2                 ; R2: shift
+                MOVE    1, R3                   ; R3: sector in cluster =
+                AND     0xFFFD, SR              ; LBA & (2^shift - 1)
+                SHL     R2, R3
+                SUB     1, R3
+                AND     R8, R3
+                MOVE    R2, R10
+                RSUB    IDE_SHR32, 1
+                MOVE    R8, R4                  ; R5:R4: cluster index ci
+                MOVE    R9, R5
+
+                MOVE    HDF_EXT_IDX, R7         ; start at the cached extent if
+                MOVE    @R7, R7                 ; ci is not in front of it
+                MOVE    HDF_EXT_CLO, R0
+                MOVE    @R0, R0                 ; R1:R0: cluster index at which
+                MOVE    HDF_EXT_CHI, R1         ; extent R7 starts
+                MOVE    @R1, R1
+                CMP     R1, R5                  ; cached start hi > ci hi?
+                RBRA    _IL2B_REW, N
+                RBRA    _IL2B_GO, !Z
+                CMP     R0, R4                  ; cached start lo > ci lo?
+                RBRA    _IL2B_GO, !N
+_IL2B_REW       XOR     R7, R7                  ; from the first extent
+                XOR     R0, R0
+                XOR     R1, R1
+
+_IL2B_GO        MOVE    R7, R6                  ; R6: &extent R7
+                AND     0xFFFD, SR
+                SHL     2, R6
+                ADD     HDF_MAP, R6
+                ADD     1, R6
+_IL2B_L         MOVE    HDF_MAP, R8             ; past the last extent?
+                CMP     @R8, R7
+                RBRA    _IL2B_NF, Z
+                MOVE    R4, R8                  ; R9:R8: offset = ci - start
+                MOVE    R5, R9
+                SUB     R0, R8
+                SUBC    R1, R9
+                MOVE    R6, R10
+                ADD     2, R10
+                MOVE    @R10++, R11             ; R11: extent length lo
+                MOVE    @R10, R10               ; R10: extent length hi
+                CMP     R9, R10                 ; offset hi > length hi?
+                RBRA    _IL2B_NX, N
+                RBRA    _IL2B_FOUND, !Z         ; offset hi < length hi
+                CMP     R11, R8                 ; length lo > offset lo?
+                RBRA    _IL2B_FOUND, N
+_IL2B_NX        ADD     R11, R0                 ; next extent
+                ADDC    R10, R1
+                ADD     1, R7
+                ADD     4, R6
+                RBRA    _IL2B_L, 1
+
+_IL2B_FOUND     MOVE    HDF_EXT_IDX, R10        ; cache the extent
+                MOVE    R7, @R10
+                MOVE    HDF_EXT_CLO, R10
+                MOVE    R0, @R10
+                MOVE    HDF_EXT_CHI, R10
+                MOVE    R1, @R10
+                MOVE    @R6++, R11              ; cluster = start + offset
+                MOVE    @R6, R12
+                ADD     R11, R8
+                ADDC    R12, R9
+                SUB     2, R8                   ; (cluster - 2) << shift
+                SUBC    0, R9
+                MOVE    R2, R10
+                RSUB    IDE_SHL32, 1
+                MOVE    HDF_FDH, R10            ; + start of the cluster area
+                MOVE    @R10, R10               ; (FAT32$FDH_DEVICE = 0)
+                ADD     FAT32$DEV_CLUSTER_LO, R10
+                MOVE    @R10++, R11
+                MOVE    @R10, R12               ; (FAT32$DEV_CLUSTER_HI)
+                ADD     R11, R8
+                ADDC    R12, R9
+                ADD     R3, R8                  ; + sector in cluster
+                ADDC    0, R9
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _IL2B_RET, 1
+
+_IL2B_NF        OR      0x0004, SR              ; C=1
+_IL2B_RET       DECRB
+                RET
+
+; IDE_SD_TAKE: release the SD sector buffer and select the block R9:R8
+; Output: C=0: R9:R8 still the block; C=1: the owner could not be flushed
+IDE_SD_TAKE     INCRB
+                MOVE    R8, R0
+                MOVE    R9, R1
+                MOVE    HDF_FDH, R8             ; flush a dirty owner, then the
+                RSUB    _F32_RELEASE_BUF, 1     ; buffer belongs to nobody
+                MOVE    R9, R2                  ; R2: flush result
+                MOVE    R0, R8
+                MOVE    R1, R9
+                CMP     0, R2                   ; (MOVE changes Z: test last)
+                RBRA    _IST_ERR, !Z
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _IST_RET, 1
+_IST_ERR        OR      0x0004, SR              ; C=1
+_IST_RET        DECRB
+                RET
+
+; IDE_READ_FAST: sector IDE_LBA into the buffer of the IDE board
+; Output: C=0: OK; C=1: map or SD error. The IDE device is selected again.
+;         R8..R12 clobbered
+IDE_READ_FAST   INCRB
+                RSUB    IDE_LBA2BLK, 1
+                RBRA    _IRF_ERR, C
+                RSUB    IDE_SD_TAKE, 1
+                RBRA    _IRF_ERR, C
+                MOVE    HDF_FDH, R11            ; one block read through the
+                MOVE    @R11, R11               ; device of the file
+                MOVE    FAT32$DEV_BLOCK_READ, R10
+                RSUB    FAT32$CALL_DEV, 1       ; R8: 0 = OK
+                CMP     0, R8
+                RBRA    _IRF_ERR, !Z
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; R0: IDE buffer
+                MOVE    IO$SD_DATA_POS, R1
+                MOVE    IO$SD_DATA, R2
+                XOR     R3, R3                  ; R3: byte position
+                MOVE    256, R4                 ; R4: words
+_IRF_L          MOVE    R3, @R1                 ; byte 2i: high byte
+                MOVE    @R2, R5
+                AND     0x00FF, R5
+                AND     0xFFFD, SR
+                SHL     8, R5
+                ADD     1, R3
+                MOVE    R3, @R1                 ; byte 2i + 1: low byte
+                MOVE    @R2, R6
+                AND     0x00FF, R6
+                OR      R6, R5
+                MOVE    R5, @R0++
+                ADD     1, R3
+                SUB     1, R4
+                RBRA    _IRF_L, !Z
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _IRF_RET, 1
+_IRF_ERR        RSUB    IDE_SEL, 1
+                OR      0x0004, SR              ; C=1
+_IRF_RET        DECRB
+                RET
+
+; IDE_WRITE_FAST: the buffer the CPU filled to sector IDE_LBA
+; Output: C=0: OK; C=1: map or SD error. The IDE device is selected again.
+;         R8..R12 clobbered
+IDE_WRITE_FAST  INCRB
+                RSUB    IDE_LBA2BLK, 1
+                RBRA    _IWF_ERR, C
+                RSUB    IDE_SD_TAKE, 1
+                RBRA    _IWF_ERR, C
+                MOVE    R8, R6                  ; R7:R6: the block
+                MOVE    R9, R7
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; R0: IDE buffer (CPU data)
+                MOVE    IO$SD_DATA_POS, R1
+                MOVE    IO$SD_DATA, R2
+                XOR     R3, R3                  ; R3: byte position
+                MOVE    256, R4                 ; R4: words
+_IWF_L          MOVE    @R0++, R5
+                MOVE    R3, @R1                 ; byte 2i: high byte
+                MOVE    R5, R8
+                AND     0xFFFB, SR
+                SHR     8, R8
+                MOVE    R8, @R2
+                ADD     1, R3
+                MOVE    R3, @R1                 ; byte 2i + 1: low byte
+                AND     0x00FF, R5
+                MOVE    R5, @R2
+                ADD     1, R3
+                SUB     1, R4
+                RBRA    _IWF_L, !Z
+                MOVE    R6, R8                  ; one block write through the
+                MOVE    R7, R9                  ; device of the file
+                MOVE    HDF_FDH, R11
+                MOVE    @R11, R11
+                MOVE    FAT32$DEV_BLOCK_WRITE, R10
+                RSUB    FAT32$CALL_DEV, 1       ; R8: 0 = OK
+                CMP     0, R8
+                RBRA    _IWF_ERR, !Z
+                RSUB    IDE_SEL, 1
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _IWF_RET, 1
+_IWF_ERR        RSUB    IDE_SEL, 1
+                OR      0x0004, SR              ; C=1
+_IWF_RET        DECRB
                 RET
 
 ; IDE_IDENTIFY: build the IDENTIFY DEVICE data in the buffer of the board
@@ -3451,6 +3743,10 @@ IDE_STATE       .BLOCK 1                        ; IDE_ST_*
 IDE_LBA_LO      .BLOCK 1                        ; sector of the command
 IDE_LBA_HI      .BLOCK 1
 IDE_LEFT        .BLOCK 1                        ; sectors left in the command
+HDF_SPC_SHIFT   .BLOCK 1                        ; log2(sectors per cluster)
+HDF_EXT_IDX     .BLOCK 1                        ; extent of the last block lookup
+HDF_EXT_CLO     .BLOCK 1                        ; ... and the cluster index at
+HDF_EXT_CHI     .BLOCK 1                        ; which it starts
 OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while the sub-activity of a
                                                 ; menu selection (browser/help)
                                                 ; runs: gate 4 for the unmount
