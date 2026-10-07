@@ -803,6 +803,52 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   No new XDC: the qnice<->main clock-pair max_delay covers the two LUTRAM
   buffers. Note for test writers: lide reads with MOVEM from data+460 so the
   68000's extra MOVEM read hits the error register.
+  **Firmware + menu = `WIP-V2-A11-JS-02` (2026-10-07), emulator-tested, NOT
+  yet hardware-tested.** OSM: ` HDF:%s` at line 34 of the Drive Settings
+  submenu (the 4th OPTM_G_LOAD_ROM = manual ROM 3 into C_DEV_AMIGA_IDE,
+  `OPTM_G_HDF` = 24, `C_MENU_HDF_MOUNT_LN`); every line from 33 on moved +2
+  (OPTM_SIZE 154 -> 156, all C_MENU_* >= 33 renumbered, demand 2478,
+  MENU_HEAP_SIZE 2496). ide_board answers the M2M CSR in window 0xFFFF
+  (READY on STATUS=OK) and decodes its own registers in window 0 only.
+  Firmware (m2m-rom.asm, "IDE board" section): `HDF_PREP` from
+  PREP_LOAD_IMAGE (needs lide.rom = auto-load ROM 1 loaded, size a multiple of
+  512 and >= 64 KB; own FDH copy, extent map `HDF_MAP` of 64 extents via
+  `FAT32$FILE_MAP` - called directly, M2M's qmon_m2m.asm syscall table has no
+  f32_fmap -, Shell handle seeked to EOF so nothing streams, control = present
+  + board, then an M2M$CSR_RESET pulse so Kickstart autoconfigs the board);
+  `IDE_STEP` in HANDLE_CORE_IO = the ATA server, one sector per slice:
+  IDENTIFY (16 heads / 63 sectors, LBA, no multiple, words byte-swapped),
+  READ/WRITE SECTORS LBA28 (CHS -> ABRT, out of range -> IDNF, SD error ->
+  UNC), a list of no-data commands -> OK, everything else ABRT; every written
+  sector is fflushed (one shared SD sector buffer); reset event = abandon;
+  SD change / slot switch = drive vanishes. The board is in the autoconfig
+  chain only while an HDF is mounted. 280 new variable words, so the release
+  heap total went 30080 -> 29696 (HEAP 0x83AB, 1845 words left for the
+  1536-word stack). No unmount gesture yet (mount another image instead).
+  Out-of-repo tests: `~/aexp-work/fw-ide` runs the real IDE section of
+  m2m-rom.asm in the QNICE emulator against a FAT32 image (40 MB HDF in 20
+  extents + 1 MB HDF in 404 extents = map fallback; harness plays board and
+  Amiga, another handle steals the sector buffer after every write; host
+  check of every sector + fsck); 16 of 16 firmware mutants killed.
+  **First hardware round (2026-10-07, R6 via JTAG): boots, `DH0:` appears,
+  `FORMAT ... QUICK` works.** Found on hardware: (1) `avm_arbit_general`
+  implements 2..4 slaves ONLY - with G_NUM_SLAVES = 6 slaves 4/5 were silently
+  unconnected (a Synth 8-7129 "unconnected" warning was the only hint), so the
+  board's first ROM read never got an answer and Kickstart hung on the grey
+  screen. Fix: the general arbiter stays at 4 (`C_ARB_SLAVES`, guarded by an
+  assert) and slave 3 is a tree of 2-input `avm_arbit`s: df2 | (ROM loader |
+  ROM reads). (2) A full (non-QUICK) Workbench 1.3 `Format` fails with "Error
+  during format": a lide.device bug (40.12 and current source), not the core -
+  `device.c` clears `io_Actual` (the TD64 high offset) for CMD_READ/WRITE and
+  ETD_READ/WRITE but not for TD_FORMAT/ETD_FORMAT, and Format reuses the
+  request after a 1-block READ (io_Actual = 512), so the TD_FORMAT block
+  address lands past the end and lide never sends the write. (3) Workbench
+  1.3 Format allocates one buffer per CYLINDER: an RDB with 16 x 63 needs 516
+  KB ("Out of memory" on a 1 MB A500); use small cylinders for 1.3-era images
+  (test images: `~/aexp-work/hdf/mkrdb.py out.hdf cyls heads sectors`).
+  Debugging recipe: Run/Stop + Cursor Up + Help = QNICE monitor on the JTAG
+  UART (115200); `~/aexp-work/qmon.py` types into it; device 0x0107 window 0
+  at 0x7100.. = events, task-file snapshot, last commit, control.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
@@ -932,7 +978,7 @@ the deep material lives in `doc/` (see "Key documents").
   invariant in §5a is load-bearing and now has to hold PER DRIVE). A unit
   is announced write-protected until the firmware arms its WR_EN, on SD
   change, and while remounting.
-  IDE: one RIPPLE-compatible board for an HDF image (fork, in progress).
+  IDE: one RIPPLE-compatible board for an HDF image (fork, WIP-V2-A11-JS-02).
   Keyboard + joysticks + mouse work.
 - Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
   HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →

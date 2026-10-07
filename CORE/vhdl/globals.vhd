@@ -244,10 +244,17 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- the Shell resolves a manual id to a menu line via CRTROM_M_GI and goes fatal if
 -- there is none. It may be smaller than the number of drives only if the surplus
 -- mount lines are removed from config.vhd as well.
-constant C_CRTROMS_MAN_NUM       : natural := 3;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+--
+-- Entry 3: the HDF hard disk image of the IDE board (OSM " HDF:%s" line in the Drive
+-- Settings submenu, the 4th OPTM_G_LOAD_ROM occurrence). Nothing is streamed: the
+-- firmware moves the read pointer to the end of the file in PREP_LOAD_IMAGE, keeps
+-- its own copy of the file handle and serves the sectors straight from the file;
+-- ide_board.vhd answers the CSR handshake.
+constant C_CRTROMS_MAN_NUM       : natural := 4;                                       -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF0,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF1,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF2,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_IDE,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

@@ -74,6 +74,8 @@ awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""
 # match - a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
 # and the assembler would fail on the duplicate.
 awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
+# The IDE board: AEXP_DEV_IDE (firmware ATA interface) and AEXP_DEV_IDEROM (boot ROM loader)
+awk '/constant C_DEV_AMIGA_IDE(ROM)? / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
 ##############################################################################
 # M2M framework: Generate globals.asm

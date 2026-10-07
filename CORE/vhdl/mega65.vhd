@@ -645,8 +645,31 @@ signal hr_rom_avm_readdata        : std_logic_vector(15 downto 0);
 signal hr_rom_avm_readdatavalid   : std_logic;
 signal hr_rom_avm_waitrequest     : std_logic;
 
+-- 2-input arbiter outputs feeding slave 3 of the general arbiter: avm_arbit_general
+-- only implements 2..4 slaves (any slave beyond the fourth is silently left
+-- unconnected), so the IDE masters are merged with df2 in a small tree:
+-- ide = ROM loader + ROM reads, s3 = df2 + ide
+signal hr_ide_avm_write           : std_logic;
+signal hr_ide_avm_read            : std_logic;
+signal hr_ide_avm_address         : std_logic_vector(31 downto 0);
+signal hr_ide_avm_writedata       : std_logic_vector(15 downto 0);
+signal hr_ide_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal hr_ide_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal hr_ide_avm_readdata        : std_logic_vector(15 downto 0);
+signal hr_ide_avm_readdatavalid   : std_logic;
+signal hr_ide_avm_waitrequest     : std_logic;
+signal hr_s3_avm_write            : std_logic;
+signal hr_s3_avm_read             : std_logic;
+signal hr_s3_avm_address          : std_logic_vector(31 downto 0);
+signal hr_s3_avm_writedata        : std_logic_vector(15 downto 0);
+signal hr_s3_avm_byteenable       : std_logic_vector( 1 downto 0);
+signal hr_s3_avm_burstcount       : std_logic_vector( 7 downto 0);
+signal hr_s3_avm_readdata         : std_logic_vector(15 downto 0);
+signal hr_s3_avm_readdatavalid    : std_logic;
+signal hr_s3_avm_waitrequest      : std_logic;
+
 -- flattened arbiter interface (avm_arbit_general uses packed vectors)
-constant C_ARB_SLAVES             : natural := 6;
+constant C_ARB_SLAVES             : natural := 4;
 signal hr_arb_write               : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
 signal hr_arb_read                : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
 signal hr_arb_address             : std_logic_vector(C_ARB_SLAVES * 32 - 1 downto 0);
@@ -724,58 +747,59 @@ constant C_MENU_DF1_MOUNT_LN  : natural := 4;
 constant C_MENU_DF1_HW_LN     : natural := 5;
 constant C_MENU_DF2_MOUNT_LN  : natural := 6;
 constant C_MENU_DF2_HW_LN     : natural := 7;
+constant C_MENU_HDF_MOUNT_LN  : natural := 34;   -- HDF mount line (Drive Settings submenu), firmware-only
 
 -- per-unit drive mode, two bits each in main_drv_mode (unit u at 2u+1 downto 2u)
 constant C_DRV_IMAGE          : std_logic_vector(1 downto 0) := "00";  -- simulated ADF drive
 constant C_DRV_HW             : std_logic_vector(1 downto 0) := "01";  -- the MEGA65 mechanism
 constant C_DRV_OFF            : std_logic_vector(1 downto 0) := "10";  -- unit does not exist
 
-constant C_MENU_HDMI_16_9_50  : natural := 41;
-constant C_MENU_HDMI_4_3_50   : natural := 42;
-constant C_MENU_HDMI_5_4_50   : natural := 43;
+constant C_MENU_HDMI_16_9_50  : natural := 43;
+constant C_MENU_HDMI_4_3_50   : natural := 44;
+constant C_MENU_HDMI_5_4_50   : natural := 45;
 
 -- DVI (no sound): single-select, default OFF. Drives the framework's qnice_dvi
 -- input, which makes M2M's vga_to_hdmi.vhd force plain DVI encoding on every
 -- non-video period - no audio sample packets and no HDMI data islands at all.
 -- Pixel timing is untouched, so the picture geometry stays identical. The bit is
 -- consumed in the qnice_clk domain; vga_to_hdmi.vhd does its own CDC.
-constant C_MENU_HDMI_DVI      : natural := 45;
+constant C_MENU_HDMI_DVI      : natural := 47;
 
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
-constant C_MENU_FLT_NO_FILTER     : natural := 51;
-constant C_MENU_FLT_SHARP         : natural := 52;
-constant C_MENU_FLT_BICUBIC       : natural := 53;
-constant C_MENU_FLT_SMOOTH        : natural := 54;
-constant C_MENU_FLT_LANCZOS       : natural := 55;
-constant C_MENU_FLT_SCANLINES     : natural := 56;
-constant C_MENU_FLT_CRT_SVIDEO    : natural := 57;
-constant C_MENU_FLT_CRT_COMPOSITE : natural := 58;
+constant C_MENU_FLT_NO_FILTER     : natural := 53;
+constant C_MENU_FLT_SHARP         : natural := 54;
+constant C_MENU_FLT_BICUBIC       : natural := 55;
+constant C_MENU_FLT_SMOOTH        : natural := 56;
+constant C_MENU_FLT_LANCZOS       : natural := 57;
+constant C_MENU_FLT_SCANLINES     : natural := 58;
+constant C_MENU_FLT_CRT_SVIDEO    : natural := 59;
+constant C_MENU_FLT_CRT_COMPOSITE : natural := 60;
 
 -- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
 -- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
-constant C_MENU_HDMI_FF       : natural := 61;
+constant C_MENU_HDMI_FF       : natural := 63;
 
-constant C_MENU_VGA_STD       : natural := 65;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 69;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 70;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+constant C_MENU_VGA_STD       : natural := 67;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 71;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 72;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
 -- OSM Scaling follows the C64 layout: line 77 (100%, default) maps to bit 0,
 -- while line 85 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
-subtype C_MENU_OSM_SCALING is natural range 85 downto 77;
+subtype C_MENU_OSM_SCALING is natural range 87 downto 79;
 
 -- Volume radio (master volume, 5% steps): line 94 (100%, default) down to line 114
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 114 downto 94;
+subtype C_MENU_VOLUME is natural range 116 downto 96;
 
 -- Stereo crossfeed radio ("Stereo: %s" submenu): line 120 (Full Stereo, default)
 -- down to line 123 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 123 downto 120;
+subtype C_MENU_STEREO is natural range 125 downto 122;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -783,24 +807,24 @@ subtype C_MENU_STEREO is natural range 123 downto 120;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 126;
-constant C_MENU_LEDFILT       : natural := 127;
+constant C_MENU_A500FILT      : natural := 128;
+constant C_MENU_LEDFILT       : natural := 129;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
 -- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 132 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 131;
+constant C_MENU_KBD_AMIGA     : natural := 133;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
 -- byte-identical (bit 7 keeps its "the menu key" meaning). Line 136 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 136;
-constant C_MENU_OSMKEY_F11    : natural := 137;
-constant C_MENU_OSMKEY_F13    : natural := 138;
-constant C_MENU_OSMKEY_COMBO  : natural := 139;
+constant C_MENU_OSMKEY_HELP   : natural := 138;
+constant C_MENU_OSMKEY_F11    : natural := 139;
+constant C_MENU_OSMKEY_F13    : natural := 140;
+constant C_MENU_OSMKEY_COMBO  : natural := 141;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
@@ -808,12 +832,12 @@ constant C_MENU_OSMKEY_COMBO  : natural := 139;
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
 -- Lives in the Memory submenu (lines 143..149) since WIP-V2-A11-JS-01.
-constant C_MENU_SLOWRAM       : natural := 146;
+constant C_MENU_SLOWRAM       : natural := 148;
 
 -- Fast RAM (8 MB) toggle: single-select, default OFF. '1' = the 8 MB Zorro II Fast RAM
 -- board at $200000 is present (autoconfig'd by Kickstart). R4/R5/R6 only, gated with
 -- C_HAS_SDRAM. Like Slow RAM a topology change: amiga_cold_boot cold-boots the Amiga.
-constant C_MENU_FASTRAM       : natural := 147;
+constant C_MENU_FASTRAM       : natural := 149;
 
 begin
 
@@ -2482,13 +2506,14 @@ begin
          m_avm_readdatavalid_i => hr_rom_avm_readdatavalid
       ); -- i_avm_fifo_iderom
 
-   -- Flatten the six masters into the packed arbiter interface. Slave 0 is
-   -- the track engine (the only latency-sensitive one - Paula is waiting for
-   -- its sector), slaves 1..3 are the three mount wrappers, which only run
-   -- while the Shell streams an image from the SD card, slave 4 is the IDE
-   -- boot ROM loader (startup only) and slave 5 the IDE board's ROM reads.
-   hr_arb_write <= hr_rom_avm_write & hr_ldr_avm_write & hr_adf_avm_write & hr_flp_avm_write;
-   hr_arb_read  <= hr_rom_avm_read  & hr_ldr_avm_read  & hr_adf_avm_read  & hr_flp_avm_read;
+   -- Flatten the masters into the packed arbiter interface. Slave 0 is the
+   -- track engine (the only latency-sensitive one - Paula is waiting for its
+   -- sector), slaves 1/2 are the df0/df1 mount wrappers, slave 3 merges the
+   -- df2 wrapper with the IDE board's masters (boot ROM loader at startup, ROM
+   -- reads while Kickstart and lide.device run from the ROM). The mount
+   -- wrappers only run while the Shell streams an image from the SD card.
+   hr_arb_write <= hr_s3_avm_write & hr_adf_avm_write(1 downto 0) & hr_flp_avm_write;
+   hr_arb_read  <= hr_s3_avm_read  & hr_adf_avm_read(1 downto 0)  & hr_flp_avm_read;
 
    hr_arb_address(31 downto 0)      <= hr_flp_avm_address;
    hr_arb_writedata(15 downto 0)    <= hr_flp_avm_writedata;
@@ -2498,7 +2523,7 @@ begin
    hr_flp_avm_readdatavalid         <= hr_arb_readdatavalid(0);
    hr_flp_avm_waitrequest           <= hr_arb_waitrequest(0);
 
-   gen_arb_flatten : for u in 0 to 2 generate
+   gen_arb_flatten : for u in 0 to 1 generate
       hr_arb_address(32 * (u + 2) - 1 downto 32 * (u + 1)) <= hr_adf_avm_address(u);
       hr_arb_writedata(16 * (u + 2) - 1 downto 16 * (u + 1)) <= hr_adf_avm_writedata(u);
       hr_arb_byteenable(2 * (u + 2) - 1 downto 2 * (u + 1)) <= hr_adf_avm_byteenable(u);
@@ -2508,24 +2533,101 @@ begin
       hr_adf_avm_waitrequest(u)   <= hr_arb_waitrequest(u + 1);
    end generate gen_arb_flatten;
 
-   hr_arb_address(5 * 32 - 1 downto 4 * 32)   <= hr_ldr_avm_address;
-   hr_arb_writedata(5 * 16 - 1 downto 4 * 16) <= hr_ldr_avm_writedata;
-   hr_arb_byteenable(5 * 2 - 1 downto 4 * 2)  <= hr_ldr_avm_byteenable;
-   hr_arb_burstcount(5 * 8 - 1 downto 4 * 8)  <= hr_ldr_avm_burstcount;
-   hr_ldr_avm_readdata                        <= hr_arb_readdata(5 * 16 - 1 downto 4 * 16);
-   hr_ldr_avm_readdatavalid                   <= hr_arb_readdatavalid(4);
-   hr_ldr_avm_waitrequest                     <= hr_arb_waitrequest(4);
+   hr_arb_address(4 * 32 - 1 downto 3 * 32)   <= hr_s3_avm_address;
+   hr_arb_writedata(4 * 16 - 1 downto 3 * 16) <= hr_s3_avm_writedata;
+   hr_arb_byteenable(4 * 2 - 1 downto 3 * 2)  <= hr_s3_avm_byteenable;
+   hr_arb_burstcount(4 * 8 - 1 downto 3 * 8)  <= hr_s3_avm_burstcount;
+   hr_s3_avm_readdata                         <= hr_arb_readdata(4 * 16 - 1 downto 3 * 16);
+   hr_s3_avm_readdatavalid                    <= hr_arb_readdatavalid(3);
+   hr_s3_avm_waitrequest                      <= hr_arb_waitrequest(3);
 
-   hr_arb_address(6 * 32 - 1 downto 5 * 32)   <= hr_rom_avm_address;
-   hr_arb_writedata(6 * 16 - 1 downto 5 * 16) <= hr_rom_avm_writedata;
-   hr_arb_byteenable(6 * 2 - 1 downto 5 * 2)  <= hr_rom_avm_byteenable;
-   hr_arb_burstcount(6 * 8 - 1 downto 5 * 8)  <= hr_rom_avm_burstcount;
-   hr_rom_avm_readdata                        <= hr_arb_readdata(6 * 16 - 1 downto 5 * 16);
-   hr_rom_avm_readdatavalid                   <= hr_arb_readdatavalid(5);
-   hr_rom_avm_waitrequest                     <= hr_arb_waitrequest(5);
+   assert C_ARB_SLAVES >= 2 and C_ARB_SLAVES <= 4
+      report "avm_arbit_general implements 2..4 slaves only - further slaves are left unconnected"
+      severity failure;
+
+   -- IDE board: boot ROM loader (startup only) + the board's ROM reads
+   i_avm_arbit_ide : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => false,
+         G_FREQ_HZ      => 100_000_000,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => hr_ldr_avm_write,
+         s0_avm_read_i          => hr_ldr_avm_read,
+         s0_avm_address_i       => hr_ldr_avm_address,
+         s0_avm_writedata_i     => hr_ldr_avm_writedata,
+         s0_avm_byteenable_i    => hr_ldr_avm_byteenable,
+         s0_avm_burstcount_i    => hr_ldr_avm_burstcount,
+         s0_avm_readdata_o      => hr_ldr_avm_readdata,
+         s0_avm_readdatavalid_o => hr_ldr_avm_readdatavalid,
+         s0_avm_waitrequest_o   => hr_ldr_avm_waitrequest,
+         s1_avm_write_i         => hr_rom_avm_write,
+         s1_avm_read_i          => hr_rom_avm_read,
+         s1_avm_address_i       => hr_rom_avm_address,
+         s1_avm_writedata_i     => hr_rom_avm_writedata,
+         s1_avm_byteenable_i    => hr_rom_avm_byteenable,
+         s1_avm_burstcount_i    => hr_rom_avm_burstcount,
+         s1_avm_readdata_o      => hr_rom_avm_readdata,
+         s1_avm_readdatavalid_o => hr_rom_avm_readdatavalid,
+         s1_avm_waitrequest_o   => hr_rom_avm_waitrequest,
+         m_avm_write_o          => hr_ide_avm_write,
+         m_avm_read_o           => hr_ide_avm_read,
+         m_avm_address_o        => hr_ide_avm_address,
+         m_avm_writedata_o      => hr_ide_avm_writedata,
+         m_avm_byteenable_o     => hr_ide_avm_byteenable,
+         m_avm_burstcount_o     => hr_ide_avm_burstcount,
+         m_avm_readdata_i       => hr_ide_avm_readdata,
+         m_avm_readdatavalid_i  => hr_ide_avm_readdatavalid,
+         m_avm_waitrequest_i    => hr_ide_avm_waitrequest
+      ); -- i_avm_arbit_ide
+
+   -- slave 3 of the general arbiter: the df2 mount wrapper + the IDE masters
+   i_avm_arbit_s3 : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => false,
+         G_FREQ_HZ      => 100_000_000,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => hr_adf_avm_write(2),
+         s0_avm_read_i          => hr_adf_avm_read(2),
+         s0_avm_address_i       => hr_adf_avm_address(2),
+         s0_avm_writedata_i     => hr_adf_avm_writedata(2),
+         s0_avm_byteenable_i    => hr_adf_avm_byteenable(2),
+         s0_avm_burstcount_i    => hr_adf_avm_burstcount(2),
+         s0_avm_readdata_o      => hr_adf_avm_readdata(2),
+         s0_avm_readdatavalid_o => hr_adf_avm_readdatavalid(2),
+         s0_avm_waitrequest_o   => hr_adf_avm_waitrequest(2),
+         s1_avm_write_i         => hr_ide_avm_write,
+         s1_avm_read_i          => hr_ide_avm_read,
+         s1_avm_address_i       => hr_ide_avm_address,
+         s1_avm_writedata_i     => hr_ide_avm_writedata,
+         s1_avm_byteenable_i    => hr_ide_avm_byteenable,
+         s1_avm_burstcount_i    => hr_ide_avm_burstcount,
+         s1_avm_readdata_o      => hr_ide_avm_readdata,
+         s1_avm_readdatavalid_o => hr_ide_avm_readdatavalid,
+         s1_avm_waitrequest_o   => hr_ide_avm_waitrequest,
+         m_avm_write_o          => hr_s3_avm_write,
+         m_avm_read_o           => hr_s3_avm_read,
+         m_avm_address_o        => hr_s3_avm_address,
+         m_avm_writedata_o      => hr_s3_avm_writedata,
+         m_avm_byteenable_o     => hr_s3_avm_byteenable,
+         m_avm_burstcount_o     => hr_s3_avm_burstcount,
+         m_avm_readdata_i       => hr_s3_avm_readdata,
+         m_avm_readdatavalid_i  => hr_s3_avm_readdatavalid,
+         m_avm_waitrequest_i    => hr_s3_avm_waitrequest
+      ); -- i_avm_arbit_s3
 
    -- round-robin per whole transaction; the masters never compete in practice
-   -- (a mount streams while the engine is idle and vice versa)
+   -- (a mount streams while the engine is idle and vice versa). Keep this at
+   -- 4 slaves: avm_arbit_general implements 2..4 only.
    i_avm_arbit_adf : entity work.avm_arbit_general
       generic map (
          G_NUM_SLAVES   => C_ARB_SLAVES,

@@ -44,6 +44,8 @@ Features
   disk images via the on-screen-menu, read and write — and hand one of the
   drives to the MEGA65's own internal 3.5" drive to read and write genuine
   Amiga disks, copy-protected originals included
+* One IDE hard disk: an `*.hdf` image on the SD card, read and write, that
+  Kickstart 1.3 boots from (needs the free lide.device boot ROM)
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
@@ -161,6 +163,49 @@ The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
 [doc/hardware_floppy.md](doc/hardware_floppy.md) explains reading and writing
 real Amiga disks, copy protection, and what to expect from thirty-year-old
 media.
+
+### Hard disk (HDF image)
+
+The Amiga can have a hard disk: an `*.hdf` image file on your SD card, served
+through an emulated Zorro II IDE controller that behaves exactly like LIV2's
+open-source [RIPPLE](https://github.com/LIV2/RIPPLE-IDE) board. Its driver
+and boot ROM is [lide.device](https://github.com/LIV2/lide.device) (GPL-2.0),
+so Kickstart 1.3 finds the disk on its own and boots from it; Workbench sees
+the partitions as `DH0:`, `DH1:` and so on. Reads and writes go straight to
+the file on the SD card - there is no copy in memory and nothing to wait for
+before a reset.
+
+1. Copy `lide.rom` (from the core's release package, or the `lide.rom` asset
+   of a [lide.device release](https://github.com/LIV2/lide.device/releases))
+   to `/amiga/lide.rom`. Without it the core works as before, just without
+   the hard disk.
+2. Copy your `*.hdf` image to the SD card.
+3. Open the menu with <kbd>Help</kbd>, go to **Drive Settings** and select
+   **HDF:** at the bottom. Pick the image in the file browser. The Amiga
+   restarts at once and boots from the hard disk (a floppy in `df0:` still
+   has priority, as on a real Amiga).
+
+The image must be a whole hard disk with a partition table (a Rigid Disk
+Block, RDB), not a single-partition "hardfile": WinUAE's "Create hardfile"
+with RDB, or [amitools](https://github.com/cnvogelg/amitools)' `rdbtool`
+make such images. Kickstart 1.3 has only the old file system (OFS) in ROM, so
+either use OFS partitions, or put the FastFileSystem into the RDB (rdbtool
+`fsadd`), which lide.device then loads at boot. The image size must be a
+multiple of 512 bytes; FAT32 limits a file to 4 GB.
+
+To format a partition on the Amiga, use `Format DRIVE DH0: NAME Work QUICK`.
+A full format (without `QUICK`) currently fails with "Error during format":
+lide.device (up to version 40.12) mixes up the block address of Workbench
+1.3's format command. `QUICK` is a complete, valid format. Workbench 1.3's
+Format also needs one cylinder's worth of free memory, so partition images
+for an unexpanded A500 with small cylinders (for example 2 heads x 32
+sectors), or switch on the Fast RAM.
+
+Hard disk access is a little slower than on a real IDE disk, because the
+MEGA65's small control CPU serves every sector from the SD card. The disk
+stays mounted until you mount another image or swap the SD card; mounting an
+image always restarts the Amiga, because Kickstart only looks for hard disks
+when it starts.
 
 ### Mouse and joystick
 
@@ -484,7 +529,7 @@ Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
-* No hard disk support
+* One hard disk only, no CD-ROM
 * OCS and PAL only: no ECS, no AGA, no NTSC
 * Fast RAM only on boards with SDRAM (R4, R5, R6), not on the R3
 
@@ -509,11 +554,13 @@ via JTAG). Then:
    adjusts the picture, automatically per Amiga screen mode.
 5. Put your `*.adf` disk images into `/amiga`, the file browser starts
    there.
-6. Flash the `*.cor` file using the MEGA65's bitstream utility, or, if you
+6. Optional, for the hard disk: copy `lide.rom` to `/amiga/lide.rom` and
+   your `*.hdf` images onto the card (see "Hard disk" above).
+7. Flash the `*.cor` file using the MEGA65's bitstream utility, or, if you
    have a JTAG adaptor, load the `*.bit` file directly with the
    [M65 tool](https://github.com/MEGA65/mega65-tools):
    `m65 -q yourbitstream.bit`.
-7. Press <kbd>Help</kbd> as soon as the core is running to mount a disk
+8. Press <kbd>Help</kbd> as soon as the core is running to mount a disk
    and to configure the core.
 
 Developers

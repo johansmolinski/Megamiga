@@ -54,10 +54,12 @@
                 ; b) Screen-centering feature
                 ; c) Real-Time-Clock connector
                 ; d) Live Hardware Floppy status line
+                ; e) IDE board: no disk, out of the autoconfig chain
 START_FIRMWARE  RSUB    ADF_WB_INIT, 1
                 RSUB    SCR_INIT, 1
                 RSUB    RTC_INIT, 1
                 RSUB    HWF_OSM_INIT, 1
+                RSUB    IDE_INIT, 1
                 RBRA    START_SHELL, 1
 
 ; ----------------------------------------------------------------------------
@@ -108,6 +110,9 @@ FILTER_FILES    INCRB
 
                 CMP     CTX_LOAD_ROM, R10       ; only filter in the ADF
                 RBRA    _FFILES_RET_0, !Z       ; load context
+                MOVE    HDF_FILE_EXT, R9        ; the HDF line: .hdf files
+                CMP     AEXP_OPTM_G_HDF, R11
+                RBRA    _FFILES_EXT, Z
                 MOVE    R8, R1                  ; R1: keep the directory entry
                 MOVE    R11, R8                 ; one of the three mount items?
                 RSUB    IS_ADF_GROUP, 1         ; (branch on C before anything
@@ -117,7 +122,7 @@ FILTER_FILES    INCRB
 _FFILES_ADF     MOVE    R1, R8                  ; restore the directory entry
 
                 MOVE    ADF_FILE_EXT, R9        ; only show .adf files
-                RSUB    M2M$CHK_EXT, 1          ; preserves R8/R9/R10
+_FFILES_EXT     RSUB    M2M$CHK_EXT, 1          ; preserves R8/R9/R10
                 RBRA    _FFILES_RET_0, C        ; extension matched: show it
 
                 MOVE    1, R8                   ; no match: filter it
@@ -157,7 +162,12 @@ PREP_LOAD_IMAGE INCRB
 
                 CMP     CTX_LOAD_ROM, R9        ; only guard the ADF load
                 RBRA    _PREP_LI_OK, !Z
-                MOVE    R8, R5                  ; R5: keep the new file handle
+                CMP     AEXP_OPTM_G_HDF, R10    ; the HDF line: own path
+                RBRA    _PREP_LI_NHDF, !Z
+                RSUB    HDF_PREP, 1             ; R8/R9: result
+                DECRB
+                RET
+_PREP_LI_NHDF   MOVE    R8, R5                  ; R5: keep the new file handle
                 MOVE    R10, R8                 ; one of the three mount items?
                 RSUB    IS_ADF_GROUP, 1         ; (branch on C before anything
                 RBRA    _PREP_LI_ADF, C         ; else can touch the flags)
@@ -995,7 +1005,8 @@ _HCIO_FLK       MOVE    R5, @R4
                 ; keep the Amiga battery clock live (issue #13): re-issue the
                 ; framework RTC read once per minute so the Minimig $DC0000 clock
                 ; advances instead of freezing after the boot seed
-_HCIO_RTC       RSUB    RTC_STEP, 1
+_HCIO_RTC       RSUB    IDE_STEP, 1             ; the IDE board (HDF image)
+                RSUB    RTC_STEP, 1
 
                 ; live Hardware Floppy status line in the main menu. Four RAM
                 ; reads and out while the OSM is closed, which is the case in
@@ -1855,6 +1866,726 @@ _DEG_N          ADD     1, R4
                 RET
 
 ; ----------------------------------------------------------------------------
+; IDE board: HDF hard disk image (WIP-V2-A11-JS-02)
+;
+; ide_board.vhd is a Zorro II IDE controller that is register-compatible with
+; RIPPLE, so the lide.device boot ROM (/amiga/lide.rom, auto-loaded into the
+; HyperRAM behind C_DEV_AMIGA_IDEROM) autoboots Kickstart 1.3 from it. The
+; hardware only does what has to happen within a 68000 bus cycle: BSY on a
+; command write and DRQ off with the 256th data word. This firmware is the
+; drive behind it - like ide.cpp on the HPS side of MiSTer - and serves the
+; ATA commands straight from the HDF file on the SD card, one sector per
+; HANDLE_CORE_IO time slice:
+;
+;   * The " HDF:%s" line of the Drive Settings submenu is a manual CRT/ROM
+;     load into C_DEV_AMIGA_IDE. PREP_LOAD_IMAGE (HDF_PREP) validates the
+;     file, keeps its own copy of the file handle (the Shell re-opens its
+;     handle for the next load), builds an extent map for seeking without FAT
+;     reads (FAT32$FILE_MAP) and moves the read pointer of the Shell to the end
+;     of the file, so nothing is streamed. The board answers the CSR handshake
+;     itself. A mount resets the Amiga, so that Kickstart autoconfigs the board
+;     and lide.device reads the RDB of the new disk.
+;   * The board is in the autoconfig chain only while lide.rom was loaded AND
+;     an HDF is mounted: without a disk the Amiga stays a plain A500.
+;   * Every written sector is flushed before the time slice ends: the SD
+;     controller has ONE sector buffer that every SD user shares (see
+;     FLUSH_ADF_STEP), so no dirty sector may survive a return to the loop.
+;   * LBA28 only: IDENTIFY reports LBA support and no multiple mode, so
+;     lide.device uses READ/WRITE SECTORS with LBA addressing. A CHS command
+;     is aborted.
+;   * The IDE bus of RIPPLE is byte-swapped: sector data needs no swapping
+;     (byte 2i of the sector is the high byte of word i), IDENTIFY words do
+;     (lide.device swaps them back).
+; ----------------------------------------------------------------------------
+
+; IDE_SEL: select the window 0 of the IDE board device.
+; Input/Output: none; all registers preserved
+IDE_SEL         INCRB
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    AEXP_DEV_IDE, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    0, @R0
+                DECRB
+                RET
+
+; IDE_INIT: called once from START_FIRMWARE. No disk, board out of the
+; autoconfig chain, event shadow in sync with the hardware.
+IDE_INIT        INCRB
+                MOVE    HDF_VALID, R0
+                MOVE    0, @R0
+                MOVE    IDE_STATE, R0
+                MOVE    IDE_ST_IDLE, @R0
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_CTRL, R0
+                MOVE    0, @R0
+                MOVE    IDE_EVENTS, R0
+                MOVE    IDE_LAST_EV, R1
+                MOVE    @R0, @R1
+                DECRB
+                RET
+
+; IDE_LIDE_OK: was /amiga/lide.rom loaded at startup (optional auto-load ROM 1)?
+; Output: C=1 if loaded, C=0 if not; all registers preserved
+; (results travel in C: the RET is a MOVE and may change Z and N)
+IDE_LIDE_OK     INCRB
+                MOVE    CRTROM_AUT_LDF, R0
+                ADD     IDE_LIDE_AUTO_ID, R0
+                CMP     0, @R0
+                RBRA    _ILO_NO, Z
+                OR      0x0004, SR              ; C=1
+                DECRB
+                RET
+_ILO_NO         AND     0xFFFB, SR              ; C=0
+                DECRB
+                RET
+
+; HDF_DROP: forget the mounted disk. The drive vanishes from the IDE bus at once
+; (all registers read 0xFF, a command in progress is never completed). The
+; board itself stays in the autoconfig chain until the next reset.
+; Input/Output: none; all registers preserved
+HDF_DROP        INCRB
+                MOVE    HDF_VALID, R0
+                MOVE    0, @R0
+                MOVE    IDE_STATE, R0
+                MOVE    IDE_ST_IDLE, @R0
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_CTRL, R0
+                AND     IDE_CTRL_BOARD, @R0     ; keep only the board bit
+                DECRB
+                RET
+
+; HDF_PREP: the PREP_LOAD_IMAGE part of the HDF mount
+;
+; Input:  R8: the file handle of the Shell (just opened)
+; Output: R8: 0=OK, else error; R9: 0 or pointer to an error message
+HDF_PREP        INCRB
+                MOVE    R8, R0                  ; R0: the handle of the Shell
+
+                RSUB    IDE_LIDE_OK, 1          ; no boot ROM, no board
+                RBRA    _HDFP_NOROM, !C
+
+                MOVE    R0, R1                  ; R2/R3: file size
+                ADD     FAT32$FDH_SIZE_LO, R1
+                MOVE    @R1, R2
+                MOVE    R0, R1
+                ADD     FAT32$FDH_SIZE_HI, R1
+                MOVE    @R1, R3
+                MOVE    R2, R1                  ; a whole number of sectors
+                AND     0x01FF, R1
+                RBRA    _HDFP_BADSZ, !Z
+                CMP     HDF_MIN_SIZE_HI, R3     ; at least HDF_MIN_SIZE_HI
+                RBRA    _HDFP_BADSZ, N          ; x 64 KB (unsigned compare)
+
+                ; the old disk goes first: from here on the drive is absent
+                ; until the new one is complete
+                RSUB    HDF_DROP, 1
+
+                MOVE    R0, R8                  ; our own copy of the handle
+                MOVE    HDF_FDH, R9
+                MOVE    FAT32$FDH_STRUCT_SIZE, R10
+                SYSCALL(memcpy, 1)
+                MOVE    HDF_FDH, R1             ; never start out DIRTY: the
+                ADD     FAT32$FDH_FLAGS, R1     ; one sector buffer is tracked
+                MOVE    0, @R1                  ; by the handle address
+
+                ; total sectors = size >> 9
+                MOVE    R2, R4
+                AND     0xFFFB, SR              ; clear C: shift in zeros
+                SHR     9, R4
+                MOVE    R3, R5
+                AND     0xFFFD, SR              ; clear X: shift in zeros
+                SHL     7, R5
+                OR      R5, R4
+                MOVE    HDF_SECT_LO, R1
+                MOVE    R4, @R1
+                MOVE    R3, R4
+                AND     0xFFFB, SR
+                SHR     9, R4
+                MOVE    HDF_SECT_HI, R1
+                MOVE    R4, @R1
+
+                ; extent map: seeks without FAT reads. A file with more
+                ; extents than the map holds still works, through the
+                ; cluster-stepping FAT32$FILE_SEEK.
+                MOVE    HDF_FDH, R8
+                MOVE    HDF_MAP, R9
+                MOVE    HDF_MAP_WORDS, R10
+                RSUB    FAT32$FILE_MAP, 1       ; (not in the M2M syscall table)
+                MOVE    HDF_MAPOK, R1
+                MOVE    1, @R1
+                CMP     0, R9
+                RBRA    _HDFP_SEEK, Z
+                MOVE    0, @R1
+                CMP     FAT32$ERR_MAPSIZE, R9
+                RBRA    _HDFP_FATERR, !Z
+
+                ; the Shell would stream the file into the device: move its
+                ; read pointer to the end, so that it reads EOF right away
+_HDFP_SEEK      MOVE    R0, R8
+                MOVE    R2, R9
+                MOVE    R3, R10
+                MOVE    HDF_MAP, R11
+                MOVE    HDF_MAPOK, R1
+                CMP     1, @R1
+                RBRA    _HDFP_SKM, Z
+                SYSCALL(f32_fseek, 1)
+                RBRA    _HDFP_SKD, 1
+_HDFP_SKM       RSUB    FAT32$FILE_SEEK_MAP, 1
+_HDFP_SKD       CMP     0, R9
+                RBRA    _HDFP_FATERR, !Z
+
+                MOVE    M2M$CSR, R1             ; remember the SD slot (see
+                MOVE    @R1, R1                 ; the SD guards in IDE_STEP)
+                AND     M2M$CSR_SD_ACTIVE, R1
+                MOVE    HDF_SD_SLOT, R4
+                MOVE    R1, @R4
+                MOVE    HDF_VALID, R1
+                MOVE    1, @R1
+
+                ; drive present, board in the chain; restart the Amiga so that
+                ; Kickstart configures the board and boots from the disk
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_EVENTS, R1
+                MOVE    IDE_LAST_EV, R4
+                MOVE    @R1, @R4
+                MOVE    IDE_CTRL, R1
+                MOVE    IDE_CTRL_PRESENT, @R1
+                OR      IDE_CTRL_BOARD, @R1
+                RSUB    IDE_RESET_AMIGA, 1
+
+                XOR     R8, R8
+                XOR     R9, R9
+                RBRA    _HDFP_RET, 1
+
+_HDFP_NOROM     MOVE    1, R8
+                MOVE    WRN_HDF_NOROM, R9
+                RBRA    _HDFP_RET, 1
+_HDFP_BADSZ     MOVE    1, R8
+                MOVE    WRN_HDF_SIZE, R9
+                RBRA    _HDFP_RET, 1
+_HDFP_FATERR    MOVE    1, R8
+                MOVE    WRN_HDF_FAT, R9
+
+_HDFP_RET       DECRB
+                RET
+
+; IDE_RESET_AMIGA: a short reset pulse for the core (M2M$CSR reset bit)
+; Input/Output: none; all registers preserved
+IDE_RESET_AMIGA INCRB
+                MOVE    M2M$CSR, R0
+                OR      M2M$CSR_RESET, @R0
+                MOVE    IDE_RESET_LOOPS, R1
+_IRA_W          SUB     1, R1
+                RBRA    _IRA_W, !Z
+                AND     M2M$CSR_UN_RESET, @R0
+                DECRB
+                RET
+
+; IDE_COMMIT: hand a new status to the board and wait for the acknowledge
+;
+; The board applies the commit only while BSY is set (so a late commit after
+; an Amiga reset can never raise DRQ), but acknowledges every commit.
+;
+; Input:  R8: status, R9: error register, R10: flags (bit 0: the data phase is
+;         CPU -> buffer); the IDE device must be selected
+; Output: none; all registers preserved
+IDE_COMMIT      INCRB
+                MOVE    IDE_NSTAT, R0
+                MOVE    R8, @R0
+                MOVE    IDE_NERR, R0
+                MOVE    R9, @R0
+                MOVE    IDE_NFLAGS, R0
+                MOVE    R10, @R0
+                MOVE    IDE_COMMIT_REG, R0
+                MOVE    1, @R0
+                MOVE    IDE_EVENTS, R0
+                MOVE    IDE_LAST_EV, R1
+                MOVE    IDE_ACK_LOOPS, R2
+_IDC_W          MOVE    @R0, R3
+                XOR     @R1, R3
+                AND     IDE_EV_ACK, R3
+                RBRA    _IDC_ACK, !Z
+                SUB     1, R2
+                RBRA    _IDC_W, !Z
+                MOVE    @R0, @R1                ; no acknowledge (cannot
+                RBRA    _IDC_RET, 1             ; happen): resync everything
+_IDC_ACK        XOR     IDE_EV_ACK, @R1
+_IDC_RET        DECRB
+                RET
+
+; IDE_STEP: one time slice of the ATA command server, called from
+; HANDLE_CORE_IO in every poll. Changes the RAMROM selection.
+; Input/Output: none; R8..R12 are clobbered
+IDE_STEP        INCRB
+                RSUB    IDE_SEL, 1
+                MOVE    HDF_VALID, R0
+                CMP     1, @R0
+                RBRA    _IDS_VALID, Z
+
+                ; no disk: keep the event shadow in sync, nothing to serve
+_IDS_SYNC       MOVE    IDE_EVENTS, R0
+                MOVE    IDE_LAST_EV, R1
+                MOVE    @R0, @R1
+                MOVE    IDE_STATE, R1
+                MOVE    IDE_ST_IDLE, @R1
+                RBRA    _IDS_RET, 1
+
+                ; SD guards (see HANDLE_CORE_IO): a swapped card or a switch to
+                ; the other slot makes the retained handle useless - the drive
+                ; vanishes, never write to a card the file was not opened on
+_IDS_VALID      MOVE    SD_CHANGED, R0
+                CMP     1, @R0
+                RBRA    _IDS_DROP, Z
+                MOVE    M2M$CSR, R0
+                MOVE    @R0, R0
+                AND     M2M$CSR_SD_ACTIVE, R0
+                MOVE    HDF_SD_SLOT, R1
+                CMP     @R1, R0
+                RBRA    _IDS_EV, Z
+_IDS_DROP       RSUB    HDF_DROP, 1
+                RBRA    _IDS_SYNC, 1
+
+_IDS_EV         MOVE    IDE_EVENTS, R0
+                MOVE    @R0, R1
+                MOVE    IDE_LAST_EV, R2
+                XOR     @R2, R1                 ; R1: event bits that toggled
+                MOVE    IDE_STATE, R3           ; R3: &state
+
+                ; reset (Amiga reset, RESET instruction, SRST): abandon
+                ; whatever was going on, the board is idle again
+                MOVE    R1, R4
+                AND     IDE_EV_RST, R4
+                RBRA    _IDS_NORST, Z
+                MOVE    @R0, @R2
+                MOVE    IDE_ST_IDLE, @R3
+                RBRA    _IDS_RET, 1
+
+                ; a new command replaces anything in progress (a host only
+                ; writes the command register while BSY is clear)
+_IDS_NORST      MOVE    R1, R4
+                AND     IDE_EV_CMD, R4
+                RBRA    _IDS_NOCMD, Z
+                XOR     IDE_EV_CMD, @R2
+                RSUB    IDE_CMD_START, 1
+                RBRA    _IDS_RET, 1
+
+_IDS_NOCMD      MOVE    @R3, R4                 ; R4: state
+                CMP     IDE_ST_RDPREP, R4
+                RBRA    _IDS_RDPREP, Z
+                MOVE    R1, R5                  ; everything else waits for
+                AND     IDE_EV_BUF, R5          ; the CPU to finish a buffer
+                RBRA    _IDS_RET, Z
+                XOR     IDE_EV_BUF, @R2
+                CMP     IDE_ST_RDWAIT, R4
+                RBRA    _IDS_RDDONE, Z
+                CMP     IDE_ST_WRWAIT, R4
+                RBRA    _IDS_WRDONE, Z
+                CMP     IDE_ST_IDWAIT, R4
+                RBRA    _IDS_FIN, Z
+                RBRA    _IDS_RET, 1             ; stray buffer event
+
+_IDS_RDPREP     RSUB    IDE_READ_SECT, 1        ; next sector into the buffer
+                RBRA    _IDS_RET, 1
+
+_IDS_RDDONE     RSUB    IDE_NEXT, 1             ; the CPU has read a sector
+                RBRA    _IDS_FIN, C
+                MOVE    IDE_ST_RDPREP, @R3
+                RBRA    _IDS_RET, 1
+
+_IDS_WRDONE     RSUB    IDE_WRITE_SECT, 1       ; the CPU has written a sector
+                RBRA    _IDS_RET, C             ; (error: already reported)
+                RSUB    IDE_NEXT, 1
+                RBRA    _IDS_FIN, C
+                MOVE    IDE_ST_DRQ, R8          ; next sector: DRQ again
+                XOR     R9, R9
+                MOVE    IDE_FL_WRITE, R10
+                RSUB    IDE_COMMIT, 1
+                RBRA    _IDS_RET, 1
+
+_IDS_FIN        MOVE    IDE_ST_READY, R8        ; command complete
+                XOR     R9, R9
+                XOR     R10, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R3
+                MOVE    IDE_ST_IDLE, @R3
+
+_IDS_RET        DECRB
+                RET
+
+; IDE_NEXT: advance to the next sector of a READ/WRITE
+; Output: C=1 if that was the last sector, else C=0; all registers preserved
+IDE_NEXT        INCRB
+                MOVE    IDE_LBA_HI, R1          ; both addresses first: an ADD
+                MOVE    IDE_LBA_LO, R0          ; between ADD and ADDC would
+                ADD     1, @R0                  ; eat the carry
+                ADDC    0, @R1
+                MOVE    IDE_LEFT, R0
+                SUB     1, @R0
+                RBRA    _INX_DONE, Z
+                AND     0xFFFB, SR              ; C=0: more sectors
+                DECRB
+                RET
+_INX_DONE       OR      0x0004, SR              ; C=1: done
+                DECRB
+                RET
+
+; IDE_ERROR: finish the command with ERR set
+; Input:  R9: error register value
+; Output: none; R8..R10 clobbered
+IDE_ERROR       INCRB
+                MOVE    IDE_ST_ERROR, R8
+                XOR     R10, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R0
+                MOVE    IDE_ST_IDLE, @R0
+                DECRB
+                RET
+
+; IDE_CMD_START: a command was written to the board
+; Output: none; R8..R12 clobbered
+IDE_CMD_START   INCRB
+                MOVE    IDE_TF_CMD, R0
+                MOVE    @R0, R0                 ; R0: command
+                AND     0x00FF, R0
+
+                CMP     IDE_CMD_IDENTIFY, R0
+                RBRA    _ICS_ID, Z
+                CMP     IDE_CMD_READ, R0
+                RBRA    _ICS_RD, Z
+                CMP     IDE_CMD_READ_NR, R0
+                RBRA    _ICS_RD, Z
+                CMP     IDE_CMD_WRITE, R0
+                RBRA    _ICS_WR, Z
+                CMP     IDE_CMD_WRITE_NR, R0
+                RBRA    _ICS_WR, Z
+
+                ; commands that need no data and nothing from us: OK
+                MOVE    IDE_CMD_OK_TAB, R1
+_ICS_OKL        CMP     0xFFFF, @R1
+                RBRA    _ICS_ABRT, Z
+                CMP     @R1++, R0
+                RBRA    _ICS_OKL, !Z
+                MOVE    IDE_ST_READY, R8
+                XOR     R9, R9
+                XOR     R10, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R1
+                MOVE    IDE_ST_IDLE, @R1
+                RBRA    _ICS_RET, 1
+
+_ICS_ABRT       MOVE    IDE_ERR_ABRT, R9        ; everything else: aborted
+                RSUB    IDE_ERROR, 1
+                RBRA    _ICS_RET, 1
+
+_ICS_ID         RSUB    IDE_IDENTIFY, 1
+                MOVE    IDE_ST_DRQ, R8
+                XOR     R9, R9
+                XOR     R10, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R1
+                MOVE    IDE_ST_IDWAIT, @R1
+                RBRA    _ICS_RET, 1
+
+_ICS_RD         RSUB    IDE_TF_LBA, 1           ; LBA + count, range-checked
+                RBRA    _ICS_RET, C             ; (error: already reported)
+                MOVE    IDE_STATE, R1           ; the first sector is read in
+                MOVE    IDE_ST_RDPREP, @R1      ; the next time slice
+                RBRA    _ICS_RET, 1
+
+_ICS_WR         RSUB    IDE_TF_LBA, 1
+                RBRA    _ICS_RET, C
+                MOVE    IDE_ST_DRQ, R8          ; DRQ: the CPU fills the buffer
+                XOR     R9, R9
+                MOVE    IDE_FL_WRITE, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R1
+                MOVE    IDE_ST_WRWAIT, @R1
+
+_ICS_RET        DECRB
+                RET
+
+; IDE_TF_LBA: LBA28 and sector count of a READ/WRITE from the task file
+;
+; Output: C=0: IDE_LBA_LO/HI and IDE_LEFT are set up
+;         C=1: the command was finished with an error (CHS addressing: ABRT,
+;              out of range: IDNF)
+;         R8..R12 clobbered
+IDE_TF_LBA      INCRB
+                MOVE    IDE_TF_DEVH, R0
+                MOVE    @R0, R0                 ; R0: device/head
+                MOVE    R0, R1
+                AND     IDE_DEVH_LBA, R1
+                RBRA    _ITL_ABRT, Z            ; CHS: not supported
+
+                MOVE    IDE_TF_LBA1, R1         ; LBA 15:0
+                MOVE    @R1, R1
+                AND     0x00FF, R1
+                AND     0xFFFD, SR
+                SHL     8, R1
+                MOVE    IDE_TF_LBA0, R2
+                MOVE    @R2, R2
+                AND     0x00FF, R2
+                OR      R2, R1                  ; R1: LBA low word
+                MOVE    R0, R2                  ; LBA 27:16
+                AND     0x000F, R2
+                AND     0xFFFD, SR
+                SHL     8, R2
+                MOVE    IDE_TF_LBA2, R3
+                MOVE    @R3, R3
+                AND     0x00FF, R3
+                OR      R3, R2                  ; R2: LBA high word
+                MOVE    IDE_TF_COUNT, R3
+                MOVE    @R3, R3
+                AND     0x00FF, R3              ; R3: count, 0 means 256
+                RBRA    _ITL_CNT, !Z
+                MOVE    256, R3
+
+                ; range: LBA + count must not exceed the number of sectors
+_ITL_CNT        MOVE    R1, R4
+                MOVE    R2, R5
+                ADD     R3, R4
+                ADDC    0, R5                   ; R5/R4: end (exclusive)
+                MOVE    HDF_SECT_HI, R6
+                MOVE    @R6, R6
+                CMP     R5, R6                  ; end hi > sectors hi?
+                RBRA    _ITL_IDNF, N
+                RBRA    _ITL_OK, !Z             ; end hi < sectors hi: fits
+                MOVE    HDF_SECT_LO, R6
+                MOVE    @R6, R6
+                CMP     R4, R6                  ; end lo > sectors lo?
+                RBRA    _ITL_IDNF, N
+
+_ITL_OK         MOVE    IDE_LBA_LO, R6
+                MOVE    R1, @R6
+                MOVE    IDE_LBA_HI, R6
+                MOVE    R2, @R6
+                MOVE    IDE_LEFT, R6
+                MOVE    R3, @R6
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _ITL_RET, 1
+
+_ITL_ABRT       MOVE    IDE_ERR_ABRT, R9
+                RBRA    _ITL_ERR, 1
+_ITL_IDNF       MOVE    IDE_ERR_IDNF, R9
+_ITL_ERR        RSUB    IDE_ERROR, 1
+                OR      0x0004, SR              ; C=1
+_ITL_RET        DECRB
+                RET
+
+; IDE_SEEK: seek the HDF to the sector IDE_LBA_LO/HI
+; Output: R9: 0=OK, else FAT32 error; R8 = HDF_FDH; R10..R12 clobbered
+IDE_SEEK        INCRB
+                MOVE    IDE_LBA_LO, R0
+                MOVE    @R0, R0
+                MOVE    IDE_LBA_HI, R1
+                MOVE    @R1, R1
+                MOVE    R0, R9                  ; byte offset = LBA << 9
+                AND     0xFFFD, SR
+                SHL     9, R9
+                MOVE    R1, R10
+                AND     0xFFFD, SR
+                SHL     9, R10
+                AND     0xFFFB, SR
+                SHR     7, R0
+                OR      R0, R10
+                MOVE    HDF_FDH, R8
+                MOVE    HDF_MAP, R11
+                MOVE    HDF_MAPOK, R0
+                CMP     1, @R0
+                RBRA    _ISK_M, Z
+                SYSCALL(f32_fseek, 1)
+                RBRA    _ISK_RET, 1
+_ISK_M          RSUB    FAT32$FILE_SEEK_MAP, 1
+_ISK_RET        DECRB
+                RET
+
+; IDE_READ_SECT: read sector IDE_LBA into the buffer of the board and raise DRQ
+; Output: none; R8..R12 clobbered
+IDE_READ_SECT   INCRB
+                RSUB    IDE_SEEK, 1
+                CMP     0, R9
+                RBRA    _IRS_ERR, !Z
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; R0: buffer pointer
+                MOVE    256, R1                 ; R1: words
+                MOVE    HDF_FDH, R2
+_IRS_L          MOVE    R2, R8                  ; high byte = byte 2i
+                SYSCALL(f32_fread, 1)
+                CMP     0, R10
+                RBRA    _IRS_ERR, !Z
+                MOVE    R9, R3
+                AND     0xFFFD, SR
+                SHL     8, R3
+                MOVE    R2, R8                  ; low byte = byte 2i + 1
+                SYSCALL(f32_fread, 1)
+                CMP     0, R10
+                RBRA    _IRS_ERR, !Z
+                OR      R9, R3
+                MOVE    R3, @R0++
+                SUB     1, R1
+                RBRA    _IRS_L, !Z
+
+                MOVE    IDE_ST_DRQ, R8          ; the CPU may read now
+                XOR     R9, R9
+                XOR     R10, R10
+                RSUB    IDE_COMMIT, 1
+                MOVE    IDE_STATE, R0
+                MOVE    IDE_ST_RDWAIT, @R0
+                RBRA    _IRS_RET, 1
+
+_IRS_ERR        RSUB    IDE_SEL, 1
+                MOVE    IDE_ERR_UNC, R9
+                RSUB    IDE_ERROR, 1
+_IRS_RET        DECRB
+                RET
+
+; IDE_WRITE_SECT: write the buffer the CPU filled to sector IDE_LBA
+; Output: C=0: OK; C=1: failed, the command was finished with an error;
+;         R8..R12 clobbered
+IDE_WRITE_SECT  INCRB
+                RSUB    IDE_SEEK, 1
+                CMP     0, R9
+                RBRA    _IWS_ERR, !Z
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; R0: buffer pointer
+                MOVE    256, R1                 ; R1: words
+                MOVE    HDF_FDH, R2
+_IWS_L          MOVE    @R0++, R3
+                MOVE    R3, R9                  ; byte 2i = high byte
+                AND     0xFFFB, SR
+                SHR     8, R9
+                MOVE    R2, R8
+                SYSCALL(f32_fwrite, 1)
+                CMP     0, R9
+                RBRA    _IWS_ERR, !Z
+                MOVE    R3, R9                  ; byte 2i + 1 = low byte
+                AND     0x00FF, R9
+                MOVE    R2, R8
+                SYSCALL(f32_fwrite, 1)
+                CMP     0, R9
+                RBRA    _IWS_ERR, !Z
+                SUB     1, R1
+                RBRA    _IWS_L, !Z
+
+                MOVE    R2, R8                  ; persist the sector NOW (the
+                SYSCALL(f32_fflush, 1)          ; one SD sector buffer is
+                CMP     0, R9                   ; shared, see FLUSH_ADF_STEP)
+                RBRA    _IWS_ERR, !Z
+                RSUB    IDE_SEL, 1
+                AND     0xFFFB, SR              ; C=0
+                RBRA    _IWS_RET, 1
+
+_IWS_ERR        RSUB    IDE_SEL, 1
+                MOVE    IDE_ERR_UNC, R9
+                RSUB    IDE_ERROR, 1
+                OR      0x0004, SR              ; C=1
+_IWS_RET        DECRB
+                RET
+
+; IDE_IDENTIFY: build the IDENTIFY DEVICE data in the buffer of the board
+;
+; Geometry: 16 heads, 63 sectors per track, cylinders = sectors / 1008
+; (at most 16383). The words are byte-swapped for the RIPPLE bus.
+; Output: none; R8..R12 clobbered
+IDE_IDENTIFY    INCRB
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; all words zero first
+                MOVE    256, R1
+_IID_Z          MOVE    0, @R0++
+                SUB     1, R1
+                RBRA    _IID_Z, !Z
+
+                MOVE    IDE_ID_TAB, R0          ; fixed words: index, value
+_IID_T          MOVE    @R0++, R1
+                CMP     0xFFFF, R1
+                RBRA    _IID_S, Z
+                MOVE    @R0++, R8
+                MOVE    R1, R9
+                RSUB    IDE_ID_PUT, 1
+                RBRA    _IID_T, 1
+
+_IID_S          MOVE    IDE_ID_SERIAL, R8       ; strings
+                MOVE    IDE_IDW_SERIAL, R9
+                MOVE    10, R10
+                RSUB    IDE_ID_STR, 1
+                MOVE    IDE_ID_FWREV, R8
+                MOVE    IDE_IDW_FWREV, R9
+                MOVE    4, R10
+                RSUB    IDE_ID_STR, 1
+                MOVE    IDE_ID_MODEL, R8
+                MOVE    IDE_IDW_MODEL, R9
+                MOVE    20, R10
+                RSUB    IDE_ID_STR, 1
+
+                MOVE    HDF_SECT_LO, R8         ; capacity in sectors
+                MOVE    @R8, R8
+                MOVE    IDE_IDW_LBA_LO, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    HDF_SECT_HI, R8
+                MOVE    @R8, R8
+                MOVE    IDE_IDW_LBA_HI, R9
+                RSUB    IDE_ID_PUT, 1
+
+                MOVE    HDF_SECT_LO, R8         ; cylinders = sectors / 1008
+                MOVE    @R8, R8
+                MOVE    HDF_SECT_HI, R9
+                MOVE    @R9, R9
+                MOVE    IDE_SECT_PER_CYL, R10
+                XOR     R11, R11
+                SYSCALL(divu32, 1)
+                CMP     0, R9                   ; more than 16 bits or more
+                RBRA    _IID_CMAX, !Z           ; than the CHS maximum: clamp
+                CMP     R8, IDE_MAX_CYL         ; quotient > maximum?
+                RBRA    _IID_CYL, !N
+_IID_CMAX       MOVE    IDE_MAX_CYL, R8
+_IID_CYL        MOVE    IDE_IDW_CYL, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    IDE_IDW_CUR_CYL, R9
+                RSUB    IDE_ID_PUT, 1
+
+                DECRB
+                RET
+
+; IDE_ID_PUT: store one IDENTIFY word, byte-swapped for the bus
+; Input: R8: value, R9: word index; device selected. Registers preserved.
+IDE_ID_PUT      INCRB
+                MOVE    R8, R0
+                SWAP    R0, R0
+                MOVE    IDE_DATA, R1
+                ADD     R9, R1
+                MOVE    R0, @R1
+                DECRB
+                RET
+
+; IDE_ID_STR: store an ATA string (two characters per word, the first in the
+; high byte, padded with spaces), byte-swapped for the bus
+; Input: R8: string (one character per word, zero-terminated)
+;        R9: first word index, R10: number of words. Registers preserved.
+IDE_ID_STR      INCRB
+                MOVE    R8, R0                  ; R0: string pointer
+                MOVE    IDE_DATA, R1
+                ADD     R9, R1                  ; R1: destination
+                MOVE    R10, R2                 ; R2: words left
+_IIS_W          RSUB    _IIS_CH, 1              ; R3: first character
+                MOVE    R3, R4
+                RSUB    _IIS_CH, 1              ; R3: second character
+                AND     0xFFFD, SR              ; bus word = second << 8 |
+                SHL     8, R3                   ; first (byte-swapped)
+                OR      R4, R3
+                MOVE    R3, @R1++
+                SUB     1, R2
+                RBRA    _IIS_W, !Z
+                DECRB
+                RET
+_IIS_CH         MOVE    @R0, R3                 ; next character, or a space
+                CMP     0, R3
+                RBRA    _IIS_SP, Z              ; once the string has ended
+                ADD     1, R0
+                RET
+_IIS_SP         MOVE    IDE_ASCII_SPACE, R3
+                RET
+
+; ----------------------------------------------------------------------------
 ; HDMI Filter dispatch
 ; (ported from C64MEGA65 V6, CORE/m2m-rom/m2m-rom.asm)
 ; ----------------------------------------------------------------------------
@@ -2397,6 +3128,84 @@ M2M$LOAD_POLYPHASE  SYSCALL(enter, 1)
 
 ; ADF file extension (needs to be upper case)
 ADF_FILE_EXT    .ASCII_W ".ADF"
+HDF_FILE_EXT    .ASCII_W ".HDF"
+
+; IDE board (ide_board.vhd), device AEXP_DEV_IDE, window 0
+IDE_DATA        .EQU    0x7000              ; W: data for the CPU, R: data from it
+IDE_EVENTS      .EQU    0x7100              ; event toggles, see IDE_EV_*
+IDE_TF_CMD      .EQU    0x7101              ; task file snapshot ...
+IDE_TF_COUNT    .EQU    0x7103
+IDE_TF_LBA0     .EQU    0x7104
+IDE_TF_LBA1     .EQU    0x7105
+IDE_TF_LBA2     .EQU    0x7106
+IDE_TF_DEVH     .EQU    0x7107
+IDE_NSTAT       .EQU    0x7110              ; status to apply on commit
+IDE_NERR        .EQU    0x7111              ; error register to apply on commit
+IDE_NFLAGS      .EQU    0x7112              ; bit 0: data phase CPU -> buffer
+IDE_CTRL        .EQU    0x7118              ; see IDE_CTRL_*
+IDE_COMMIT_REG  .EQU    0x711F              ; any write: commit
+IDE_EV_CMD      .EQU    0x0001              ; a command was written
+IDE_EV_BUF      .EQU    0x0002              ; the CPU finished a buffer
+IDE_EV_RST      .EQU    0x0004              ; reset (Amiga, RESET instr., SRST)
+IDE_EV_ACK      .EQU    0x0008              ; a commit was applied
+IDE_CTRL_PRESENT .EQU   0x0001              ; the drive answers on the bus
+IDE_CTRL_BOARD  .EQU    0x0002              ; the board is in the autoconfig chain
+IDE_ST_IDLE     .EQU    0                   ; server states: no command
+IDE_ST_RDPREP   .EQU    1                   ; READ: next sector to be read
+IDE_ST_RDWAIT   .EQU    2                   ; READ: the CPU reads the buffer
+IDE_ST_WRWAIT   .EQU    3                   ; WRITE: the CPU fills the buffer
+IDE_ST_IDWAIT   .EQU    4                   ; IDENTIFY: the CPU reads the buffer
+IDE_ST_READY    .EQU    0x0050              ; DRDY | DSC
+IDE_ST_DRQ      .EQU    0x0058              ; DRDY | DSC | DRQ
+IDE_ST_ERROR    .EQU    0x0051              ; DRDY | DSC | ERR
+IDE_FL_WRITE    .EQU    0x0001
+IDE_ERR_ABRT    .EQU    0x0004              ; command aborted
+IDE_ERR_IDNF    .EQU    0x0010              ; sector not found (out of range)
+IDE_ERR_UNC     .EQU    0x0040              ; uncorrectable (SD card error)
+IDE_DEVH_LBA    .EQU    0x0040              ; device/head: LBA addressing
+IDE_CMD_IDENTIFY .EQU   0x00EC
+IDE_CMD_READ    .EQU    0x0020
+IDE_CMD_READ_NR .EQU    0x0021
+IDE_CMD_WRITE   .EQU    0x0030
+IDE_CMD_WRITE_NR .EQU   0x0031
+IDE_SECT_PER_CYL .EQU   1008                ; 16 heads x 63 sectors
+IDE_MAX_CYL     .EQU    16383               ; CHS maximum
+IDE_IDW_CYL     .EQU    1                   ; IDENTIFY word indexes
+IDE_IDW_SERIAL  .EQU    10
+IDE_IDW_FWREV   .EQU    23
+IDE_IDW_MODEL   .EQU    27
+IDE_IDW_CUR_CYL .EQU    54
+IDE_IDW_LBA_LO  .EQU    60
+IDE_IDW_LBA_HI  .EQU    61
+IDE_ACK_LOOPS   .EQU    20000               ; a commit is acknowledged in ~2 us
+IDE_RESET_LOOPS .EQU    5000                ; ~0.5 ms reset pulse
+IDE_LIDE_AUTO_ID .EQU   1                   ; lide.rom = auto-load ROM 1
+IDE_ASCII_SPACE .EQU    0x0020
+HDF_MIN_SIZE_HI .EQU    1                   ; at least 64 KB
+HDF_MAP_WORDS   .EQU    257                 ; extent map: 64 extents
+
+; commands that need no data and no action: answered with DRDY right away
+; (INITIALIZE DEVICE PARAMETERS, SET FEATURES, RECALIBRATE, READ VERIFY,
+; SEEK, power management, FLUSH CACHE)
+IDE_CMD_OK_TAB  .DW     0x0091, 0x00EF, 0x0010, 0x0040, 0x0041, 0x0070
+                .DW     0x00E0, 0x00E1, 0x00E2, 0x00E3, 0x00E6, 0x00E7
+                .DW     0xFFFF
+
+; fixed IDENTIFY DEVICE words (index, value), 0xFFFF terminates
+IDE_ID_TAB      .DW     0, 0x0040           ; fixed disk
+                .DW     3, 16               ; heads
+                .DW     6, 63               ; sectors per track
+                .DW     47, 0x8000          ; no READ/WRITE MULTIPLE
+                .DW     49, 0x0200          ; LBA supported
+                .DW     51, 0x0200          ; PIO mode 2 timing
+                .DW     53, 0x0001          ; words 54..58 valid
+                .DW     55, 16              ; current heads
+                .DW     56, 63              ; current sectors per track
+                .DW     80, 0x001E          ; ATA-1..ATA-4
+                .DW     0xFFFF
+IDE_ID_SERIAL   .ASCII_W "AEXP-HDF"
+IDE_ID_FWREV    .ASCII_W "JS01"
+IDE_ID_MODEL    .ASCII_W "AExp HDF image"
 
 ; ADF write-back CSR (WBC): one instance per simulated drive, behind the device
 ; of that drive (AEXP_DEV_ADF0/1/2, autogenerated into osm_const.asm from
@@ -2510,6 +3319,14 @@ WRN_ADF_DUP     .ASCII_P "\n\nThis disk image is already in another\n"
                 .ASCII_W "changes of the other one.\n"
 
 ; Fatal: SD card write failed during the ADF write-back
+WRN_HDF_NOROM   .ASCII_P "\n\nThe hard disk needs its boot ROM:\n"
+                .ASCII_P "put lide.rom (lide.device for RIPPLE)\n"
+                .ASCII_W "into /amiga on the SD card and restart.\n"
+WRN_HDF_SIZE    .ASCII_P "\n\nThis is not a valid HDF image:\n"
+                .ASCII_P "the file size must be a multiple of\n"
+                .ASCII_W "512 bytes and at least 64 KB.\n"
+WRN_HDF_FAT     .ASCII_P "\n\nThe HDF file cannot be read from\n"
+                .ASCII_W "the SD card (FAT32 error).\n"
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
 ; Screen centering (issue #5): per-Amiga-mode HDMI input-crop + VGA soft-blank table.
@@ -2622,6 +3439,18 @@ ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
 
 ; ADF unmount-with-SPACE state (issue #16, see HANDLE_UNMOUNT_KEY)
 ADF_UNMNT_PREV  .BLOCK 1                        ; SPACE state last poll (edge)
+HDF_FDH         .BLOCK FAT32$FDH_STRUCT_SIZE    ; our own copy of the HDF handle
+HDF_VALID       .BLOCK 1                        ; 1: an HDF is mounted
+HDF_SD_SLOT     .BLOCK 1                        ; active SD slot at mount time
+HDF_SECT_LO     .BLOCK 1                        ; size of the HDF in sectors
+HDF_SECT_HI     .BLOCK 1
+HDF_MAPOK       .BLOCK 1                        ; 1: HDF_MAP describes the file
+HDF_MAP         .BLOCK HDF_MAP_WORDS            ; FAT32$FILE_MAP extent map
+IDE_LAST_EV     .BLOCK 1                        ; event toggles seen so far
+IDE_STATE       .BLOCK 1                        ; IDE_ST_*
+IDE_LBA_LO      .BLOCK 1                        ; sector of the command
+IDE_LBA_HI      .BLOCK 1
+IDE_LEFT        .BLOCK 1                        ; sectors left in the command
 OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while the sub-activity of a
                                                 ; menu selection (browser/help)
                                                 ; runs: gate 4 for the unmount
@@ -2694,8 +3523,9 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ;
 ; The fourth per-item array and the 19th->20th structure word are the menu
 ; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
-; 1 to 3 with the second and third simulated floppy drive.
-MENU_HEAP_SIZE  .EQU 2464
+; 1 to 3 with the second and third simulated floppy drive, and to 4 with the
+; HDF line of the IDE board (WIP-V2-A11-JS-02: 156 items, demand 2478).
+MENU_HEAP_SIZE  .EQU 2496
 
 #ifndef RELEASE
 
@@ -2712,13 +3542,15 @@ MENU_HEAP_SIZE  .EQU 2464
 ; HEAP 0x8280 + 30080 = 0xF800, VAR$STACK_START 0xFEE0, so 1760 words remain
 ; for a STACK_SIZE of 1536 - a 224-word margin, slightly better than the 1728
 ; words the 30208 total used to leave.
-HEAP_SIZE       .EQU 4576                       ; 7040 - 2464 = 4576
+; WIP-V2-A11-JS-02: the IDE board added 280 words of variables (mostly the HDF
+; extent map), so the release total went down by 384 words to 29696.
+HEAP_SIZE       .EQU 4544                       ; 7040 - 2496 = 4544
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27616                      ; 30080 - 2464 = 27616
+HEAP_SIZE       .EQU 27200                      ; 29696 - 2496 = 27200
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

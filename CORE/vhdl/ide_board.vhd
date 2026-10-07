@@ -39,6 +39,14 @@
 --   0x113-0x117  R/W: sector count, LBA 7:0, 15:8, 23:16, device/head to apply on commit
 --   0x118        R/W: bit 0: drive present, bit 1: board enabled (in the autoconfig chain)
 --   0x11F        W: commit (any value)
+--   window 0xFFFF   the M2M CSR (qnice_csr.vhd): the OSM HDF mount line is a manual
+--                CRT/ROM load into this device, so the Shell writes the file size and
+--                STATUS=OK and then waits for PARSEST. PREP_LOAD_IMAGE moves the read
+--                pointer to the end of the file (nothing is streamed: the firmware
+--                serves the sectors from the file itself), and the responder answers
+--                READY right away.
+--
+-- All registers above are in window 0; the firmware selects it before accessing them.
 --
 -- A commit is applied a few core clocks after its toggle crossed over (the payload was
 -- written before it, so it has settled) and only while BSY is set: a late commit after an
@@ -53,6 +61,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+
+use work.qnice_csr_pkg.all;
 
 entity ide_board is
    generic (
@@ -100,6 +110,8 @@ architecture synthesis of ide_board is
    constant C_ST_BUSY  : std_logic_vector(7 downto 0) := x"80";
 
    constant C_EVT_DELAY : natural := 8;   -- core clocks between an event and its toggle
+
+   constant C_ERROR_STRINGS : string_vector(0 to 15) := (others => "OK                 \n");
 
    -- the two sector buffers: distributed RAM, one write port each, asynchronous read
    type t_buf is array (0 to 255) of std_logic_vector(15 downto 0);
@@ -157,6 +169,9 @@ architecture synthesis of ide_board is
    signal q_ndevh   : std_logic_vector(7 downto 0) := x"A0";
    signal q_ctrl    : std_logic_vector(1 downto 0) := "00";
    signal q_commit  : std_logic := '0';
+   signal q_win0, q_reg_ce, q_csr, q_csr_wait : std_logic;
+   signal q_csr_data, q_rd : std_logic_vector(15 downto 0);
+   signal q_req_status, q_resp_status : std_logic_vector(3 downto 0);
 
    signal q_events  : std_logic_vector(3 downto 0);
    signal q_tf      : std_logic_vector(55 downto 0);
@@ -476,12 +491,40 @@ begin
    ---------------------------------------------------------------------------------------
 
    q_bufaddr    <= unsigned(qnice_addr_i(7 downto 0));
-   qnice_wait_o <= '0';
+   q_win0       <= '1' when qnice_addr_i(27 downto 12) = x"0000" else '0';
+   q_reg_ce     <= qnice_ce_i and q_win0;
+
+   -- the M2M CSR in window 0xFFFF: answers READY as soon as the Shell reports the file
+   i_qnice_csr : entity work.qnice_csr
+      generic map (
+         G_ERROR_STRINGS => C_ERROR_STRINGS
+      )
+      port map (
+         qnice_clk_i          => qnice_clk_i,
+         qnice_rst_i          => qnice_rst_i,
+         qnice_addr_i         => qnice_addr_i,
+         qnice_data_i         => qnice_data_i,
+         qnice_ce_i           => qnice_ce_i,
+         qnice_we_i           => qnice_we_i,
+         qnice_data_o         => q_csr_data,
+         qnice_wait_o         => q_csr_wait,
+         qnice_csr_o          => q_csr,
+         qnice_req_status_o   => q_req_status,
+         qnice_req_length_o   => open,
+         qnice_resp_status_i  => q_resp_status,
+         qnice_resp_error_i   => x"0",
+         qnice_resp_address_i => (others => '0')
+      ); -- i_qnice_csr
+
+   q_resp_status <= C_CSR_RESP_READY when q_req_status = C_CSR_REQ_OK else C_CSR_RESP_IDLE;
+
+   qnice_data_o <= q_csr_data when q_csr = '1' else q_rd;
+   qnice_wait_o <= q_csr_wait when q_csr = '1' else '0';
 
    qnice_write_proc : process (qnice_clk_i)
    begin
       if falling_edge(qnice_clk_i) then
-         if qnice_ce_i = '1' and qnice_we_i = '1' then
+         if q_reg_ce = '1' and qnice_we_i = '1' then
             if qnice_addr_i(8) = '0' then
                rd_buf(to_integer(q_bufaddr)) <= qnice_data_i;
             else
@@ -539,7 +582,7 @@ begin
                when others => null;
             end case;
          end if;
-         qnice_data_o <= d;
+         q_rd <= d;
       end if;
    end process qnice_read_proc;
 
