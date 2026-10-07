@@ -880,6 +880,40 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   mega65.vhd), priority red > yellow (ADF dirty) > green (floppy).
   `CORE_VERSION` 0.1.2, settings file `megamiga-0.1.2.cfg`.
 
+- **BRANCH `a500plus` (Megamiga 0.2.0-dev, 2026-10-08, local only): A500+
+  MODE - ECS chipset, 2 MB Chip RAM, 512 KB Kickstart, everything in SDRAM.
+  R4/R5/R6 only (R3 support dropped on the user's request; CORE-R3.xpr no
+  longer builds). Simulated, R6-built, NOT hardware-tested.** Minimig's own
+  `rtl/sdram_ctrl.v` (+ `cpu_cache_new.v`, both SFType SVerilog) is back, as on
+  MiSTer: 113.5 MHz = 4 x main_clk from the NATIVE MMCM (clk.vhd CLKOUT1), 16
+  states per 7 MHz cycle re-synced to c1 (`main.vhd` exports `c7m_o`), one
+  access per slot (chipset > CPU write > cache fill > refresh), the SDRAM clock
+  a register output (56.75 MHz), all pin registers IOB-packed (CORE.xdc).
+  NEW `CORE/vhdl/amiga_sdram.vhd` wraps it: chipset port = the banked
+  minimig_sram_bridge address (chip $000000.., slow $400000.., kick $780000 =
+  512 KB) in SDRAM bank 0; Zorro II Fast RAM in bank 1 (`"01" & ramaddr`), so
+  it cannot alias the chipset banks. A maintenance writer owns the chipset port
+  while it has work: the Kickstart loader (QNICE device 0x0100 is now
+  write-only; byte pairs cross through an xpm_fifo_async; words in the first
+  256 KB are also written to the second, so 1.3 is mirrored and a 512 KB ROM
+  overwrites the mirror) and the cold-boot scrub (amiga_cold_boot holds each
+  SysBase word for 64 clocks). Each word: 8 clocks presented, 8 idle (refresh).
+  fastram_sdram.vhd and the Chip/Slow/Kick BRAMs are gone (320 tiles free).
+  amiga_config: 0xF3 = 0x08 (ECS), 0xF5 = 0x07 (2 MB chip + slow toggle).
+  The core clock is pinned to native (`core_speed_i => "00"`, CORE.xdc times
+  i_clk_main, case analysis on the BUFGMUX select) because the 4x clock has no
+  fast twin: HDMI flicker-free does nothing in this mode. ECS SuperHires (28 MHz
+  pixel CE) does not fit the M2M video path. Fixes to the MiSTer file
+  (submodule branch `a500plus`): standard tri-state data bus instead of an
+  `inout reg`, and registers declared before use (Vivado made implicit 1-bit
+  nets otherwise - "already implicitly declared" is a must-fix warning).
+  Timing basis (from minimig_m68k_bridge.v): the chipset address is valid from
+  c1 rising, the controller takes it 2 fast clocks later and has the word at
+  clock 11; the 68000 bridge latches at the end of Q2 = clock 12 (MiSTer's
+  margin). Out-of-repo test: `~/aexp-work/a500p/sim` (Icarus: amiga_sdram via
+  ghdl + real sdram_ctrl/cpu_cache_new + an SDRAM model with protocol checks;
+  `fix_inout.py` patches ghdl's one-way inout; 5/5 mutants killed).
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

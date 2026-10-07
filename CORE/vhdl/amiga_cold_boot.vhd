@@ -80,16 +80,28 @@ begin
 
             when ASSERT_RESET =>
                if reset_hold_count = 0 then
-                  state <= SCRUB_SYSBASE_HI;
+                  reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
+                  state            <= SCRUB_SYSBASE_HI;
                else
                   reset_hold_count <= reset_hold_count - 1;
                end if;
 
+            -- Megamiga: chip RAM is in the SDRAM, where amiga_sdram.vhd writes the word in
+            -- one of its 7 MHz slots: hold each address for C_RESET_HOLD_CYCLES clocks
             when SCRUB_SYSBASE_HI =>
-               state <= SCRUB_SYSBASE_LO;
+               if reset_hold_count = 0 then
+                  reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
+                  state            <= SCRUB_SYSBASE_LO;
+               else
+                  reset_hold_count <= reset_hold_count - 1;
+               end if;
 
             when SCRUB_SYSBASE_LO =>
-               state <= HOLD_RESET;
+               if reset_hold_count = 0 then
+                  state <= HOLD_RESET;
+               else
+                  reset_hold_count <= reset_hold_count - 1;
+               end if;
 
             when HOLD_RESET =>
                -- Capture the latest requested values, not the values that originally triggered

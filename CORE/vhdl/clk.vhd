@@ -75,6 +75,8 @@ entity clk is
       core_speed_i    : in  unsigned(1 downto 0);
 
       main_clk_o      : out std_logic;   -- Amiga PAL core clock: 28.375000 MHz (ideal: 28.3751600 MHz, -5.6 ppm)
+      main_clk4x_o    : out std_logic;   -- 4 x the core clock: 113.5 MHz for the SDRAM (Megamiga),
+                                         -- from the NATIVE MMCM only: keep core_speed_i at native
       main_rst_o      : out std_logic    -- main's reset, synchronized
    );
 end entity clk;
@@ -95,6 +97,7 @@ signal fast_locked        : std_logic;
 
 -- glitch-free mux output feeding the shared output BUFG
 signal main_clk_mmcm      : std_logic;
+signal native_clk4x_mmcm  : std_logic;
 
 begin
 
@@ -121,10 +124,15 @@ begin
          CLKOUT0_DIVIDE_F     => 40.000,     -- 28.375000 MHz (ideal 28.3751600 MHz, -5.6 ppm)
          CLKOUT0_PHASE        => 0.000,
          CLKOUT0_DUTY_CYCLE   => 0.500,
-         CLKOUT0_USE_FINE_PS  => FALSE
+         CLKOUT0_USE_FINE_PS  => FALSE,
+         CLKOUT1_DIVIDE       => 10,         -- 113.500000 MHz = 4 x CLKOUT0, phase-aligned
+         CLKOUT1_PHASE        => 0.000,
+         CLKOUT1_DUTY_CYCLE   => 0.500,
+         CLKOUT1_USE_FINE_PS  => FALSE
       )
       port map (
          -- Output clocks
+         CLKOUT1             => native_clk4x_mmcm,
          CLKFBOUT            => main_fb_mmcm,
          CLKOUT0             => native_clk_mmcm,
          -- Input clock control
@@ -238,6 +246,12 @@ begin
          I1 => fast_clk_mmcm,       -- s = 1 -> fast   (28.437500 MHz)
          S  => core_speed_i(0),
          O  => main_clk_mmcm
+      );
+
+   main_clk4x_bufg : BUFG
+      port map (
+         I => native_clk4x_mmcm,
+         O => main_clk4x_o
       );
 
    main_clk_bufg : BUFG

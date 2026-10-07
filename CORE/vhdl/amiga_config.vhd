@@ -188,9 +188,9 @@ architecture synthesis of amiga_config is
    -- The configuration sequence: see the header comment for the why of each value
    constant C_SEQ : t_cfg_seq := (
       0 => (cmd => x"F1", payload => x"0007"),  -- cpuhlt=1 cpurst=1 usrrst=1: halt CPU, hold sys_reset
-      1 => (cmd => x"F3", payload => x"0000"),  -- chipset "XXXGEANT" = 0: OCS, A500 (not A1000), PAL
+      1 => (cmd => x"F3", payload => x"0008"),  -- chipset "XXXGEANT" = 0x08: ECS (Megamiga, A500+), PAL
       2 => (cmd => x"F4", payload => x"0000"),  -- cpu "XXXXKCTT" = 0: 68000, no cache, no fast-kick
-      3 => (cmd => x"F5", payload => x"0004"),  -- memory "XHFFSSCC" = 0x04: 512K chip, 512K slow,
+      3 => (cmd => x"F5", payload => x"0007"),  -- memory "XHFFSSCC" = 0x07: 2M chip (Megamiga), 512K slow,
                                                 --   0 fast, no HRTmon (default 0x05 = 1M chip!).
                                                 --   Bit 2 (SS[0], the 512K slow RAM) is
                                                 --   overridden at send time by slow_ram_q,

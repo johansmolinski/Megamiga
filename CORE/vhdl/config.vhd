@@ -67,21 +67,21 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "0.1.2";
+constant CORE_VERSION : string := "0.2.0-dev";
 
 constant SCR_WELCOME : string :=
 
-   "Megamiga " & CORE_VERSION & " - Amiga 500 for MEGA65\n" &
+   "Megamiga " & CORE_VERSION & " - Amiga 500+\n" &
    "Based on AExp by sy2002 (Minimig port)\n\n" &
 
    "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
    "done by sy2002 and MJoergen\n\n\n" &
 
-   "This core needs the Kickstart 1.3 ROM on\n" &
-   "your SD card (FAT32):\n\n" &
+   "This core needs a Kickstart ROM on your\n" &
+   "SD card (FAT32):\n\n" &
    "    /amiga/kick.rom\n\n" &
-   "Raw 256 KB dump of Kickstart 1.3\n" &
-   "(rev 34.5, A500), no byte swapping.\n\n\n" &
+   "Raw dump, no byte swapping: 1.3 (256 KB)\n" &
+   "or 2.04/3.x for the A500/A600 (512 KB).\n\n\n" &
 
    "    Key                Amiga 500\n" &
    "    " & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_1 & CHR_LINE_1 & "\n" &
@@ -92,17 +92,17 @@ constant SCR_WELCOME : string :=
 
 constant HELP_1 : string :=
 
-   "\n Megamiga " & CORE_VERSION & " - Amiga 500 for MEGA65\n" &
+   "\n Megamiga " & CORE_VERSION & " - Amiga 500+\n" &
    " Based on AExp by sy2002 (Minimig port)\n\n" &
    
    " github.com/johansmolinski/Megamiga\n\n" &
 
    " THE MACHINE\n\n" &
 
-   " Amiga 500, 68000 CPU, OCS, PAL only\n" &
-   " 512 KB Chip RAM, 512 KB Slow RAM and\n" &
-   " 8 MB Fast RAM (R4+), in Memory menu\n" &
-   " Kickstart 1.3\n" &
+   " Amiga 500+, 68000 CPU, ECS, PAL only\n" &
+   " 2 MB Chip RAM, 512 KB Slow RAM and\n" &
+   " 8 MB Fast RAM, in the Memory menu\n" &
+   " Kickstart 1.3, 2.04 or 3.x (512 KB)\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
    " (volume and filters in the menu)\n" &
@@ -120,7 +120,7 @@ constant HELP_1 : string :=
    " All in the Drive Settings menu.\n\n" &
 
    " Not implemented, yet:\n" &
-   " Kickstart newer than 1.3, ECS/AGA, NTSC\n\n" &
+   " AGA, NTSC, SuperHires, flicker-free\n\n" &
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";

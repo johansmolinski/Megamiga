@@ -1013,6 +1013,18 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/sdram_ctrl.v">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cpu_cache_new.v">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cpu_wrapper.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -1067,7 +1079,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/vhdl/fastram_sdram.vhd">
+      <File Path="$PPRDIR/vhdl/amiga_sdram.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>

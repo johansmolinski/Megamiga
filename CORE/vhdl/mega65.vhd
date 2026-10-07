@@ -285,6 +285,12 @@ architecture synthesis of MEGA65_Core is
 ---------------------------------------------------------------------------------------------
 
 signal main_clk               : std_logic;               -- Core main clock
+signal main_clk4x             : std_logic;               -- 113.5 MHz, SDRAM controller
+signal main_fram_state        : std_logic_vector(1 downto 0);
+signal main_cpu_cacr          : std_logic_vector(3 downto 0);
+signal main_c7m               : std_logic;
+signal qnice_kick_ce          : std_logic;
+signal qnice_kick_wait        : std_logic;
 signal main_rst               : std_logic;
 
 ---------------------------------------------------------------------------------------------
@@ -908,8 +914,11 @@ begin
    clk_gen : entity work.clk
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
-         core_speed_i      => hr_core_speed,   -- "00"=native (28.375), "01"=fast (28.4375)
+         -- Megamiga: the SDRAM clock (4x) comes from the native MMCM only, so the core clock
+         -- must not switch to the fast twin: HDMI flicker-free is disabled (see AGENTS.md)
+         core_speed_i      => "00",
          main_clk_o        => main_clk,        -- CORE's 28.375 MHz clock
+         main_clk4x_o      => main_clk4x,      -- 113.5 MHz for the SDRAM controller
          main_rst_o        => main_rst         -- CORE's reset, synchronized
       ); -- clk_gen
 
@@ -1209,6 +1218,9 @@ begin
          fram_data_o          => main_fram_wrdata,
          fram_data_i          => main_fram_rddata,
          fram_ready_i         => main_fram_ready,
+         fram_state_o         => main_fram_state,
+         cpu_cacr_o           => main_cpu_cacr,
+         c7m_o                => main_c7m,
          ide_ena_i            => main_ide_ena,
          ide_sel_o            => main_ide_sel,
          ide_data_i           => main_ide_rddata,
@@ -1292,18 +1304,38 @@ begin
    -- is '0', so the board is never autoconfig'd); synthesis trims the controller.
    ---------------------------------------------------------------------------------------------
 
-   i_fastram_sdram : entity work.fastram_sdram
+   i_amiga_sdram : entity work.amiga_sdram
       port map (
          clk_i          => main_clk,
+         clk4x_i        => main_clk4x,
          rst_i          => main_rst,
-         sel_i          => main_fram_sel,
-         we_i           => main_fram_we,
-         addr_i         => main_fram_addr,
-         uds_n_i        => main_fram_uds_n,
-         lds_n_i        => main_fram_lds_n,
-         data_i         => main_fram_wrdata,
-         data_o         => main_fram_rddata,
-         ready_o        => main_fram_ready,
+         c7m_i          => main_c7m,
+         ram_addr_i     => main_ram_addr,
+         ram_data_i     => main_ram_wrdata,
+         ram_data_o     => main_ram_rddata,
+         ram_bhe_n_i    => main_ram_bhe_n,
+         ram_ble_n_i    => main_ram_ble_n,
+         ram_we_n_i     => main_ram_we_n,
+         ram_oe_n_i     => main_ram_oe_n,
+         fram_sel_i     => main_fram_sel,
+         fram_state_i   => main_fram_state,
+         fram_addr_i    => main_fram_addr,
+         fram_uds_n_i   => main_fram_uds_n,
+         fram_lds_n_i   => main_fram_lds_n,
+         fram_data_i    => main_fram_wrdata,
+         fram_data_o    => main_fram_rddata,
+         fram_ready_o   => main_fram_ready,
+         cpu_reset_n_i  => not main_ide_rst,
+         cpu_cacr_i     => main_cpu_cacr,
+         scrub_i        => amiga_chip_scrub,
+         scrub_addr_i   => amiga_chip_scrub_addr,
+         qnice_clk_i    => qnice_clk_i,
+         qnice_rst_i    => qnice_rst_i,
+         qnice_addr_i   => qnice_dev_addr_i,
+         qnice_data_i   => qnice_dev_data_i,
+         qnice_ce_i     => qnice_kick_ce,
+         qnice_we_i     => qnice_dev_we_i,
+         qnice_wait_o   => qnice_kick_wait,
          sdram_clk_o    => sdram_clk_o,
          sdram_cke_o    => sdram_cke_o,
          sdram_ras_n_o  => sdram_ras_n_o,
@@ -1315,7 +1347,7 @@ begin
          sdram_dqml_o   => sdram_dqml_o,
          sdram_dqmh_o   => sdram_dqmh_o,
          sdram_dq_io    => sdram_dq_io
-      ); -- i_fastram_sdram
+      ); -- i_amiga_sdram
 
    ---------------------------------------------------------------------------------------------
    -- IDE board: RIPPLE-compatible Zorro II IDE controller, main_clk domain for the Amiga side
@@ -1369,26 +1401,7 @@ begin
    main_slow_sel <= '1' when main_ram_addr(22 downto 19) = "1000" else '0';
    main_kick_sel <= '1' when main_ram_addr(22 downto 19) = "1111" else '0';
 
-   -- The read mux select must match the 1-cycle BRAM read latency: register it.
-   -- Within one 7.09 MHz bus cycle the address is stable for 4 clk28 ticks and
-   -- the consumers sample the data in the second half of the cycle, so the
-   -- one-tick-late select is glitch-free where it matters.
-   read_mux_sel_proc : process (main_clk)
-   begin
-      if rising_edge(main_clk) then
-         if main_kick_sel = '1' then
-            main_rd_sel <= "10";
-         elsif main_slow_sel = '1' then
-            main_rd_sel <= "01";
-         else
-            main_rd_sel <= "00";
-         end if;
-      end if;
-   end process read_mux_sel_proc;
-
-   main_ram_rddata <= main_kick_q_u & main_kick_q_l when main_rd_sel = "10" else
-                      main_slow_q_u & main_slow_q_l when main_rd_sel = "01" else
-                      main_chip_q_u & main_chip_q_l;
+   -- (the read data comes straight from amiga_sdram.vhd)
 
    ---------------------------------------------------------------------------------------------
    -- Audio and video settings (QNICE clock domain)
@@ -1461,22 +1474,18 @@ begin
       qnice_dev_data_o <= x"EEEE";
       qnice_dev_wait_o <= '0';
 
-      qnice_kick_we_u  <= '0';
-      qnice_kick_we_l  <= '0';
+      qnice_kick_ce    <= '0';
       qnice_adf_ce     <= "000";
       qnice_ide_ce     <= '0';
       qnice_iderom_ce  <= '0';
 
       case qnice_dev_id_i is
 
+         -- Kickstart: write-only loader into the SDRAM kick bank (amiga_sdram.vhd)
          when C_DEV_AMIGA_KICK =>
-            qnice_kick_we_u <= qnice_dev_ce_i and qnice_dev_we_i and not qnice_dev_addr_i(0);
-            qnice_kick_we_l <= qnice_dev_ce_i and qnice_dev_we_i and     qnice_dev_addr_i(0);
-            if qnice_dev_addr_i(0) = '0' then
-               qnice_dev_data_o <= x"00" & qnice_kick_q_u;
-            else
-               qnice_dev_data_o <= x"00" & qnice_kick_q_l;
-            end if;
+            qnice_kick_ce    <= qnice_dev_ce_i;
+            qnice_dev_data_o <= x"0000";
+            qnice_dev_wait_o <= qnice_kick_wait;
 
          when C_DEV_AMIGA_ADF0 =>
             qnice_adf_ce(0)  <= qnice_dev_ce_i;
@@ -1639,148 +1648,7 @@ begin
       end if;
    end process fdd_served_proc;
 
-   ---------------------------------------------------------------------------------------------
-   -- Dual Clocks: the Amiga's memories
-   --
-   -- Port A: Amiga core, rising edge of the 28.375 MHz clock. Synchronous BRAM
-   --         with 1 clk28 read latency easily meets the chipset bus timing
-   --         (address stable from the start of each 7.09 MHz cycle, data
-   --         consumed in its second half).
-   -- Port B: QNICE, falling edge of the 50 MHz QNICE clock (M2M convention).
-   ---------------------------------------------------------------------------------------------
-
-   -- Chip and Slow RAM: single-ported from the QNICE perspective (port B
-   -- completely tied off, so no QNICE-domain routing reaches these 256 BRAM
-   -- tiles - see the timing note at the qnice signal declarations).
-   -- During an Amiga-local cold boot only, the existing Chip RAM port is
-   -- overridden for two clocks to clear $000004-$000007. Both byte lanes are
-   -- written together; the 68000 and chipset are held in reset throughout.
-   main_chip_addr   <= amiga_chip_scrub_addr when amiga_chip_scrub = '1' else main_ram_addr(18 downto 1);
-   main_chip_data_u <= (others => '0') when amiga_chip_scrub = '1' else main_ram_wrdata(15 downto 8);
-   main_chip_data_l <= (others => '0') when amiga_chip_scrub = '1' else main_ram_wrdata(7 downto 0);
-   main_chip_wren_u <= '1' when amiga_chip_scrub = '1' else
-                       main_chip_sel and not main_ram_we_n and not main_ram_bhe_n;
-   main_chip_wren_l <= '1' when amiga_chip_scrub = '1' else
-                       main_chip_sel and not main_ram_we_n and not main_ram_ble_n;
-
-   chip_ram_u : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_chip_addr,
-         data_a    => main_chip_data_u,
-         wren_a    => main_chip_wren_u,
-         q_a       => main_chip_q_u,
-
-         clock_b   => '0',
-         address_b => (others => '0'),
-         data_b    => (others => '0'),
-         wren_b    => '0',
-         q_b       => open
-      ); -- chip_ram_u
-
-   chip_ram_l : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_chip_addr,
-         data_a    => main_chip_data_l,
-         wren_a    => main_chip_wren_l,
-         q_a       => main_chip_q_l,
-
-         clock_b   => '0',
-         address_b => (others => '0'),
-         data_b    => (others => '0'),
-         wren_b    => '0',
-         q_b       => open
-      ); -- chip_ram_l
-
-   slow_ram_u : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_ram_addr(18 downto 1),
-         data_a    => main_ram_wrdata(15 downto 8),
-         wren_a    => main_slow_sel and not main_ram_we_n and not main_ram_bhe_n,
-         q_a       => main_slow_q_u,
-
-         clock_b   => '0',
-         address_b => (others => '0'),
-         data_b    => (others => '0'),
-         wren_b    => '0',
-         q_b       => open
-      ); -- slow_ram_u
-
-   slow_ram_l : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_ram_addr(18 downto 1),
-         data_a    => main_ram_wrdata(7 downto 0),
-         wren_a    => main_slow_sel and not main_ram_we_n and not main_ram_ble_n,
-         q_a       => main_slow_q_l,
-
-         clock_b   => '0',
-         address_b => (others => '0'),
-         data_b    => (others => '0'),
-         wren_b    => '0',
-         q_b       => open
-      ); -- slow_ram_l
-
-   -- Kickstart: read-only from the Amiga side (wren_a fixed '0'); written only
-   -- by the QNICE Shell during the mandatory auto-load. The core-side address
-   -- ignores bit 18, mirroring the 256 KB ROM at $F80000 and $FC0000.
-   kick_rom_u : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 17,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_ram_addr(17 downto 1),
-         data_a    => (others => '0'),
-         wren_a    => '0',
-         q_a       => main_kick_q_u,
-
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(17 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_kick_we_u,
-         q_b       => qnice_kick_q_u
-      ); -- kick_rom_u
-
-   kick_rom_l : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 17,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
-      )
-      port map (
-         clock_a   => main_clk,
-         address_a => main_ram_addr(17 downto 1),
-         data_a    => (others => '0'),
-         wren_a    => '0',
-         q_a       => main_kick_q_l,
-
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(17 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_kick_we_l,
-         q_b       => qnice_kick_q_l
-      ); -- kick_rom_l
+   -- Megamiga: Chip RAM, Slow RAM and the Kickstart live in the SDRAM (amiga_sdram.vhd).
 
    ---------------------------------------------------------------------------------------------
    -- Hardware Floppy: connector driving, 50 MHz read front-end, CDC and diagnostics

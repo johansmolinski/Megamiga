@@ -32,8 +32,15 @@
 ## i_clk_fast (clk.vhd) and hr_core_speed (mega65.vhd). Post-synth sign-off gate: BOTH
 ## get_pins must return non-empty, and the routed report must show main_clk at ~35.165 ns
 ## (the fast period), not 35.242 ns.
-set_case_analysis 1 [get_pins CORE/hr_core_speed_reg[0]/Q]
-create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_fast/CLKOUT0]
+## Megamiga: the SDRAM controller's 113.5 MHz clock comes from the NATIVE MMCM (CLKOUT1) and
+## mega65.vhd ties the mux select to native, so the core clock is the native leg and is timed
+## as such: main_clk on i_clk_main/CLKOUT0, the select frozen at 0. The 4x clock keeps its
+## auto-derived name and is synchronous to main_clk (same MMCM), so the 28 <-> 113.5 MHz
+## crossings in amiga_sdram.vhd are timed as ordinary synchronous paths.
+## (AExp timed the flicker-free fast leg here: set_case_analysis 1 on hr_core_speed_reg[0]/Q
+## and main_clk on i_clk_fast/CLKOUT0.)
+set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
+create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
 # Add more clocks here, if needed
 
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here
@@ -98,15 +105,14 @@ set_max_delay -datapath_only 20.000 \
 ##   combinational gating), so the async CLR pins get same-clock
 ##   recovery/removal checks that Vivado analyzes automatically - verify
 ##   them in the timing report of every build.
-## - SDRAM Fast RAM (CORE/vhdl/fastram_sdram.vhd, R4/R5/R6 only): the SDRAM pins
-##   deliberately carry no set_input_delay/set_output_delay. The controller runs on
-##   main_clk (28.4 MHz), forwards the INVERTED main_clk through an ODDR as the SDRAM
-##   clock (~17 ns setup/hold on every command/address/data pin) and captures read
-##   data on the falling edge (~20 ns setup / ~8 ns hold); the budget is in the
-##   header of fastram_sdram.vhd. It assumes the pin registers sit in the IOBs
-##   (HDL attribute IOB="TRUE"): after implementation, check that cmd/a/ba/dqm/
-##   dq_out/dq_t/dq_in of CORE/i_fastram_sdram were packed into the IOBs (e.g. the
-##   ILOGIC/OLOGIC flip-flop counts in the utilization report, and no IOB-packing
-##   warnings for these cells in the implementation log). The falling-edge capture
-##   -> rising-edge FSM hop is an ordinary half-period main_clk path that Vivado
-##   times automatically.
+## - SDRAM (Megamiga, CORE/vhdl/amiga_sdram.vhd + Minimig rtl/sdram_ctrl.v): Chip, Slow,
+##   Kickstart and Fast RAM. The controller runs at 113.5 MHz (4 x main_clk, same MMCM) and
+##   generates the SDRAM clock as a REGISTER output (56.75 MHz): command/address/data change
+##   one 113.5 MHz period before the SDRAM clock rises and are held one period after, and read
+##   data is sampled one period after the edge it was launched with - the MiSTer scheme. This
+##   only holds with ALL pin registers in the IOBs (matched clock-to-out), hence IOB TRUE
+##   below; there are no set_input/output_delay constraints. After implementation, check the
+##   ILOGIC/OLOGIC counts and the absence of IOB-packing warnings for the SDRAM ports.
+
+## Megamiga: SDRAM pin registers in the IOBs (see the note above)
+set_property IOB TRUE [get_ports {sdram_a_o[*] sdram_ba_o[*] sdram_ras_n_o sdram_cas_n_o sdram_we_n_o sdram_dqml_o sdram_dqmh_o sdram_clk_o sdram_dq_io[*]}]

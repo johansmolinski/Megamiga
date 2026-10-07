@@ -143,6 +143,9 @@ entity main is
       fram_data_o             : out std_logic_vector(15 downto 0);  -- write data
       fram_data_i             : in  std_logic_vector(15 downto 0);  -- read data
       fram_ready_i            : in  std_logic;
+      fram_state_o            : out std_logic_vector(1 downto 0);   -- cpustate (sdram cache)
+      cpu_cacr_o              : out std_logic_vector(3 downto 0);   -- 68k cache control
+      c7m_o                   : out std_logic;                      -- amiga_clk c1 (SDRAM phase)
 
       -- IDE board (ide_board.vhd in mega65.vhd, RIPPLE-compatible, autoconfig'd by
       -- cpu_wrapper after the Fast RAM board). ide_ena_i puts it into the autoconfig
@@ -664,6 +667,8 @@ begin
    -- steer MiSTer's SDRAM/DDR3 split and are constant for Zorro II.
    fram_addr_o <= cpu_ramaddr(22 downto 1);
    fram_we_o   <= '1' when cpu_state = "11" else '0';
+   fram_state_o <= cpu_state;
+   c7m_o        <= c1;
 
    -- IDE board reset: the same condition that resets cpu_wrapper's autoconfig chain
    ide_rst_proc : process (clk_main_i)
@@ -725,7 +730,7 @@ begin
          toccata_base    => open,
 
          cpustate        => cpu_state,
-         cacr            => open,
+         cacr            => cpu_cacr_o,
          nmi_addr        => cpu_nmi_addr
       ); -- i_cpu_wrapper
 
