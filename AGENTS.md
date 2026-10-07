@@ -1273,11 +1273,21 @@ the deep material lives in `doc/` (see "Key documents").
   m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
   m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
   produce a `.def`-identical ROM vs the VM build).
+- **The QNICE submodule tracks `dev-V1.61`** (`.gitmodules` `branch`,
+  currently `2541cce`, 2026-09-22; update with `git submodule update --remote
+  M2M/QNICE`, the pre-synth hook reassembles the firmware against the new
+  monitor). That branch carries two FAT32 library fixes under the ADF
+  write-back: the sector buffer is written back before `DIR_OPEN`/`FILE_OPEN`
+  re-fill it (`a937af2`, the single-buffer-owner hazard the firmware also
+  guards against itself, see hard rule 11 and the write spec) and the 32-bit
+  sector-address overflow check (`2541cce`). The M2M V2.0.1 template pins the
+  2024 commit `2eb27dd`, 13 commits behind; a template sync must never drag
+  the pointer back there.
 - **Headless QNICE menu regression**: `M2M/rom/menu_percent_test.asm` runs
   the real `OPTM_SHOW` scanner and guards the C64 `%`-at-end-of-label fix.
-  The QNICE snapshot pinned here predates multi-image `-b` mode, even when
-  rebuilt; use a current batch-capable QNICE emulator externally (the C64
-  repository has one) without importing that emulator feature. Assemble the
+  The pinned QNICE (`dev-V1.61`) ships the emulator's headless batch mode
+  (`-b`, one or more `.out` images), so build the POSIX terminal flavour
+  from `M2M/QNICE/emulator` and use it as `$QNICE_HEADLESS`. Assemble the
   test with the native/VM assembler, then run `$QNICE_HEADLESS -b 0x8000
   M2M/QNICE/monitor/monitor.out M2M/rom/menu_percent_test.out`. Expected:
   `PASS: percentage labels preserve later %s indices`. Run this after every
