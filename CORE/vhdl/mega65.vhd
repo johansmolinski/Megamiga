@@ -321,6 +321,10 @@ signal main_ide_sel           : std_logic;
 signal main_ide_rddata        : std_logic_vector(15 downto 0);
 signal main_ide_ready         : std_logic;
 signal main_ide_rst           : std_logic;
+signal main_ide_activity      : std_logic;                -- IDE command running
+signal main_hd_led            : std_logic := '0';         -- stretched for the drive LED
+signal main_hd_led_cnt        : unsigned(20 downto 0) := (others => '0');
+constant C_HD_LED_HOLD        : natural := CORE_CLK_SPEED / 20;  -- 50 ms
 signal main_iderom_avm_read          : std_logic;
 signal main_iderom_avm_address       : std_logic_vector(31 downto 0);
 signal main_iderom_avm_readdata      : std_logic_vector(15 downto 0);
@@ -927,8 +931,29 @@ begin
    -- While unflushed ADF writes exist the LED is forced ON and turns YELLOW -
    -- "do not power off yet" - and back to green once the background flush is
    -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
-   main_drive_led_o     <= main_fdd_led or main_adf_any_dirty;
-   main_drive_led_col_o <= x"FFFF00" when main_adf_any_dirty = '1' else x"00FF00";
+   -- The hard disk (IDE board) shares the LED and shows RED: a command in
+   -- progress (BSY or DRQ) lights it, stretched by C_HD_LED_HOLD so that
+   -- single short accesses still flash visibly and a long transfer stays on.
+   -- Red wins over yellow and green: during disk activity is when the user
+   -- most needs to know that the Amiga is busy.
+   main_drive_led_o     <= main_fdd_led or main_adf_any_dirty or main_hd_led;
+   main_drive_led_col_o <= x"FF0000" when main_hd_led = '1' else
+                           x"FFFF00" when main_adf_any_dirty = '1' else
+                           x"00FF00";
+
+   p_hd_led : process (main_clk)
+   begin
+      if rising_edge(main_clk) then
+         if main_ide_activity = '1' then
+            main_hd_led_cnt <= to_unsigned(C_HD_LED_HOLD, main_hd_led_cnt'length);
+            main_hd_led     <= '1';
+         elsif main_hd_led_cnt /= 0 then
+            main_hd_led_cnt <= main_hd_led_cnt - 1;
+         else
+            main_hd_led     <= '0';
+         end if;
+      end if;
+   end process p_hd_led;
 
    -- "unflushed writes exist" is the OR across all simulated drives: the LED
    -- must stay yellow until the last drive is clean
@@ -1317,6 +1342,7 @@ begin
          data_o                  => main_ide_rddata,
          ready_o                 => main_ide_ready,
          board_ena_o             => main_ide_ena,
+         activity_o              => main_ide_activity,
 
          rom_avm_read_o          => main_iderom_avm_read,
          rom_avm_address_o       => main_iderom_avm_address,

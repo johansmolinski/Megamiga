@@ -81,6 +81,7 @@ entity ide_board is
       data_o                 : out std_logic_vector(15 downto 0);
       ready_o                : out std_logic;        -- -> DTACK
       board_ena_o            : out std_logic;        -- -> cpu_wrapper ide_ena
+      activity_o             : out std_logic;        -- a command runs (BSY or DRQ): drive LED
 
       -- core clock domain: reading lide.rom from HyperRAM (via avm_fifo)
       rom_avm_read_o         : out std_logic;
@@ -194,6 +195,7 @@ begin
    ready_o     <= ready and sel_i and not (rw_i xor ack_rw);
    data_o      <= rdata;
    board_ena_o <= m_board_ena;
+   activity_o  <= status(C_BSY) or status(C_DRQ);
 
    rom_avm_read_o    <= rom_read;
    rom_avm_address_o <= std_logic_vector(resize(unsigned(G_ROM_BASE) + unsigned(lat_addr(15 downto 2)), 32));
