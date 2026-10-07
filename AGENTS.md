@@ -855,6 +855,17 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   UART (115200); `~/aexp-work/qmon.py` types into it; device 0x0107 window 0
   at 0x7100.. = events, task-file snapshot, last commit, control.
 
+- **MEGAMIGA 0.1.1 (2026-10-07) - THE FORK IS RENAMED.** At sy2002's request
+  the fork (repo johansmolinski/Megamiga, formerly johansmolinski/AExp) no
+  longer presents itself as AExp: `CORE_VERSION` = `0.1.1` (no longer a
+  `WIP-V2-A11-JS-NN` string - `make_release.py` does not accept it, package
+  by hand), CORENAME / welcome / HELP_1 = "Megamiga 0.1.1 - Amiga 500 for
+  MEGA65, based on AExp by sy2002", settings file
+  `/amiga/megamiga-0.1.1.cfg` (156 bytes), IDENTIFY model "Megamiga HDF
+  image", README title + intro. Unchanged on purpose: the `/amiga` SD folder,
+  `kick.rom`/`lide.rom`/`aexp_screen.cfg` names, all AExp provenance comments
+  and the docs in `doc/`, which describe the AExp base.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

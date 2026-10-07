@@ -1,5 +1,12 @@
-Amiga 500 for MEGA65
-====================
+Megamiga - Amiga 500 for MEGA65
+===============================
+
+Megamiga is a fork of [AExp](https://github.com/sy2002/AExp), sy2002's Amiga
+500 core for the MEGA65, by Johan Smolinski. It adds an 8 MB Zorro II Fast RAM
+expansion (MEGA65 R4 and newer) and an IDE hard disk (HDF images on the SD
+card) that Kickstart 1.3 boots from. Version 0.1.1. Everything else - and most
+of this README - is AExp; where the text says "AExp", it describes the core
+Megamiga is built on.
 
 Experience the [Commodore Amiga 500](https://en.wikipedia.org/wiki/Amiga_500)
 on your [MEGA65](https://mega65.org/)!
@@ -445,7 +452,7 @@ you reassigned it in the Keyboard menu:
 5. <kbd>Return</kbd> — DVI is on, and the picture should appear.
 6. <kbd>Help</kbd> — closes the menu and saves the setting.
 
-If the `aexp-<version>.cfg` file is on your SD card (step 3 of the
+If the `megamiga-<version>.cfg` file is on your SD card (step 3 of the
 installation), you only have to do this once: the choice is stored there and
 the core comes up in DVI mode from then on. Without that file the setting is
 lost at every power-off, so it is worth copying in.
@@ -550,7 +557,7 @@ via JTAG). Then:
 1. Use a FAT32 formatted SD card with a maximum capacity of 32 GB. The card
    in the back slot has precedence over the card in the bottom slot.
 2. Copy the Kickstart ROM to `/amiga/kick.rom` as described above.
-3. Optional: copy the `aexp-<version>.cfg` file that comes with the build
+3. Optional: copy the `megamiga-<version>.cfg` file that comes with the build
    into `/amiga` so that the core remembers your menu settings. Without the
    file nothing breaks, your settings are just not saved. The file name
    contains the core version, so after an upgrade you need the matching

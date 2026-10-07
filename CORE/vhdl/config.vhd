@@ -67,12 +67,12 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V2-A11-JS-02";
+constant CORE_VERSION : string := "0.1.1";
 
 constant SCR_WELCOME : string :=
 
-   "Amiga 500 for MEGA65 - " & CORE_VERSION & "\n" &
-   "MiSTer Minimig port, by sy2002 in 2026\n\n" &
+   "Megamiga " & CORE_VERSION & " - Amiga 500 for MEGA65\n" &
+   "Based on AExp by sy2002 (Minimig port)\n\n" &
 
    "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
    "done by sy2002 and MJoergen\n\n\n" &
@@ -92,10 +92,10 @@ constant SCR_WELCOME : string :=
 
 constant HELP_1 : string :=
 
-   "\n Amiga 500 for MEGA65 " & CORE_VERSION & "\n" &
-   " MiSTer Minimig port, by sy2002 in 2026\n\n" &
+   "\n Megamiga " & CORE_VERSION & " - Amiga 500 for MEGA65\n" &
+   " Based on AExp by sy2002 (Minimig port)\n\n" &
    
-   " Go to https://a500.mega65.org\n\n" &
+   " github.com/johansmolinski/Megamiga\n\n" &
 
    " THE MACHINE\n\n" &
 
@@ -299,7 +299,7 @@ constant HELP_7 : string :=
 
    "\n REAL-TIME CLOCK\n\n" &
 
-   " AExp reads the MEGA65 battery RTC.\n" &
+   " Megamiga reads the MEGA65 battery RTC.\n" &
    " Set date/time on MEGA65, not the Amiga.\n" &
    " Correct time gives files proper dates.\n\n" &
 
@@ -362,7 +362,7 @@ constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
 constant DIR_START         : string := "/amiga";
-constant CFG_FILE          : string := "/amiga/aexp-" & CORE_VERSION & ".cfg";
+constant CFG_FILE          : string := "/amiga/megamiga-" & CORE_VERSION & ".cfg";
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -441,7 +441,7 @@ constant SEL_CORENAME      : std_logic_vector(15 downto 0) := x"0200";
 
 -- Currently this is only used in the debug console. Use the welcome screen and the
 -- help system to display the name and version of your core to the end user
-constant CORENAME          : string := "Amiga 500 for MEGA65 " & CORE_VERSION;
+constant CORENAME          : string := "Megamiga " & CORE_VERSION;
 
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu  (Selectors 0x0300 .. 0x0312): DO NOT TOUCH
