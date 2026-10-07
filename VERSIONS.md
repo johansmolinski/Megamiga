@@ -3,6 +3,8 @@ Version 2 - MONTH DAY, YEAR
 
 WORK-IN-PROGRES see doc/inofficial.md
 
+## New Features
+
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), each of them either a
   read/write `*.adf` disk image or the built-in MEGA65 drive. One drive
   (`df0:`, a disk image) is switched on by default, because a number of games
@@ -22,6 +24,36 @@ WORK-IN-PROGRES see doc/inofficial.md
 * Stereo Mix option
 
 * Master volume control (perceptual loudness taper)
+
+## Improved Compatibility of the Core
+
+* [WIP] The CIA timers can count pulses on their external `CNT` pin, as the
+  real 8520 chips do. Software that selects this mode, by accident or on
+  purpose, no longer sees a timer running when it should stand still. Fixes
+  the black screen at startup of Crystal Kingdom Dizzy (Fairlight release).
+  MiSTer [PR 230](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/230).
+
+* [WIP] The blitter freezes when a program switches off fill mode via
+  `BLTCON1` while a fill blit is still running, exactly like a real Amiga.
+  Fixes the "red vector cube inside a white object" scene of the demo
+  Absolute Inebriation by Virtual Dreams. One other scene of that demo still
+  shows garbage in the left border, a known issue in all Minimig cores.
+  MiSTer [PR 236](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/236).
+
+* [WIP] Reading the beam position register `VHPOSR` returns the exact value
+  a real Agnus reports. It used to read one colour clock ahead and returned
+  zero instead of the line length at the end of a line. This matters for
+  programs that time their effects by polling the beam. Verified against the
+  real-A500 reference images of the
+  [vAmiga test suite](https://github.com/dirkwhoffmann/vAmigaTS).
+  MiSTer [PR 234](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/234).
+
+* [WIP] A non-interlaced screen is no longer mistaken for an interlaced one
+  when a program clears or toggles the long-frame bit (`LOF`) without
+  switching on interlace, which could make the HDMI flicker fixer treat it
+  as interlaced. MiSTer
+  [issue 231](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/issues/231),
+  commit [`d16cd84`](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/commit/d16cd8458cf8e915c5622ecc7c12ce69d776753c).
 
 Version 1 - July 26, 2026
 =========================

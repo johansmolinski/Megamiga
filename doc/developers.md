@@ -133,7 +133,7 @@ straight from `config.vhd`:
 
 ```bash
 cd M2M/tools
-./make_config.sh aexp-WIP-V2-A10.cfg auto
+./make_config.sh aexp-WIP-V2-B1.cfg auto
 ```
 
 Run it from inside `M2M/tools` — the `auto` argument reads the required
