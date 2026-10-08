@@ -1111,6 +1111,43 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   preservation, no bar) PASS; 9 firmware mutants all killed (`mut/`). The
   fw-adf harness gained the `FL_NOBAR` symbol and still passes.
 
+- **Megamiga 0.3.1-dev, FLOPPY BUFFERS IN SDRAM (branch `rtg`, 2026-10-08,
+  Minimig branch `rtg`): preparation for RTG - frees the HyperRAM for a
+  framebuffer. R6 build `-b` WNS +0.036 (`~/aexp-builds/Megamiga-0.3.1-dev-b`),
+  HARDWARE-CONFIRMED by the user ("Everything works": ADF boot + write-back
+  across a power cycle, three drives, HDF boot, CPU load during floppy
+  loads). Not released yet.** The three ADF pools and lide.rom
+  moved from HyperRAM into the board SDRAM. `sdram_ctrl.v` (submodule) gained
+  a third port (`flpReq/flpAck` toggle handshake, one word per request) that
+  addresses bank 0 with column bit 9 = 1 - the Amiga ports only produce
+  columns 0..511 (24-bit address = 2 bank + 13 row + 9 column), so the 8 MB
+  "floppy area" is disjoint from Chip/Slow/Kick/Fast RAM by construction, and
+  every Amiga slot now clears `casaddr[9]` explicitly. Slot priority: chipset,
+  then the floppy port (never twice in a row while the CPU waits, never while
+  a refresh is due), then CPU write, cache fill, refresh. `amiga_sdram.vhd`
+  turns the core-clock Avalon bus into those requests (bursts split into
+  words; a reset goes through F_DRAIN so a word already in the controller
+  finishes before a new one is taken - otherwise the toggles cross and the
+  controller replays a stale or phantom access). `mega65.vhd`: the wrappers'
+  "hr" side, the 2-input arbiters and `avm_arbit_general` now run on
+  main_clk / `main_reset_m2m_i`; the two main->hr avm_fifos are gone (direct
+  wiring); `hr_core_*` is tied off. The `C_HMAP_*` constants keep their values
+  and now address the SDRAM floppy area (globals.vhd note). Signal prefix
+  `hr_*_avm_` -> `mem_*_avm_`. **RESET TRAP (found on hardware with an ILA, build -a hung at
+  `LOADING ROM #0001`):** the floppy path is reset by `main_rst` (clock
+  generator), NEVER by `main_reset_m2m_i` - the board tops pass
+  `main_reset_m2m or main_qnice_reset or main_rst` into that port, so it is
+  HIGH for as long as the Shell holds the core in reset, i.e. during every
+  ROM/ADF load; the adapter sat in F_DRAIN with waitrequest high. Debug flow
+  for such cases: `~/aexp-work/rtg/ila/ila_build.tcl` (ILA inserted into the
+  synth checkpoint, non-project, reads the three XDCs) + `capture.tcl`
+  (programs over the MEGA65 JTAG via hw_server, CSV export). Test: `~/aexp-work/rtg/flpsim/run.sh` (the
+  A500+ memory TB extended: 10-column SDRAM model, floppy bursts/byte lanes
+  concurrently with chip + Fast RAM traffic, Amiga-memory snapshot unchanged,
+  alias check against chip $1A5, one-clock reset at 8 slot phases) PASS;
+  `mut.sh` 8/8 mutants killed, `rd_stage` is equivalent. `CORE_VERSION`
+  0.3.1 (settings file `megamiga-0.3.1.cfg`, content identical to 0.3.0's).
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

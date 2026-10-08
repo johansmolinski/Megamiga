@@ -631,84 +631,95 @@ signal qnice_fdd_pau_ws       : std_logic;
 signal hr_core_speed              : unsigned(1 downto 0) := "00";
 signal hr_hdmi_ff                 : std_logic;
 
--- ADF track engine read chain after the main->hr CDC (avm_fifo below)
-signal hr_flp_avm_write           : std_logic;
-signal hr_flp_avm_read            : std_logic;
-signal hr_flp_avm_address         : std_logic_vector(31 downto 0);
-signal hr_flp_avm_writedata       : std_logic_vector(15 downto 0);
-signal hr_flp_avm_byteenable      : std_logic_vector( 1 downto 0);
-signal hr_flp_avm_burstcount      : std_logic_vector( 7 downto 0);
-signal hr_flp_avm_readdata        : std_logic_vector(15 downto 0);
-signal hr_flp_avm_readdatavalid   : std_logic;
-signal hr_flp_avm_waitrequest     : std_logic;
+-- ADF track engine read chain (core clock, straight into the arbiter)
+signal mem_flp_avm_write           : std_logic;
+signal mem_flp_avm_read            : std_logic;
+signal mem_flp_avm_address         : std_logic_vector(31 downto 0);
+signal mem_flp_avm_writedata       : std_logic_vector(15 downto 0);
+signal mem_flp_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal mem_flp_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal mem_flp_avm_readdata        : std_logic_vector(15 downto 0);
+signal mem_flp_avm_readdatavalid   : std_logic;
+signal mem_flp_avm_waitrequest     : std_logic;
 
 -- The three ADF mount wrappers' Avalon masters (each wrapper contains its own
--- QNICE->hr CDC), one entry per drive
-signal hr_adf_avm_write           : std_logic_vector(2 downto 0);
-signal hr_adf_avm_read            : std_logic_vector(2 downto 0);
-signal hr_adf_avm_address         : t_adf_addr;
-signal hr_adf_avm_writedata       : t_adf_word;
-signal hr_adf_avm_byteenable      : t_adf_be;
-signal hr_adf_avm_burstcount      : t_adf_byte;
-signal hr_adf_avm_readdata        : t_adf_word;
-signal hr_adf_avm_readdatavalid   : std_logic_vector(2 downto 0);
-signal hr_adf_avm_waitrequest     : std_logic_vector(2 downto 0);
+-- QNICE->core clock CDC), one entry per drive
+signal mem_adf_avm_write           : std_logic_vector(2 downto 0);
+signal mem_adf_avm_read            : std_logic_vector(2 downto 0);
+signal mem_adf_avm_address         : t_adf_addr;
+signal mem_adf_avm_writedata       : t_adf_word;
+signal mem_adf_avm_byteenable      : t_adf_be;
+signal mem_adf_avm_burstcount      : t_adf_byte;
+signal mem_adf_avm_readdata        : t_adf_word;
+signal mem_adf_avm_readdatavalid   : std_logic_vector(2 downto 0);
+signal mem_adf_avm_waitrequest     : std_logic_vector(2 downto 0);
 
--- IDE board: the boot ROM loader's Avalon master (QNICE->hr CDC inside the wrapper) and
--- the board's ROM reads (main->hr, avm_fifo below)
-signal hr_ldr_avm_write           : std_logic;
-signal hr_ldr_avm_read            : std_logic;
-signal hr_ldr_avm_address         : std_logic_vector(31 downto 0);
-signal hr_ldr_avm_writedata       : std_logic_vector(15 downto 0);
-signal hr_ldr_avm_byteenable      : std_logic_vector( 1 downto 0);
-signal hr_ldr_avm_burstcount      : std_logic_vector( 7 downto 0);
-signal hr_ldr_avm_readdata        : std_logic_vector(15 downto 0);
-signal hr_ldr_avm_readdatavalid   : std_logic;
-signal hr_ldr_avm_waitrequest     : std_logic;
-signal hr_rom_avm_write           : std_logic;
-signal hr_rom_avm_read            : std_logic;
-signal hr_rom_avm_address         : std_logic_vector(31 downto 0);
-signal hr_rom_avm_writedata       : std_logic_vector(15 downto 0);
-signal hr_rom_avm_byteenable      : std_logic_vector( 1 downto 0);
-signal hr_rom_avm_burstcount      : std_logic_vector( 7 downto 0);
-signal hr_rom_avm_readdata        : std_logic_vector(15 downto 0);
-signal hr_rom_avm_readdatavalid   : std_logic;
-signal hr_rom_avm_waitrequest     : std_logic;
+-- IDE board: the boot ROM loader's Avalon master (QNICE->core clock CDC inside the wrapper)
+-- and the board's ROM reads (core clock)
+signal mem_ldr_avm_write           : std_logic;
+signal mem_ldr_avm_read            : std_logic;
+signal mem_ldr_avm_address         : std_logic_vector(31 downto 0);
+signal mem_ldr_avm_writedata       : std_logic_vector(15 downto 0);
+signal mem_ldr_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal mem_ldr_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal mem_ldr_avm_readdata        : std_logic_vector(15 downto 0);
+signal mem_ldr_avm_readdatavalid   : std_logic;
+signal mem_ldr_avm_waitrequest     : std_logic;
+signal mem_rom_avm_write           : std_logic;
+signal mem_rom_avm_read            : std_logic;
+signal mem_rom_avm_address         : std_logic_vector(31 downto 0);
+signal mem_rom_avm_writedata       : std_logic_vector(15 downto 0);
+signal mem_rom_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal mem_rom_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal mem_rom_avm_readdata        : std_logic_vector(15 downto 0);
+signal mem_rom_avm_readdatavalid   : std_logic;
+signal mem_rom_avm_waitrequest     : std_logic;
 
 -- 2-input arbiter outputs feeding slave 3 of the general arbiter: avm_arbit_general
 -- only implements 2..4 slaves (any slave beyond the fourth is silently left
 -- unconnected), so the IDE masters are merged with df2 in a small tree:
 -- ide = ROM loader + ROM reads, s3 = df2 + ide
-signal hr_ide_avm_write           : std_logic;
-signal hr_ide_avm_read            : std_logic;
-signal hr_ide_avm_address         : std_logic_vector(31 downto 0);
-signal hr_ide_avm_writedata       : std_logic_vector(15 downto 0);
-signal hr_ide_avm_byteenable      : std_logic_vector( 1 downto 0);
-signal hr_ide_avm_burstcount      : std_logic_vector( 7 downto 0);
-signal hr_ide_avm_readdata        : std_logic_vector(15 downto 0);
-signal hr_ide_avm_readdatavalid   : std_logic;
-signal hr_ide_avm_waitrequest     : std_logic;
-signal hr_s3_avm_write            : std_logic;
-signal hr_s3_avm_read             : std_logic;
-signal hr_s3_avm_address          : std_logic_vector(31 downto 0);
-signal hr_s3_avm_writedata        : std_logic_vector(15 downto 0);
-signal hr_s3_avm_byteenable       : std_logic_vector( 1 downto 0);
-signal hr_s3_avm_burstcount       : std_logic_vector( 7 downto 0);
-signal hr_s3_avm_readdata         : std_logic_vector(15 downto 0);
-signal hr_s3_avm_readdatavalid    : std_logic;
-signal hr_s3_avm_waitrequest      : std_logic;
+signal mem_ide_avm_write           : std_logic;
+signal mem_ide_avm_read            : std_logic;
+signal mem_ide_avm_address         : std_logic_vector(31 downto 0);
+signal mem_ide_avm_writedata       : std_logic_vector(15 downto 0);
+signal mem_ide_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal mem_ide_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal mem_ide_avm_readdata        : std_logic_vector(15 downto 0);
+signal mem_ide_avm_readdatavalid   : std_logic;
+signal mem_ide_avm_waitrequest     : std_logic;
+signal mem_s3_avm_write            : std_logic;
+signal mem_s3_avm_read             : std_logic;
+signal mem_s3_avm_address          : std_logic_vector(31 downto 0);
+signal mem_s3_avm_writedata        : std_logic_vector(15 downto 0);
+signal mem_s3_avm_byteenable       : std_logic_vector( 1 downto 0);
+signal mem_s3_avm_burstcount       : std_logic_vector( 7 downto 0);
+signal mem_s3_avm_readdata         : std_logic_vector(15 downto 0);
+signal mem_s3_avm_readdatavalid    : std_logic;
+signal mem_s3_avm_waitrequest      : std_logic;
+
+-- the general arbiter's master: the floppy port of amiga_sdram.vhd
+signal mem_avm_write              : std_logic;
+signal mem_avm_read               : std_logic;
+signal mem_avm_address            : std_logic_vector(31 downto 0);
+signal mem_avm_writedata          : std_logic_vector(15 downto 0);
+signal mem_avm_byteenable         : std_logic_vector( 1 downto 0);
+signal mem_avm_burstcount         : std_logic_vector( 7 downto 0);
+signal mem_avm_readdata           : std_logic_vector(15 downto 0);
+signal mem_avm_readdatavalid      : std_logic;
+signal mem_avm_waitrequest        : std_logic;
 
 -- flattened arbiter interface (avm_arbit_general uses packed vectors)
 constant C_ARB_SLAVES             : natural := 4;
-signal hr_arb_write               : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
-signal hr_arb_read                : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
-signal hr_arb_address             : std_logic_vector(C_ARB_SLAVES * 32 - 1 downto 0);
-signal hr_arb_writedata           : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
-signal hr_arb_byteenable          : std_logic_vector(C_ARB_SLAVES *  2 - 1 downto 0);
-signal hr_arb_burstcount          : std_logic_vector(C_ARB_SLAVES *  8 - 1 downto 0);
-signal hr_arb_readdata            : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
-signal hr_arb_readdatavalid       : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
-signal hr_arb_waitrequest         : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal mem_arb_write               : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal mem_arb_read                : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal mem_arb_address             : std_logic_vector(C_ARB_SLAVES * 32 - 1 downto 0);
+signal mem_arb_writedata           : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
+signal mem_arb_byteenable          : std_logic_vector(C_ARB_SLAVES *  2 - 1 downto 0);
+signal mem_arb_burstcount          : std_logic_vector(C_ARB_SLAVES *  8 - 1 downto 0);
+signal mem_arb_readdata            : std_logic_vector(C_ARB_SLAVES * 16 - 1 downto 0);
+signal mem_arb_readdatavalid       : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
+signal mem_arb_waitrequest         : std_logic_vector(C_ARB_SLAVES - 1 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
@@ -883,8 +894,8 @@ constant C_PROF_Z3            : natural := 13;   -- Zorro III RAM (16 MB) toggle
 
 begin
 
-   -- hr_core_* is driven by the 2-master HyperRAM arbiter at the bottom of this
-   -- file (ADF track engine read chain + ADF mount wrapper write/read chain)
+   -- hr_core_* (the framework's HyperRAM port) is tied off at the bottom of this file: the
+   -- floppy buffers live in the SDRAM floppy port of amiga_sdram.vhd since Megamiga 0.3.1
 
    -- Tristate all expansion port drivers that we can directly control
    cart_ctrl_oe_o       <= '0';
@@ -1421,6 +1432,17 @@ begin
          qnice_we_i     => qnice_dev_we_i,
          qnice_wait_o   => qnice_kick_wait,
          kick_busy_o    => main_kick_busy,
+         flp_rst_i               => main_rst,
+         flp_avm_write_i         => mem_avm_write,
+         flp_avm_read_i          => mem_avm_read,
+         flp_avm_address_i       => mem_avm_address,
+         flp_avm_writedata_i     => mem_avm_writedata,
+         flp_avm_byteenable_i    => mem_avm_byteenable,
+         flp_avm_burstcount_i    => mem_avm_burstcount,
+         flp_avm_readdata_o      => mem_avm_readdata,
+         flp_avm_readdatavalid_o => mem_avm_readdatavalid,
+         flp_avm_waitrequest_o   => mem_avm_waitrequest,
+
          sdram_clk_o    => sdram_clk_o,
          sdram_cke_o    => sdram_cke_o,
          sdram_ras_n_o  => sdram_ras_n_o,
@@ -2288,17 +2310,24 @@ begin
       ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------
-   -- ADF floppy: HyperRAM plumbing
+   -- ADF floppy + IDE boot ROM: memory plumbing
    --
-   -- Four Avalon masters share the framework's hr_core_* port (100 MHz hr_clk):
+   -- RESET: this whole path (wrapper "hr" sides, arbiters, SDRAM floppy port) is reset by
+   -- main_rst, the clock generator's reset, and NEVER by main_reset_m2m_i: the board top
+   -- ORs main_qnice_reset into that one, i.e. it is high for as long as the Shell holds the
+   -- core in reset - which is exactly while it streams kick.rom / lide.rom / an ADF in.
+   --
+   -- The Avalon masters share the floppy port of amiga_sdram.vhd (SDRAM bank 0, columns
+   -- 512..1023; until Megamiga 0.3.0 they shared the framework's HyperRAM port), all on
+   -- the core clock:
    --   * one mount wrapper per simulated drive (QNICE devices 0x0103 / 0x0105 /
-   --     0x0106): the Shell streams an ADF into that drive's HyperRAM pool at
-   --     load time; each wrapper contains its own QNICE->hr avm_fifo CDC
-   --   * the track engine's read/write chain from main.vhd (post avm_cache),
-   --     crossed main->hr by the avm_fifo below
+   --     0x0106): the Shell streams an ADF into that drive's pool at load time; each
+   --     wrapper contains its own QNICE->core clock avm_fifo CDC (its "hr" ports)
+   --   * the track engine's read/write chain from main.vhd (post avm_cache)
+   --   * the IDE board's ROM loader (a fourth wrapper) and its ROM reads
    -- Pattern and generics follow C64MEGA65 (REU + mount buffer chains).
    --
-   -- Elaboration-time guards for the HyperRAM map in globals.vhd: the drive
+   -- Elaboration-time guards for the memory map in globals.vhd: the drive
    -- pools must start above the framework/ascal region, each pool must hold a
    -- maximum-size ADF, and the pools must be ordered and guarded.
    ---------------------------------------------------------------------------------------------
@@ -2346,17 +2375,17 @@ begin
             qnice_wrt_req_i      => qnice_adf_wrt_req(u),
             qnice_wrt_ack_o      => qnice_adf_wrt_ack(u),
 
-            hr_clk_i             => hr_clk_i,
-            hr_rst_i             => hr_rst_i,
-            hr_write_o           => hr_adf_avm_write(u),
-            hr_read_o            => hr_adf_avm_read(u),
-            hr_address_o         => hr_adf_avm_address(u),
-            hr_writedata_o       => hr_adf_avm_writedata(u),
-            hr_byteenable_o      => hr_adf_avm_byteenable(u),
-            hr_burstcount_o      => hr_adf_avm_burstcount(u),
-            hr_readdata_i        => hr_adf_avm_readdata(u),
-            hr_readdatavalid_i   => hr_adf_avm_readdatavalid(u),
-            hr_waitrequest_i     => hr_adf_avm_waitrequest(u)
+            hr_clk_i             => main_clk,             -- SDRAM floppy port side
+            hr_rst_i             => main_rst,
+            hr_write_o           => mem_adf_avm_write(u),
+            hr_read_o            => mem_adf_avm_read(u),
+            hr_address_o         => mem_adf_avm_address(u),
+            hr_writedata_o       => mem_adf_avm_writedata(u),
+            hr_byteenable_o      => mem_adf_avm_byteenable(u),
+            hr_burstcount_o      => mem_adf_avm_burstcount(u),
+            hr_readdata_i        => mem_adf_avm_readdata(u),
+            hr_readdatavalid_i   => mem_adf_avm_readdatavalid(u),
+            hr_waitrequest_i     => mem_adf_avm_waitrequest(u)
          ); -- i_adf_mount_wrapper
    end generate gen_adf_wrapper;
 
@@ -2386,17 +2415,17 @@ begin
          qnice_wrt_req_i      => '0',
          qnice_wrt_ack_o      => open,
 
-         hr_clk_i             => hr_clk_i,
-         hr_rst_i             => hr_rst_i,
-         hr_write_o           => hr_ldr_avm_write,
-         hr_read_o            => hr_ldr_avm_read,
-         hr_address_o         => hr_ldr_avm_address,
-         hr_writedata_o       => hr_ldr_avm_writedata,
-         hr_byteenable_o      => hr_ldr_avm_byteenable,
-         hr_burstcount_o      => hr_ldr_avm_burstcount,
-         hr_readdata_i        => hr_ldr_avm_readdata,
-         hr_readdatavalid_i   => hr_ldr_avm_readdatavalid,
-         hr_waitrequest_i     => hr_ldr_avm_waitrequest
+         hr_clk_i             => main_clk,                -- SDRAM floppy port side
+         hr_rst_i             => main_rst,
+         hr_write_o           => mem_ldr_avm_write,
+         hr_read_o            => mem_ldr_avm_read,
+         hr_address_o         => mem_ldr_avm_address,
+         hr_writedata_o       => mem_ldr_avm_writedata,
+         hr_byteenable_o      => mem_ldr_avm_byteenable,
+         hr_burstcount_o      => mem_ldr_avm_burstcount,
+         hr_readdata_i        => mem_ldr_avm_readdata,
+         hr_readdatavalid_i   => mem_ldr_avm_readdatavalid,
+         hr_waitrequest_i     => mem_ldr_avm_waitrequest
       ); -- i_iderom_wrapper
 
    ---------------------------------------------------------------------------------------------
@@ -2496,75 +2525,27 @@ begin
          dst_data_o(2 downto 0)  => main_adf_wr_ack
       ); -- i_cdc_adf_wrt_ack
 
-   -- track engine read chain: main_clk -> hr_clk (domain resets - never the
-   -- core reset: the command FIFO resets from the s side, the response FIFO
-   -- from the m side, and resetting only one side desynchronizes the chain)
-   i_avm_fifo_adf : entity work.avm_fifo
-      generic map (
-         G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
-         G_FILL_SIZE    => 1,
-         G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
-      )
-      port map (
-         s_clk_i               => main_clk,
-         s_rst_i               => main_reset_m2m_i,
-         s_avm_waitrequest_o   => main_adf_avm_waitrequest,
-         s_avm_write_i         => main_adf_avm_write,
-         s_avm_read_i          => main_adf_avm_read,
-         s_avm_address_i       => main_adf_avm_address,
-         s_avm_writedata_i     => main_adf_avm_writedata,
-         s_avm_byteenable_i    => main_adf_avm_byteenable,
-         s_avm_burstcount_i    => main_adf_avm_burstcount,
-         s_avm_readdata_o      => main_adf_avm_readdata,
-         s_avm_readdatavalid_o => main_adf_avm_readdatavalid,
-         m_clk_i               => hr_clk_i,
-         m_rst_i               => hr_rst_i,
-         m_avm_waitrequest_i   => hr_flp_avm_waitrequest,
-         m_avm_write_o         => hr_flp_avm_write,
-         m_avm_read_o          => hr_flp_avm_read,
-         m_avm_address_o       => hr_flp_avm_address,
-         m_avm_writedata_o     => hr_flp_avm_writedata,
-         m_avm_byteenable_o    => hr_flp_avm_byteenable,
-         m_avm_burstcount_o    => hr_flp_avm_burstcount,
-         m_avm_readdata_i      => hr_flp_avm_readdata,
-         m_avm_readdatavalid_i => hr_flp_avm_readdatavalid
-      ); -- i_avm_fifo_adf
+   -- The track engine and the IDE board's ROM reads already run on the core clock, like the
+   -- arbiters and the SDRAM floppy port, so they connect directly (no CDC FIFO any more).
+   mem_flp_avm_write          <= main_adf_avm_write;
+   mem_flp_avm_read           <= main_adf_avm_read;
+   mem_flp_avm_address        <= main_adf_avm_address;
+   mem_flp_avm_writedata      <= main_adf_avm_writedata;
+   mem_flp_avm_byteenable     <= main_adf_avm_byteenable;
+   mem_flp_avm_burstcount     <= main_adf_avm_burstcount;
+   main_adf_avm_readdata      <= mem_flp_avm_readdata;
+   main_adf_avm_readdatavalid <= mem_flp_avm_readdatavalid;
+   main_adf_avm_waitrequest   <= mem_flp_avm_waitrequest;
 
-   -- IDE board ROM reads: main_clk -> hr_clk, single-word reads (same reset rule as above)
-   i_avm_fifo_iderom : entity work.avm_fifo
-      generic map (
-         G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
-         G_FILL_SIZE    => 1,
-         G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
-      )
-      port map (
-         s_clk_i               => main_clk,
-         s_rst_i               => main_reset_m2m_i,
-         s_avm_waitrequest_o   => main_iderom_avm_waitrequest,
-         s_avm_write_i         => '0',
-         s_avm_read_i          => main_iderom_avm_read,
-         s_avm_address_i       => main_iderom_avm_address,
-         s_avm_writedata_i     => x"0000",
-         s_avm_byteenable_i    => "11",
-         s_avm_burstcount_i    => x"01",
-         s_avm_readdata_o      => main_iderom_avm_readdata,
-         s_avm_readdatavalid_o => main_iderom_avm_readdatavalid,
-         m_clk_i               => hr_clk_i,
-         m_rst_i               => hr_rst_i,
-         m_avm_waitrequest_i   => hr_rom_avm_waitrequest,
-         m_avm_write_o         => hr_rom_avm_write,
-         m_avm_read_o          => hr_rom_avm_read,
-         m_avm_address_o       => hr_rom_avm_address,
-         m_avm_writedata_o     => hr_rom_avm_writedata,
-         m_avm_byteenable_o    => hr_rom_avm_byteenable,
-         m_avm_burstcount_o    => hr_rom_avm_burstcount,
-         m_avm_readdata_i      => hr_rom_avm_readdata,
-         m_avm_readdatavalid_i => hr_rom_avm_readdatavalid
-      ); -- i_avm_fifo_iderom
+   mem_rom_avm_write             <= '0';
+   mem_rom_avm_read              <= main_iderom_avm_read;
+   mem_rom_avm_address           <= main_iderom_avm_address;
+   mem_rom_avm_writedata         <= x"0000";
+   mem_rom_avm_byteenable        <= "11";
+   mem_rom_avm_burstcount        <= x"01";
+   main_iderom_avm_readdata      <= mem_rom_avm_readdata;
+   main_iderom_avm_readdatavalid <= mem_rom_avm_readdatavalid;
+   main_iderom_avm_waitrequest   <= mem_rom_avm_waitrequest;
 
    -- Flatten the masters into the packed arbiter interface. Slave 0 is the
    -- track engine (the only latency-sensitive one - Paula is waiting for its
@@ -2572,34 +2553,34 @@ begin
    -- df2 wrapper with the IDE board's masters (boot ROM loader at startup, ROM
    -- reads while Kickstart and lide.device run from the ROM). The mount
    -- wrappers only run while the Shell streams an image from the SD card.
-   hr_arb_write <= hr_s3_avm_write & hr_adf_avm_write(1 downto 0) & hr_flp_avm_write;
-   hr_arb_read  <= hr_s3_avm_read  & hr_adf_avm_read(1 downto 0)  & hr_flp_avm_read;
+   mem_arb_write <= mem_s3_avm_write & mem_adf_avm_write(1 downto 0) & mem_flp_avm_write;
+   mem_arb_read  <= mem_s3_avm_read  & mem_adf_avm_read(1 downto 0)  & mem_flp_avm_read;
 
-   hr_arb_address(31 downto 0)      <= hr_flp_avm_address;
-   hr_arb_writedata(15 downto 0)    <= hr_flp_avm_writedata;
-   hr_arb_byteenable(1 downto 0)    <= hr_flp_avm_byteenable;
-   hr_arb_burstcount(7 downto 0)    <= hr_flp_avm_burstcount;
-   hr_flp_avm_readdata              <= hr_arb_readdata(15 downto 0);
-   hr_flp_avm_readdatavalid         <= hr_arb_readdatavalid(0);
-   hr_flp_avm_waitrequest           <= hr_arb_waitrequest(0);
+   mem_arb_address(31 downto 0)      <= mem_flp_avm_address;
+   mem_arb_writedata(15 downto 0)    <= mem_flp_avm_writedata;
+   mem_arb_byteenable(1 downto 0)    <= mem_flp_avm_byteenable;
+   mem_arb_burstcount(7 downto 0)    <= mem_flp_avm_burstcount;
+   mem_flp_avm_readdata              <= mem_arb_readdata(15 downto 0);
+   mem_flp_avm_readdatavalid         <= mem_arb_readdatavalid(0);
+   mem_flp_avm_waitrequest           <= mem_arb_waitrequest(0);
 
    gen_arb_flatten : for u in 0 to 1 generate
-      hr_arb_address(32 * (u + 2) - 1 downto 32 * (u + 1)) <= hr_adf_avm_address(u);
-      hr_arb_writedata(16 * (u + 2) - 1 downto 16 * (u + 1)) <= hr_adf_avm_writedata(u);
-      hr_arb_byteenable(2 * (u + 2) - 1 downto 2 * (u + 1)) <= hr_adf_avm_byteenable(u);
-      hr_arb_burstcount(8 * (u + 2) - 1 downto 8 * (u + 1)) <= hr_adf_avm_burstcount(u);
-      hr_adf_avm_readdata(u)      <= hr_arb_readdata(16 * (u + 2) - 1 downto 16 * (u + 1));
-      hr_adf_avm_readdatavalid(u) <= hr_arb_readdatavalid(u + 1);
-      hr_adf_avm_waitrequest(u)   <= hr_arb_waitrequest(u + 1);
+      mem_arb_address(32 * (u + 2) - 1 downto 32 * (u + 1)) <= mem_adf_avm_address(u);
+      mem_arb_writedata(16 * (u + 2) - 1 downto 16 * (u + 1)) <= mem_adf_avm_writedata(u);
+      mem_arb_byteenable(2 * (u + 2) - 1 downto 2 * (u + 1)) <= mem_adf_avm_byteenable(u);
+      mem_arb_burstcount(8 * (u + 2) - 1 downto 8 * (u + 1)) <= mem_adf_avm_burstcount(u);
+      mem_adf_avm_readdata(u)      <= mem_arb_readdata(16 * (u + 2) - 1 downto 16 * (u + 1));
+      mem_adf_avm_readdatavalid(u) <= mem_arb_readdatavalid(u + 1);
+      mem_adf_avm_waitrequest(u)   <= mem_arb_waitrequest(u + 1);
    end generate gen_arb_flatten;
 
-   hr_arb_address(4 * 32 - 1 downto 3 * 32)   <= hr_s3_avm_address;
-   hr_arb_writedata(4 * 16 - 1 downto 3 * 16) <= hr_s3_avm_writedata;
-   hr_arb_byteenable(4 * 2 - 1 downto 3 * 2)  <= hr_s3_avm_byteenable;
-   hr_arb_burstcount(4 * 8 - 1 downto 3 * 8)  <= hr_s3_avm_burstcount;
-   hr_s3_avm_readdata                         <= hr_arb_readdata(4 * 16 - 1 downto 3 * 16);
-   hr_s3_avm_readdatavalid                    <= hr_arb_readdatavalid(3);
-   hr_s3_avm_waitrequest                      <= hr_arb_waitrequest(3);
+   mem_arb_address(4 * 32 - 1 downto 3 * 32)   <= mem_s3_avm_address;
+   mem_arb_writedata(4 * 16 - 1 downto 3 * 16) <= mem_s3_avm_writedata;
+   mem_arb_byteenable(4 * 2 - 1 downto 3 * 2)  <= mem_s3_avm_byteenable;
+   mem_arb_burstcount(4 * 8 - 1 downto 3 * 8)  <= mem_s3_avm_burstcount;
+   mem_s3_avm_readdata                         <= mem_arb_readdata(4 * 16 - 1 downto 3 * 16);
+   mem_s3_avm_readdatavalid                    <= mem_arb_readdatavalid(3);
+   mem_s3_avm_waitrequest                      <= mem_arb_waitrequest(3);
 
    assert C_ARB_SLAVES >= 2 and C_ARB_SLAVES <= 4
       report "avm_arbit_general implements 2..4 slaves only - further slaves are left unconnected"
@@ -2609,81 +2590,90 @@ begin
    i_avm_arbit_ide : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => false,
-         G_FREQ_HZ      => 100_000_000,
+         G_FREQ_HZ      => CORE_CLK_SPEED,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => hr_clk_i,
-         rst_i                  => hr_rst_i,
-         s0_avm_write_i         => hr_ldr_avm_write,
-         s0_avm_read_i          => hr_ldr_avm_read,
-         s0_avm_address_i       => hr_ldr_avm_address,
-         s0_avm_writedata_i     => hr_ldr_avm_writedata,
-         s0_avm_byteenable_i    => hr_ldr_avm_byteenable,
-         s0_avm_burstcount_i    => hr_ldr_avm_burstcount,
-         s0_avm_readdata_o      => hr_ldr_avm_readdata,
-         s0_avm_readdatavalid_o => hr_ldr_avm_readdatavalid,
-         s0_avm_waitrequest_o   => hr_ldr_avm_waitrequest,
-         s1_avm_write_i         => hr_rom_avm_write,
-         s1_avm_read_i          => hr_rom_avm_read,
-         s1_avm_address_i       => hr_rom_avm_address,
-         s1_avm_writedata_i     => hr_rom_avm_writedata,
-         s1_avm_byteenable_i    => hr_rom_avm_byteenable,
-         s1_avm_burstcount_i    => hr_rom_avm_burstcount,
-         s1_avm_readdata_o      => hr_rom_avm_readdata,
-         s1_avm_readdatavalid_o => hr_rom_avm_readdatavalid,
-         s1_avm_waitrequest_o   => hr_rom_avm_waitrequest,
-         m_avm_write_o          => hr_ide_avm_write,
-         m_avm_read_o           => hr_ide_avm_read,
-         m_avm_address_o        => hr_ide_avm_address,
-         m_avm_writedata_o      => hr_ide_avm_writedata,
-         m_avm_byteenable_o     => hr_ide_avm_byteenable,
-         m_avm_burstcount_o     => hr_ide_avm_burstcount,
-         m_avm_readdata_i       => hr_ide_avm_readdata,
-         m_avm_readdatavalid_i  => hr_ide_avm_readdatavalid,
-         m_avm_waitrequest_i    => hr_ide_avm_waitrequest
+         clk_i                  => main_clk,
+         rst_i                  => main_rst,
+         s0_avm_write_i         => mem_ldr_avm_write,
+         s0_avm_read_i          => mem_ldr_avm_read,
+         s0_avm_address_i       => mem_ldr_avm_address,
+         s0_avm_writedata_i     => mem_ldr_avm_writedata,
+         s0_avm_byteenable_i    => mem_ldr_avm_byteenable,
+         s0_avm_burstcount_i    => mem_ldr_avm_burstcount,
+         s0_avm_readdata_o      => mem_ldr_avm_readdata,
+         s0_avm_readdatavalid_o => mem_ldr_avm_readdatavalid,
+         s0_avm_waitrequest_o   => mem_ldr_avm_waitrequest,
+         s1_avm_write_i         => mem_rom_avm_write,
+         s1_avm_read_i          => mem_rom_avm_read,
+         s1_avm_address_i       => mem_rom_avm_address,
+         s1_avm_writedata_i     => mem_rom_avm_writedata,
+         s1_avm_byteenable_i    => mem_rom_avm_byteenable,
+         s1_avm_burstcount_i    => mem_rom_avm_burstcount,
+         s1_avm_readdata_o      => mem_rom_avm_readdata,
+         s1_avm_readdatavalid_o => mem_rom_avm_readdatavalid,
+         s1_avm_waitrequest_o   => mem_rom_avm_waitrequest,
+         m_avm_write_o          => mem_ide_avm_write,
+         m_avm_read_o           => mem_ide_avm_read,
+         m_avm_address_o        => mem_ide_avm_address,
+         m_avm_writedata_o      => mem_ide_avm_writedata,
+         m_avm_byteenable_o     => mem_ide_avm_byteenable,
+         m_avm_burstcount_o     => mem_ide_avm_burstcount,
+         m_avm_readdata_i       => mem_ide_avm_readdata,
+         m_avm_readdatavalid_i  => mem_ide_avm_readdatavalid,
+         m_avm_waitrequest_i    => mem_ide_avm_waitrequest
       ); -- i_avm_arbit_ide
 
    -- slave 3 of the general arbiter: the df2 mount wrapper + the IDE masters
    i_avm_arbit_s3 : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => false,
-         G_FREQ_HZ      => 100_000_000,
+         G_FREQ_HZ      => CORE_CLK_SPEED,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => hr_clk_i,
-         rst_i                  => hr_rst_i,
-         s0_avm_write_i         => hr_adf_avm_write(2),
-         s0_avm_read_i          => hr_adf_avm_read(2),
-         s0_avm_address_i       => hr_adf_avm_address(2),
-         s0_avm_writedata_i     => hr_adf_avm_writedata(2),
-         s0_avm_byteenable_i    => hr_adf_avm_byteenable(2),
-         s0_avm_burstcount_i    => hr_adf_avm_burstcount(2),
-         s0_avm_readdata_o      => hr_adf_avm_readdata(2),
-         s0_avm_readdatavalid_o => hr_adf_avm_readdatavalid(2),
-         s0_avm_waitrequest_o   => hr_adf_avm_waitrequest(2),
-         s1_avm_write_i         => hr_ide_avm_write,
-         s1_avm_read_i          => hr_ide_avm_read,
-         s1_avm_address_i       => hr_ide_avm_address,
-         s1_avm_writedata_i     => hr_ide_avm_writedata,
-         s1_avm_byteenable_i    => hr_ide_avm_byteenable,
-         s1_avm_burstcount_i    => hr_ide_avm_burstcount,
-         s1_avm_readdata_o      => hr_ide_avm_readdata,
-         s1_avm_readdatavalid_o => hr_ide_avm_readdatavalid,
-         s1_avm_waitrequest_o   => hr_ide_avm_waitrequest,
-         m_avm_write_o          => hr_s3_avm_write,
-         m_avm_read_o           => hr_s3_avm_read,
-         m_avm_address_o        => hr_s3_avm_address,
-         m_avm_writedata_o      => hr_s3_avm_writedata,
-         m_avm_byteenable_o     => hr_s3_avm_byteenable,
-         m_avm_burstcount_o     => hr_s3_avm_burstcount,
-         m_avm_readdata_i       => hr_s3_avm_readdata,
-         m_avm_readdatavalid_i  => hr_s3_avm_readdatavalid,
-         m_avm_waitrequest_i    => hr_s3_avm_waitrequest
+         clk_i                  => main_clk,
+         rst_i                  => main_rst,
+         s0_avm_write_i         => mem_adf_avm_write(2),
+         s0_avm_read_i          => mem_adf_avm_read(2),
+         s0_avm_address_i       => mem_adf_avm_address(2),
+         s0_avm_writedata_i     => mem_adf_avm_writedata(2),
+         s0_avm_byteenable_i    => mem_adf_avm_byteenable(2),
+         s0_avm_burstcount_i    => mem_adf_avm_burstcount(2),
+         s0_avm_readdata_o      => mem_adf_avm_readdata(2),
+         s0_avm_readdatavalid_o => mem_adf_avm_readdatavalid(2),
+         s0_avm_waitrequest_o   => mem_adf_avm_waitrequest(2),
+         s1_avm_write_i         => mem_ide_avm_write,
+         s1_avm_read_i          => mem_ide_avm_read,
+         s1_avm_address_i       => mem_ide_avm_address,
+         s1_avm_writedata_i     => mem_ide_avm_writedata,
+         s1_avm_byteenable_i    => mem_ide_avm_byteenable,
+         s1_avm_burstcount_i    => mem_ide_avm_burstcount,
+         s1_avm_readdata_o      => mem_ide_avm_readdata,
+         s1_avm_readdatavalid_o => mem_ide_avm_readdatavalid,
+         s1_avm_waitrequest_o   => mem_ide_avm_waitrequest,
+         m_avm_write_o          => mem_s3_avm_write,
+         m_avm_read_o           => mem_s3_avm_read,
+         m_avm_address_o        => mem_s3_avm_address,
+         m_avm_writedata_o      => mem_s3_avm_writedata,
+         m_avm_byteenable_o     => mem_s3_avm_byteenable,
+         m_avm_burstcount_o     => mem_s3_avm_burstcount,
+         m_avm_readdata_i       => mem_s3_avm_readdata,
+         m_avm_readdatavalid_i  => mem_s3_avm_readdatavalid,
+         m_avm_waitrequest_i    => mem_s3_avm_waitrequest
       ); -- i_avm_arbit_s3
+
+   -- The core does not use the framework's HyperRAM port any more (the floppy buffers moved
+   -- to the SDRAM floppy port); it is free for an RTG framebuffer.
+   hr_core_write_o      <= '0';
+   hr_core_read_o       <= '0';
+   hr_core_address_o    <= (others => '0');
+   hr_core_writedata_o  <= (others => '0');
+   hr_core_byteenable_o <= (others => '0');
+   hr_core_burstcount_o <= x"01";
 
    -- round-robin per whole transaction; the masters never compete in practice
    -- (a mount streams while the engine is idle and vice versa). Keep this at
@@ -2691,33 +2681,33 @@ begin
    i_avm_arbit_adf : entity work.avm_arbit_general
       generic map (
          G_NUM_SLAVES   => C_ARB_SLAVES,
-         G_FREQ_HZ      => 100_000_000,
+         G_FREQ_HZ      => CORE_CLK_SPEED,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                 => hr_clk_i,
-         rst_i                 => hr_rst_i,
+         clk_i                 => main_clk,
+         rst_i                 => main_rst,
 
-         s_avm_write_i         => hr_arb_write,
-         s_avm_read_i          => hr_arb_read,
-         s_avm_address_i       => hr_arb_address,
-         s_avm_writedata_i     => hr_arb_writedata,
-         s_avm_byteenable_i    => hr_arb_byteenable,
-         s_avm_burstcount_i    => hr_arb_burstcount,
-         s_avm_readdata_o      => hr_arb_readdata,
-         s_avm_readdatavalid_o => hr_arb_readdatavalid,
-         s_avm_waitrequest_o   => hr_arb_waitrequest,
+         s_avm_write_i         => mem_arb_write,
+         s_avm_read_i          => mem_arb_read,
+         s_avm_address_i       => mem_arb_address,
+         s_avm_writedata_i     => mem_arb_writedata,
+         s_avm_byteenable_i    => mem_arb_byteenable,
+         s_avm_burstcount_i    => mem_arb_burstcount,
+         s_avm_readdata_o      => mem_arb_readdata,
+         s_avm_readdatavalid_o => mem_arb_readdatavalid,
+         s_avm_waitrequest_o   => mem_arb_waitrequest,
 
-         m_avm_write_o         => hr_core_write_o,
-         m_avm_read_o          => hr_core_read_o,
-         m_avm_address_o       => hr_core_address_o,
-         m_avm_writedata_o     => hr_core_writedata_o,
-         m_avm_byteenable_o    => hr_core_byteenable_o,
-         m_avm_burstcount_o    => hr_core_burstcount_o,
-         m_avm_readdata_i      => hr_core_readdata_i,
-         m_avm_readdatavalid_i => hr_core_readdatavalid_i,
-         m_avm_waitrequest_i   => hr_core_waitrequest_i
+         m_avm_write_o         => mem_avm_write,
+         m_avm_read_o          => mem_avm_read,
+         m_avm_address_o       => mem_avm_address,
+         m_avm_writedata_o     => mem_avm_writedata,
+         m_avm_byteenable_o    => mem_avm_byteenable,
+         m_avm_burstcount_o    => mem_avm_burstcount,
+         m_avm_readdata_i      => mem_avm_readdata,
+         m_avm_readdatavalid_i => mem_avm_readdatavalid,
+         m_avm_waitrequest_i   => mem_avm_waitrequest
       ); -- i_avm_arbit_adf
 
 end architecture synthesis;

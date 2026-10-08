@@ -16,6 +16,18 @@
 --   bank 1, bytes 8 .. 16 MB  the 8 MB Zorro II Fast RAM ($200000-$9FFFFF; cpu_wrapper maps
 --                             it 1:1 onto ramaddr[22:1], $800000-$9FFFFF wraps onto the first
 --                             2 MB), out of the way of the chipset banks
+--   banks 2/3                 the 16 MB Zorro III Fast RAM
+--   bank 0, columns 512..1023 the floppy area: the three ADF image pools and lide.rom
+--                             (formerly in HyperRAM; the word addresses are unchanged, see
+--                             C_HMAP_* in globals.vhd). The Amiga ports only reach columns
+--                             0..511, so this 8 MB area is disjoint from everything above.
+--
+-- Floppy port: an Avalon-MM slave on the core clock for the ADF mount wrappers, the ADF
+-- track engine and the IDE board's ROM (behind the arbiters in mega65.vhd). Every word is one
+-- request to the controller's floppy port (toggle handshake; the controller runs on the 4x
+-- clock of the same MMCM, so both directions are ordinary synchronous paths). Bursts are
+-- split into single words. The controller gives the port at most every second slot while
+-- the CPU waits, so the Amiga barely notices it.
 --
 -- Maintenance writer: while it has work it owns the chipset port of the controller (the Amiga
 -- is in reset then: at startup, and during a cold boot):
@@ -83,6 +95,18 @@ entity amiga_sdram is
       qnice_wait_o   : out   std_logic;
       kick_busy_o    : out   std_logic;                      -- core clock: words still in flight
 
+      -- floppy port: ADF pools + IDE boot ROM (core clock, word address 21:0)
+      flp_rst_i             : in  std_logic;
+      flp_avm_write_i       : in  std_logic;
+      flp_avm_read_i        : in  std_logic;
+      flp_avm_address_i     : in  std_logic_vector(31 downto 0);
+      flp_avm_writedata_i   : in  std_logic_vector(15 downto 0);
+      flp_avm_byteenable_i  : in  std_logic_vector( 1 downto 0);
+      flp_avm_burstcount_i  : in  std_logic_vector( 7 downto 0);
+      flp_avm_readdata_o    : out std_logic_vector(15 downto 0);
+      flp_avm_readdatavalid_o : out std_logic;
+      flp_avm_waitrequest_o : out std_logic;
+
       -- SDRAM pins
       sdram_clk_o    : out   std_logic;
       sdram_cke_o    : out   std_logic;
@@ -133,7 +157,15 @@ architecture synthesis of amiga_sdram is
          cpuU           : in    std_logic;
          cpuWR          : in    std_logic_vector(15 downto 0);
          cpuRD          : out   std_logic_vector(15 downto 0);
-         ramready       : out   std_logic
+         ramready       : out   std_logic;
+         flpReq         : in    std_logic;
+         flpAddr        : in    std_logic_vector(22 downto 1);
+         flpWE          : in    std_logic;
+         flpL           : in    std_logic;
+         flpU           : in    std_logic;
+         flpWR          : in    std_logic_vector(15 downto 0);
+         flpRD          : out   std_logic_vector(15 downto 0);
+         flpAck         : out   std_logic
       );
    end component sdram_ctrl;
 
@@ -179,6 +211,18 @@ architecture synthesis of amiga_sdram is
    signal cyc        : std_logic := '0';
    signal div        : unsigned(3 downto 0) := (others => '0');
    signal c7m_d      : std_logic := '0';
+
+   -- floppy port (core clock): one controller request per word
+   type t_fstate is (F_IDLE, F_WAIT, F_WNEXT, F_DRAIN);
+   signal f_state    : t_fstate := F_IDLE;
+   signal f_req      : std_logic := '0';                         -- request toggle
+   signal f_ack      : std_logic;                                -- controller's toggle (4x clock)
+   signal f_rd       : std_logic_vector(15 downto 0);            -- controller read data (4x clock)
+   signal f_addr     : unsigned(21 downto 0) := (others => '0');
+   signal f_cnt      : unsigned(7 downto 0) := (others => '0');  -- words left in the burst
+   signal f_we       : std_logic := '0';
+   signal f_data     : std_logic_vector(15 downto 0) := (others => '0');
+   signal f_be       : std_logic_vector(1 downto 0) := "11";
 
 begin
 
@@ -331,6 +375,68 @@ begin
    end process p_ram_cs;
 
    ---------------------------------------------------------------------------------------
+   -- Floppy port: Avalon slave -> one controller request per word. A request is pending while
+   -- f_req /= f_ack; the controller toggles f_ack when the word is done. A reset never drops
+   -- a pending request (the controller may already be executing it): F_DRAIN waits for it.
+   ---------------------------------------------------------------------------------------
+
+   flp_avm_waitrequest_o <= '0' when f_state = F_IDLE or f_state = F_WNEXT else '1';
+
+   p_flp : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         flp_avm_readdatavalid_o <= '0';
+
+         case f_state is
+            when F_IDLE =>
+               if flp_avm_read_i = '1' or flp_avm_write_i = '1' then
+                  f_addr  <= unsigned(flp_avm_address_i(21 downto 0));
+                  f_cnt   <= unsigned(flp_avm_burstcount_i);
+                  f_we    <= flp_avm_write_i;
+                  f_data  <= flp_avm_writedata_i;
+                  f_be    <= flp_avm_byteenable_i;
+                  f_req   <= not f_req;
+                  f_state <= F_WAIT;
+               end if;
+
+            when F_WAIT =>
+               if f_ack = f_req then                                 -- word done
+                  if f_we = '0' then
+                     flp_avm_readdata_o      <= f_rd;
+                     flp_avm_readdatavalid_o <= '1';
+                  end if;
+                  f_addr <= f_addr + 1;
+                  f_cnt  <= f_cnt - 1;
+                  if f_cnt <= 1 then
+                     f_state <= F_IDLE;
+                  elsif f_we = '0' then
+                     f_req   <= not f_req;                           -- next word of the burst
+                  else
+                     f_state <= F_WNEXT;
+                  end if;
+               end if;
+
+            when F_WNEXT =>                                          -- next beat of a write burst
+               if flp_avm_write_i = '1' then
+                  f_data  <= flp_avm_writedata_i;
+                  f_be    <= flp_avm_byteenable_i;
+                  f_req   <= not f_req;
+                  f_state <= F_WAIT;
+               end if;
+
+            when F_DRAIN =>
+               if f_ack = f_req then
+                  f_state <= F_IDLE;
+               end if;
+         end case;
+
+         if flp_rst_i = '1' then
+            f_state <= F_DRAIN;
+         end if;
+      end if;
+   end process p_flp;
+
+   ---------------------------------------------------------------------------------------
    -- Chipset port mux: the maintenance writer or minimig_sram_bridge.v
    ---------------------------------------------------------------------------------------
 
@@ -375,7 +481,15 @@ begin
          cpuU           => fram_uds_n_i,
          cpuWR          => fram_data_i,
          cpuRD          => fram_data_o,
-         ramready       => fram_ready
+         ramready       => fram_ready,
+         flpReq         => f_req,
+         flpAddr        => std_logic_vector(f_addr),
+         flpWE          => f_we,
+         flpL           => not f_be(0),
+         flpU           => not f_be(1),
+         flpWR          => f_data,
+         flpRD          => f_rd,
+         flpAck         => f_ack
       ); -- i_sdram_ctrl
 
 end architecture synthesis;

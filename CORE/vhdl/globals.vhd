@@ -94,6 +94,13 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 -- HyperRAM memory map (in units of one 4 kW window = 4096 x 16 bit = 8 kB)
 ----------------------------------------------------------------------------------------------------------
 
+-- Megamiga 0.3.1: this map now addresses the FLOPPY AREA OF THE SDRAM (amiga_sdram.vhd: bank 0,
+-- columns 512..1023, 8 MB, word address 21:0), not the HyperRAM - the HyperRAM is left to the
+-- framework (and later an RTG framebuffer). The C_HMAP_* names, the window units and the guard
+-- doctrine below are kept unchanged; windows 0x000..0x1FF are simply unused in the SDRAM. The
+-- hyperram_errata note below no longer applies (the SDRAM port writes exactly the words asked
+-- for); the avm_cache overreach still does.
+
 -- GUARD DOCTRINE, adopted from C64MEGA65 (its globals.vhd; research issue #218 is still
 -- open, the theory lives in C64MEGA65/doc/issue_214_simreu_hyperram.md): every region is
 -- followed by an explicit one-window (8 kB) guard - or by enough unused space - so that a
