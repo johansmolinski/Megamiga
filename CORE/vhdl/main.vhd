@@ -143,6 +143,8 @@ entity main is
       z3_ram_i                : in  std_logic;
       -- Megamiga: chipset "00" OCS, "01" ECS, "10" AGA (userio 0xF3, static OSM bits)
       chipset_i               : in  std_logic_vector(1 downto 0);
+      -- Megamiga: chip RAM size "00" 512 KB, "01" 1 MB, "11" 2 MB (userio 0xF5 CC)
+      chip_size_i             : in  std_logic_vector(1 downto 0);
       fram_sel_o              : out std_logic;
       fram_we_o               : out std_logic;                      -- '1' = write cycle
       -- Megamiga: the SDRAM word address of the CPU port (bank in bits 24:23):
@@ -798,6 +800,7 @@ begin
          floppy_drives_i  => drv_count_i,
          cpu_020_i        => cpu_020_i,
          chipset_i        => chipset_i,
+         chip_size_i      => chip_size_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,

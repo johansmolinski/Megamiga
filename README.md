@@ -1,14 +1,16 @@
-Megamiga - Amiga 500+ for MEGA65
-================================
+Megamiga - Amiga 500, 600 and 1200 for MEGA65
+=============================================
 
 Megamiga is a fork of [AExp](https://github.com/sy2002/AExp), sy2002's Amiga
 500 core for the MEGA65, by Johan Smolinski. It adds an 8 MB Zorro II Fast RAM
 expansion and an IDE hard disk (HDF images on the SD card) that Kickstart
-boots from, and - from version 0.2 - turns the machine into an Amiga 500+:
-ECS chipset, 2 MB Chip RAM and 512 KB Kickstart ROMs (2.04, 3.x), with all
-Amiga memory in the board SDRAM. Version 0.2 needs a MEGA65 R4 or newer; the
-R3 has no SDRAM. Everything else - and most of this README - is AExp; where
-the text says "AExp", it describes the core Megamiga is built on.
+boots from; version 0.2 turned the machine into an Amiga 500+ (ECS, 2 MB Chip
+RAM, 512 KB Kickstart ROMs, all Amiga memory in the board SDRAM), and version
+0.3 adds the 68020, 16 MB Zorro III Fast RAM, the AGA chipset with SuperHires,
+and three machine profiles - A500, A600 and A1200 - on the main page of the
+menu. Megamiga needs a MEGA65 R4 or newer; the R3 has no SDRAM. Everything
+else - and most of this README - is AExp; where the text says "AExp", it
+describes the core Megamiga is built on.
 
 Experience the [Commodore Amiga 500](https://en.wikipedia.org/wiki/Amiga_500)
 on your [MEGA65](https://mega65.org/)!
@@ -41,18 +43,21 @@ Credits
 Features
 --------
 
-* Amiga 500+, ECS chipset, PAL (Megamiga 0.2); OCS or AGA selectable in the
-  Memory menu (Megamiga 0.3) - AGA with the 68020 and an A1200 Kickstart 3.x
-  makes an A1200-class machine (256 colours, HAM8, the AGA fetch modes;
-  SuperHires and the 31 kHz modes are not displayed yet)
-* Cycle accurate 68000 CPU, or a 68020 (Megamiga 0.3, Memory menu: the TG68K
-  core that MiSTer's Minimig uses for its 68020 mode; no FPU, no MMU)
-* 2 MB Chip RAM plus 512 KB Slow RAM (trapdoor expansion); the Slow RAM
-  can be switched off in the menu for the few games that need it
+* Three machine profiles on the main page of the menu (Megamiga 0.3):
+  **A500** (68000, OCS, 512 KB Chip + 512 KB Slow RAM), **A600** (68000, ECS,
+  1 MB Chip RAM) and **A1200** (68020, AGA, 2 MB Chip RAM), each with its own
+  Kickstart and hard disk, and each editable (see Machine profiles below)
+* OCS, ECS or AGA, PAL - AGA with the 68020 and an A1200 Kickstart 3.x makes
+  an A1200-class machine (256 colours, HAM8, the AGA fetch modes,
+  SuperHires; the 31 kHz modes are not displayed yet)
+* Cycle accurate 68000 CPU, or a 68020 (the TG68K core that MiSTer's
+  Minimig uses for its 68020 mode; no FPU, no MMU)
+* 512 KB, 1 MB or 2 MB Chip RAM, optional 512 KB Slow RAM (trapdoor
+  expansion)
 * Optional 8 MB Zorro II Fast RAM, switched off by default
-* Optional 16 MB Zorro III Fast RAM with the 68020 (Memory menu, off by
-  default; needs Kickstart 2.0 or newer - Kickstart 1.3 does not know Zorro III
-  boards, so leave it off there)
+* Optional 16 MB Zorro III Fast RAM with the 68020 (off by default; needs
+  Kickstart 2.0 or newer - Kickstart 1.3 does not know Zorro III boards, so
+  leave it off there)
 * MEGA65 R4, R5 and R6 only: all Amiga memory lives in the board SDRAM
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
   as a disk image — switched on by default: mount standard 880 KB `*.adf`
@@ -61,7 +66,8 @@ Features
   Amiga disks, copy-protected originals included
 * One IDE hard disk: an `*.hdf` image on the SD card, read and write, that
   Kickstart boots from (needs the free lide.device boot ROM)
-* Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), switchable in the menu
+* Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), one per profile, and
+  switchable in the menu
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
   two-player (two-joystick) setups work too
@@ -72,6 +78,75 @@ Features
 * Adjustable picture, per Amiga screen mode: HDMI crop plus analog
   position (pan) and analog overscan, via a config file and helper tool  
 * Battery-backed real-time clock
+
+### Machine profiles
+
+The main page of the menu (<kbd>Help</kbd>) offers three machines:
+
+| Profile       | CPU   | Chipset | Chip RAM | Slow RAM | Kickstart file       | Hard disk file        |
+|---------------|-------|---------|----------|----------|----------------------|-----------------------|
+| A500 (OCS)    | 68000 | OCS     | 512 KB   | 512 KB   | `/amiga/a500.rom`    | `/amiga/a500.hdf`     |
+| A600 (ECS)    | 68000 | ECS     | 1 MB     | -        | `/amiga/a600.rom`    | `/amiga/a600.hdf`     |
+| A1200 (AGA)   | 68020 | AGA     | 2 MB     | -        | `/amiga/a1200.rom`   | `/amiga/a1200.hdf`    |
+
+Selecting a profile reconfigures the Amiga and restarts it (a cold boot): it
+loads the profile's Kickstart - `/amiga/kick.rom` if the profile's own file is
+missing - and mounts the profile's hard disk image if there is one (with none,
+the profile has no hard disk). The profile is remembered, and at power-on the
+core starts with it.
+
+**Profile Settings** shows the details of the selected profile, and you can
+change each of them: CPU, chipset, Chip RAM, Slow RAM, 8 MB Zorro II Fast RAM
+and 16 MB Zorro III Fast RAM (68020 only). Every profile keeps its own
+settings. The hard disk (**HDF**) and **Kickstart** lines there load any other
+file for the running session.
+
+The floppy drives stay on the main page; the display, audio and keyboard
+options are in **Settings**.
+
+#### Setting up the profiles
+
+1. **Kickstart ROMs.** Copy one ROM per profile into `/amiga` on the SD card,
+   under the profile's name. The ROMs are raw dumps of 256 KB (1.3) or 512 KB
+   (2.04, 3.x), no byte swapping and no encryption (for example from Cloanto's
+   Amiga Forever):
+
+   | File                | A good choice                                   |
+   |---------------------|-------------------------------------------------|
+   | `/amiga/a500.rom`   | Kickstart 1.3 (34.5, A500/A2000)                |
+   | `/amiga/a600.rom`   | Kickstart 2.05 or 3.1 for the A600/A500         |
+   | `/amiga/a1200.rom`  | Kickstart 3.1 for the A1200 (40.68) - an A500/A600 3.1 ROM does not drive AGA |
+
+   Keep `/amiga/kick.rom` as well: the core needs it at power-on, and every
+   profile without its own ROM uses it. Kickstart 1.3 knows neither Zorro III
+   RAM nor the AGA chipset, so give the A1200 profile an A1200 3.x ROM.
+2. **Hard disks (optional).** Copy an HDF image per profile to
+   `/amiga/a500.hdf`, `/amiga/a600.hdf` or `/amiga/a1200.hdf`, and the
+   `lide.rom` of the release to `/amiga/lide.rom` (see Hard disk below). A
+   profile without its own image starts without a hard disk; leave a file
+   out to get a floppy-only machine.
+3. **The settings file.** Copy `megamiga-<version>.cfg` from the release to
+   `/amiga`, so that the core remembers the selected profile and every change
+   in Profile Settings.
+4. **Pick a profile.** Press <kbd>Help</kbd>, move to **A500 (OCS)**,
+   **A600 (ECS)** or **A1200 (AGA)** and press <kbd>Return</kbd>. The Amiga
+   restarts with that machine; the **Kickstart** and **HDF** lines in
+   **Profile Settings** show which files it loaded.
+5. **Adjust it (optional).** Open **Profile Settings** to change the CPU,
+   chipset, Chip RAM or the RAM expansions of the selected profile - for
+   example 8 MB Fast RAM for the A500 with a hard disk, or a 68000 for
+   A1200 games that dislike the 68020. Each change restarts the Amiga and
+   is stored for that profile only.
+
+A typical card:
+
+    /amiga/kick.rom          (required, e.g. a copy of a500.rom)
+    /amiga/a500.rom          Kickstart 1.3
+    /amiga/a600.rom          Kickstart 3.1 (A600)
+    /amiga/a1200.rom         Kickstart 3.1 (A1200)
+    /amiga/a1200.hdf         Workbench 3.1 hard disk for the A1200
+    /amiga/lide.rom          hard disk boot ROM (from the release)
+    /amiga/megamiga-<version>.cfg
 
 ### Kickstart ROM
 
@@ -87,11 +162,12 @@ Kickstart is copyrighted software, so it is not part of this repository or
 of any release; you need to obtain a legal copy yourself, for example from
 Cloanto's Amiga Forever.
 
-To switch to another Kickstart without touching the SD card, open
-**Memory** in the menu and pick a ROM file at **Kickstart**: the core loads
-it and restarts the Amiga with it (a cold boot, the old memory contents are
-gone). The choice is not saved - at the next power-on the core starts with
-`/amiga/kick.rom` again.
+Each machine profile loads its own Kickstart (see Machine profiles above) and
+falls back to `/amiga/kick.rom`, which must always be there. To switch to
+another Kickstart without touching the SD card, open **Profile Settings** in
+the menu and pick a ROM file at **Kickstart**: the core loads it and restarts
+the Amiga with it (a cold boot, the old memory contents are gone). That choice
+is not saved - at the next power-on the profile's Kickstart is loaded again.
 
 ### Slow RAM (A501)
 
@@ -101,8 +177,8 @@ expansion memory, which the Amiga's custom chips cannot display. **Rogue**
 is a well-known example: with Slow RAM switched on it fails to draw the
 dungeon and the player. On a real A500 the fix was to pull the trapdoor
 card out of the machine; here it is a menu item. Open the menu with
-<kbd>Help</kbd>, go to the **Memory** submenu and deselect
-**Slow RAM (A501)**: the Amiga automatically
+<kbd>Help</kbd>, go to **Profile Settings** and deselect
+**Slow RAM (512 KB)** (the A500 profile has it on): the Amiga automatically
 reboots as a 512 KB chip-RAM-only A500, authentic down to the detail that
 the expansion memory area behaves exactly like on a machine without the
 trapdoor card. The setting is remembered, so switch it back on for
@@ -121,7 +197,7 @@ noticeably faster, and much larger programs fit.
 
 Fast RAM is switched **off** by default, because a stock A500 had none and
 a few old games and demos do not cope with it. To switch it on, open the
-menu with <kbd>Help</kbd>, go to the **Memory** submenu and select
+menu with <kbd>Help</kbd>, go to **Profile Settings** and select
 **Fast RAM (8 MB)**: the Amiga automatically reboots with the new memory
 configuration, and the setting is remembered. The MEGA65 R3 has no SDRAM;
 there the menu item has no effect.
@@ -216,11 +292,13 @@ before a reset.
    the official `lide.rom` of a
    [lide.device release](https://github.com/LIV2/lide.device/releases) works
    too, except for a full format (see below).
-2. Copy your `*.hdf` image to the SD card.
-3. Open the menu with <kbd>Help</kbd>, go to **Drive Settings** and select
-   **HDF:** at the bottom. Pick the image in the file browser. The Amiga
-   restarts at once and boots from the hard disk (a floppy in `df0:` still
-   has priority, as on a real Amiga).
+2. Copy your `*.hdf` image to the SD card. Named `/amiga/a500.hdf`,
+   `a600.hdf` or `a1200.hdf`, it is the hard disk of that machine profile and
+   is mounted whenever the profile starts.
+3. Any other image: open the menu with <kbd>Help</kbd>, go to **Profile
+   Settings** and select **HDF:**. Pick the image in the file browser. The
+   Amiga restarts at once and boots from the hard disk (a floppy in `df0:`
+   still has priority, as on a real Amiga).
 
 The image must be a whole hard disk with a partition table (a Rigid Disk
 Block, RDB), not a single-partition "hardfile": WinUAE's "Create hardfile"
@@ -241,7 +319,8 @@ sectors), or switch on the Fast RAM.
 
 Hard disk access is a little slower than on a real IDE disk, because the
 MEGA65's small control CPU serves every sector from the SD card. The disk
-stays mounted until you mount another image or swap the SD card; mounting an
+stays mounted until you mount another image, select a machine profile or swap
+the SD card; mounting an
 image always restarts the Amiga, because Kickstart only looks for hard disks
 when it starts.
 
@@ -454,8 +533,8 @@ black screen, a "no signal" or "unsupported format" message, or a picture
 that keeps dropping out — while the very same core runs fine on a different
 display.
 
-**DVI (no sound)**, at the bottom of the first `HDMI:` menu just above
-**Back to main menu**, is the cure. It strips the signal down to plain DVI:
+**DVI (no sound)**, at the bottom of the first `HDMI:` menu (in
+**Settings**) just above **Back to Settings**, is the cure. It strips the signal down to plain DVI:
 the pixels, the timing and the resolution stay exactly what they were, and
 only the sound and those extra packets disappear. As the name warns, that costs you the sound over the
 cable — use the MEGA65's 3.5 mm audio jack instead, which carries the same
@@ -468,14 +547,17 @@ soon as the core has started, press your menu key — <kbd>Help</kbd> unless
 you reassigned it in the Keyboard menu:
 
 1. <kbd>Help</kbd> — opens the menu, with the cursor on the topmost `dfN:`
-   disk-image line, or on **Drive Settings** if no drive is a disk image.
-2. <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past **Drive Settings**, onto the
-   first `HDMI:` line. That is **one <kbd>&darr;</kbd> per drive you have set
-   to Disk Image, plus one for Drive Settings** — two at the factory default.
-3. <kbd>Return</kbd> — opens the HDMI menu, cursor on **720p 50 Hz 16:9**.
-4. <kbd>&darr;</kbd> <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past the two 576p
-   modes, onto **DVI (no sound)**.
-5. <kbd>Return</kbd> — DVI is on, and the picture should appear.
+   disk-image line, or on **A500 (OCS)** if no drive is a disk image.
+2. Six times <kbd>&darr;</kbd> — past the three machine profiles,
+   **Profile Settings** and **Drive Settings**, onto **Settings**. That is
+   **one <kbd>&darr;</kbd> per drive you have set to Disk Image, plus five**
+   — six at the factory default. Moving the cursor over a profile does not
+   select it; only <kbd>Return</kbd> does.
+3. <kbd>Return</kbd> — opens Settings, cursor on the first `HDMI:` line.
+4. <kbd>Return</kbd> — opens the HDMI menu, cursor on **720p 50 Hz 16:9**.
+5. <kbd>&darr;</kbd> <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past the two 576p
+   modes, onto **DVI (no sound)**, then <kbd>Return</kbd> — DVI is on, and
+   the picture should appear.
 6. <kbd>Help</kbd> — closes the menu and saves the setting.
 
 If the `megamiga-<version>.cfg` file is on your SD card (step 3 of the
@@ -490,8 +572,8 @@ step 2 follows your drive configuration: only a drive set to **Disk Image**
 has a line the cursor can land on, so it adds one <kbd>&darr;</kbd>, while a
 drive set to **Hardware Floppy** shows a status line that the cursor skips
 and a drive set to **Off** shows nothing at all. Neither adds a
-<kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is a
-single <kbd>&darr;</kbd>.
+<kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is five
+<kbd>&darr;</kbd>.
 
 ### Video: VGA port (analog RGB)
 

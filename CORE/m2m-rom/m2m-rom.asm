@@ -484,7 +484,11 @@ FL_BAR_INIT     INCRB
                 AND     0x01FF, R3
                 RBRA    _FBI_SET, Z
                 ADD     1, R2
-_FBI_SET        MOVE    FL_BAR_TOTAL, R0
+_FBI_SET        MOVE    FL_NOBAR, R0            ; PROFILE_APPLY: no bar
+                CMP     0, @R0
+                RBRA    _FBI_SET2, Z
+                XOR     R2, R2
+_FBI_SET2       MOVE    FL_BAR_TOTAL, R0
                 MOVE    R2, @R0
                 MOVE    FL_BAR_ACC, R0
                 MOVE    0, @R0
@@ -601,6 +605,166 @@ _KP_RET         MOVE    R4, R10
                 RET
 
 ; ----------------------------------------------------------------------------
+; PROFILE_APPLY: the Kickstart and the hard disk of a machine profile
+;
+; Megamiga 0.3: the main menu selects a machine profile (A500 / A600 / A1200).
+; The HDL applies its CPU, chipset and RAM settings (mega65.vhd prof_decode,
+; a cold boot of the Amiga). Here the files of the profile are loaded: the Kickstart
+; /amiga/a500.rom, a600.rom or a1200.rom (if missing: /amiga/kick.rom) and the
+; hard disk /amiga/a500.hdf, a600.hdf or a1200.hdf (if missing: no hard disk).
+; The menu lines Kickstart and HDF show the new names, as after a manual load.
+;
+; At boot (PREP_START) the mandatory /amiga/kick.rom is already loaded and no
+; HDF is mounted, so there a missing file changes nothing.
+;
+; The files are opened through the device handle of the Shell (HANDLE_DEV, as
+; the file browser does), so the HDF lives on the same handle as a manually
+; mounted one; the one SD sector buffer is tracked per device handle.
+;
+; Input:  R8: profile 0..2, R9: 0 = boot, 1 = the user selected the profile
+; Output: none, all registers preserved
+; ----------------------------------------------------------------------------
+PROFILE_APPLY   SYSCALL(enter, 1)
+                MOVE    R8, R0                  ; R0: profile
+                MOVE    R9, R1                  ; R1: 1 = switch, 0 = boot
+
+                MOVE    SD_CHANGED, R2          ; the device handle of the
+                MOVE    HANDLE_DEV, R8          ; Shell: (re-)mount it like
+                CMP     1, @R2                  ; the file browser does
+                RBRA    _PA_MNT, Z
+                CMP     0, @R8
+                RBRA    _PA_KICK, !Z
+_PA_MNT         MOVE    0, @R8
+                RSUB    FB_RE_INIT, 1
+                MOVE    0, @R2
+                MOVE    1, R9                   ; partition #1
+                SYSCALL(f32_mnt_sd, 1)
+                CMP     0, R9
+                RBRA    _PA_RET, !Z             ; no SD card: nothing to do
+
+                ; the Kickstart: hold the Amiga while the ROM is replaced
+_PA_KICK        MOVE    FL_NOBAR, R2            ; no progress bar: the menu
+                MOVE    1, @R2                  ; is on screen
+                MOVE    PROF_KICK_TAB, R8
+                ADD     R0, R8
+                MOVE    @R8, R8
+                RSUB    PROF_OPEN, 1            ; C=1: open, R8 = the name
+                RBRA    _PA_KLD, C
+                CMP     0, R1                   ; boot: kick.rom is loaded
+                RBRA    _PA_HDF, Z
+                MOVE    PN_KICK, R8
+                RSUB    PROF_OPEN, 1
+                RBRA    _PA_HDF, !C
+_PA_KLD         MOVE    R8, R3                  ; R3: the name
+                MOVE    AEXP_DEV_KICK, R8       ; LOADING holds the Amiga
+                MOVE    CRTROM_CSR_STATUS, R9   ; in reset
+                MOVE    CRTROM_CSR_ST_LDNG, R10
+                RSUB    CRTROM_CSR_W, 1
+                MOVE    PROF_FDH, R8
+                RSUB    KICK_PREP, 1            ; error: CSR back to IDLE
+                CMP     0, R8
+                RBRA    _PA_HDF, !Z
+                MOVE    AEXP_DEV_KICK, R8       ; OK: the cold boot
+                MOVE    CRTROM_CSR_STATUS, R9
+                MOVE    CRTROM_CSR_ST_OK, R10
+                RSUB    CRTROM_CSR_W, 1
+                MOVE    R3, R8
+                MOVE    PROF_KICK_ID, R9
+                RSUB    PROF_NAME, 1
+
+                ; the hard disk
+_PA_HDF         MOVE    PROF_HDF_TAB, R8
+                ADD     R0, R8
+                MOVE    @R8, R8
+                RSUB    PROF_OPEN, 1
+                RBRA    _PA_HNO, !C
+                MOVE    R8, R3
+                MOVE    PROF_FDH, R8
+                RSUB    HDF_PREP, 1             ; mounts, restarts the Amiga
+                CMP     0, R8
+                RBRA    _PA_RET, !Z
+                MOVE    R3, R8
+                MOVE    PROF_HDF_ID, R9
+                RSUB    PROF_NAME, 1
+                RBRA    _PA_RET, 1
+_PA_HNO         CMP     0, R1                   ; switch without a profile
+                RBRA    _PA_RET, Z              ; HDF: no hard disk
+                RSUB    HDF_DROP, 1
+                RSUB    IDE_SEL, 1              ; board out of the chain
+                MOVE    IDE_CTRL, R8
+                MOVE    0, @R8
+                MOVE    CRTROM_MAN_LDF, R8      ; the menu shows <Load>
+                ADD     PROF_HDF_ID, R8
+                MOVE    0, @R8
+
+_PA_RET         MOVE    FL_NOBAR, R2
+                MOVE    0, @R2
+                SYSCALL(leave, 1)
+                RET
+
+; PROF_OPEN: open a file of the read-only data device (label in R8) into
+; PROF_FDH. Output: C=1 and R8 = the name after "/amiga/" (in RODATA_BUF) if
+; it is open, C=0 if not. Only HANDLE_DEV must be mounted. R9..R12 preserved.
+PROF_OPEN       INCRB
+                MOVE    R9, R0
+                MOVE    R10, R1
+                MOVE    R11, R2
+                RSUB    RODATA_STR, 1           ; the path in RAM
+                MOVE    R8, R3
+                MOVE    R8, R10
+                MOVE    HANDLE_DEV, R8
+                MOVE    PROF_FDH, R9
+                XOR     R11, R11                ; "/" separator
+                SYSCALL(f32_fopen, 1)
+                MOVE    R3, R8
+                ADD     PROF_DIR_LEN, R8        ; skip "/amiga/"
+                MOVE    R10, R4                 ; R4: error code
+                MOVE    R0, R9
+                MOVE    R2, R11
+                MOVE    R1, R10
+                CMP     0, R4                   ; (the flags of the last MOVE
+                RBRA    _PO_NO, !Z              ; must not decide this)
+                OR      0x0004, SR              ; C=1
+                DECRB
+                RET
+_PO_NO          AND     0xFFFB, SR              ; C=0
+                DECRB
+                RET
+
+; PROF_NAME: show the file name R8 on the menu line of manual ROM R9, like the
+; Shell does after a load from the file browser. All registers preserved.
+PROF_NAME       SYSCALL(enter, 1)
+                MOVE    R8, R2                  ; R2: the name
+                MOVE    CRTROM_MAN_LDF, R0      ; "loaded"
+                ADD     R9, R0
+                MOVE    1, @R0
+                MOVE    R9, R8                  ; heap slot: (vdrives +
+                MOVE    VDRIVES_NUM, R0         ; submenus + ROM id) x DX
+                ADD     @R0, R8
+                MOVE    OPTM_SCOUNT, R0
+                ADD     @R0, R8
+                MOVE    SCR$OSM_O_DX, R9
+                MOVE    @R9, R9
+                SYSCALL(mulu, 1)
+                MOVE    OPTM_HEAP, R0
+                MOVE    @R0, R0
+                RBRA    _PN_RET, Z              ; menu not set up yet
+                ADD     R10, R0
+                MOVE    R2, R8                  ; (the names are short)
+                MOVE    R0, R9
+                SYSCALL(strcpy, 1)
+                MOVE    SCR$OSM_O_DX, R8        ; "%s is replaced" = 0
+                MOVE    @R8, R8
+                SUB     1, R8
+                ADD     R0, R8
+                MOVE    0, @R8
+_PN_RET         SYSCALL(leave, 1)
+                RET
+
+PROF_KICK_TAB   .DW     PN_K500, PN_K600, PN_K1200
+PROF_HDF_TAB    .DW     PN_H500, PN_H600, PN_H1200
+
+; ----------------------------------------------------------------------------
 ; Core specific callback functions: Custom tasks
 ; ----------------------------------------------------------------------------
 
@@ -635,6 +799,20 @@ PREP_START      INCRB
                 ; /amiga/aexp_screen.cfg (zeros if absent) before the core
                 ; un-resets so the first frame is already positioned.
                 RSUB    LOAD_SCREEN_OFFSETS, 1
+
+                ; Megamiga 0.3: the Kickstart and the hard disk of the saved
+                ; machine profile (the HDL already runs its CPU/chipset/RAM)
+                XOR     R0, R0                  ; R0: profile 0..2
+                MOVE    AEXP_OSM_PROF_A600, R8
+                RSUB    M2M$GET_SETTING, 1
+                ADD     R9, R0
+                MOVE    AEXP_OSM_PROF_A1200, R8
+                RSUB    M2M$GET_SETTING, 1
+                ADD     R9, R0
+                ADD     R9, R0
+                MOVE    R0, R8
+                XOR     R9, R9                  ; 0 = boot
+                RSUB    PROFILE_APPLY, 1
 
                 XOR     R8, R8
                 XOR     R9, R9
@@ -678,7 +856,16 @@ OSM_SEL_POST    INCRB
                 ; reset -- only the coefficient RAM content changes; the
                 ; Amiga keeps running. The user sees the new filter from the
                 ; next frame.
-                CMP     AEXP_OPTM_G_FILTER, R8
+                ; Megamiga 0.3: a machine profile was selected (R9 = 0..2):
+                ; load its Kickstart and hard disk (the HDL cold-boots)
+                CMP     AEXP_OPTM_G_PROFILE, R8
+                RBRA    _OSM_SP_FLT, !Z
+                MOVE    R9, R8
+                MOVE    1, R9
+                RSUB    PROFILE_APPLY, 1
+                RBRA    _OSM_SEL_POST_R, 1
+
+_OSM_SP_FLT     CMP     AEXP_OPTM_G_FILTER, R8
                 RBRA    _OSM_SP_DRV, !Z
                 RSUB    LOAD_HDMI_FILTER, 1
                 RBRA    _OSM_SEL_POST_R, 1
@@ -2266,6 +2453,8 @@ IDE_SEL         INCRB
 ; IDE_INIT: called once from START_FIRMWARE. No disk, board out of the
 ; autoconfig chain, event shadow in sync with the hardware.
 IDE_INIT        INCRB
+                MOVE    FL_NOBAR, R0            ; (PROFILE_APPLY)
+                MOVE    0, @R0
                 MOVE    HDF_VALID, R0
                 MOVE    0, @R0
                 MOVE    IDE_STATE, R0
@@ -3919,6 +4108,9 @@ ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
 ADF_DRIVES      .EQU    3
 
 ; Kickstart selector: accepted ROM sizes (high words; the low words are 0)
+PROF_KICK_ID    .EQU    4                       ; manual ROM ids (order of the
+PROF_HDF_ID     .EQU    3                       ; OPTM_G_LOAD_ROM lines)
+PROF_DIR_LEN    .EQU    7                       ; strlen("/amiga/")
 KICK_256K_HI    .EQU    0x0004
 KICK_512K_HI    .EQU    0x0008
 
@@ -4082,6 +4274,8 @@ ADF_FL_BADDR_HI .BLOCK ADF_DRIVES               ; image and file (32 bit)
 ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
                                                 ; background flush time slice
 RODATA_BUF      .BLOCK RODATA_BUF_SIZE          ; RAM copy of one read-only text
+FL_NOBAR        .BLOCK 1                        ; PROFILE_APPLY: FAST_LOAD without bar
+PROF_FDH        .BLOCK FAT32$FDH_STRUCT_SIZE    ; PROFILE_APPLY: the Kickstart / HDF file
 FL_BAR_TOTAL    .BLOCK 1                        ; FAST_LOAD progress bar: sectors
 FL_BAR_WIDTH    .BLOCK 1                        ; bar width in characters
 FL_BAR_ACC      .BLOCK 1                        ; Bresenham accumulator
@@ -4186,7 +4380,10 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; with the Zorro III RAM toggle and the CPU radio (demand 2628, MENU_HEAP_SIZE
 ; 2656, headroom 28, both HEAP_SIZE -96), and to 168 items with the chipset
 ; radio (demand 2691, MENU_HEAP_SIZE 2720, headroom 29, both HEAP_SIZE -64).
-MENU_HEAP_SIZE  .EQU 2720
+; Megamiga 0.3 machine profiles (A500 / A600 / A1200 with one settings block
+; each) and the Settings page with nested submenus: 206 items, 10 submenus,
+; demand 3403, MENU_HEAP_SIZE 3424, headroom 21, both HEAP_SIZE -704.
+MENU_HEAP_SIZE  .EQU 3424
 
 #ifndef RELEASE
 
@@ -4207,13 +4404,13 @@ MENU_HEAP_SIZE  .EQU 2720
 ; extent map), so the release total went down by 384 words to 29696.
 ; Megamiga 0.2: RODATA_BUF (200 words, the RAM copy of a text from the
 ; read-only data device) - both totals down by 256 (release 29440, debug 6784).
-HEAP_SIZE       .EQU 4064                       ; 6784 - 2720 = 4064
+HEAP_SIZE       .EQU 3360                       ; 6784 - 3424 = 3360
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 26720                      ; 29440 - 2720 = 26720
+HEAP_SIZE       .EQU 26016                      ; 29440 - 3424 = 26016
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

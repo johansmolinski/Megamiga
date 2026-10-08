@@ -173,6 +173,10 @@ entity amiga_config is
       -- slow_ram_i.
       chipset_i        : in  std_logic_vector(1 downto 0);
 
+      -- Megamiga: chip RAM size for command 0xF5 bits [1:0] (CC): "00" 512 KB, "01" 1 MB,
+      -- "11" 2 MB (the machine profile's Chip RAM radio); sampled like slow_ram_i.
+      chip_size_i      : in  std_logic_vector(1 downto 0);
+
       -- Minimig host/userio port (minimig.v:214-218)
       io_uio_o         : out std_logic;                     -- minimig IO_UIO  (userio IO_ENA)
       io_strobe_o      : out std_logic;                     -- minimig IO_STROBE, 1 clk per word
@@ -264,6 +268,7 @@ architecture synthesis of amiga_config is
    signal floppy_drives_q : std_logic_vector(1 downto 0) := "01";
    signal cpu_020_q       : std_logic := '0';
    signal chipset_q       : std_logic_vector(1 downto 0) := "01";
+   signal chip_size_q     : std_logic_vector(1 downto 0) := "11";
 
 begin
 
@@ -288,6 +293,7 @@ begin
                floppy_drives_q  <= floppy_drives_i;
                cpu_020_q        <= cpu_020_i;
                chipset_q        <= chipset_i;
+               chip_size_q      <= chip_size_i;
                if reset_i = '0' then
                   state <= ST_START_WAIT;
                end if;
@@ -332,6 +338,7 @@ begin
                io_din_o <= C_SEQ(idx).payload;
                if idx = C_IDX_MEMCFG then
                   io_din_o(2) <= slow_ram_q;      -- SS[0]: '1' = 512KB slow RAM, '0' = none
+                  io_din_o(1 downto 0) <= chip_size_q;  -- CC: chip RAM size
                end if;
                if idx = C_IDX_FLOPPY then
                   io_din_o(3 downto 2) <= floppy_drives_q;  -- FF: drive count - 1

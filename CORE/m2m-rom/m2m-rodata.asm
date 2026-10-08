@@ -49,6 +49,16 @@ WRN_KICK_FAT    .ASCII_P "\n\nThe Kickstart file cannot be read from\n"
                 .ASCII_P "the SD card (FAT32 error). The ROM is\n"
                 .ASCII_W "incomplete: load another one.\n"
 
+; Megamiga 0.3 machine profiles: Kickstart ROM and hard disk image per profile
+; (PROFILE_APPLY in m2m-rom.asm; the name after "/amiga/" is what the menu shows)
+PN_KICK         .ASCII_W "/amiga/kick.rom"
+PN_K500         .ASCII_W "/amiga/a500.rom"
+PN_K600         .ASCII_W "/amiga/a600.rom"
+PN_K1200        .ASCII_W "/amiga/a1200.rom"
+PN_H500         .ASCII_W "/amiga/a500.hdf"
+PN_H600         .ASCII_W "/amiga/a600.hdf"
+PN_H1200        .ASCII_W "/amiga/a1200.hdf"
+
 ; Fatal: SD card write failed during the ADF write-back
 WRN_HDF_NOROM   .ASCII_P "\n\nThe hard disk needs its boot ROM:\n"
                 .ASCII_P "put lide.rom (lide.device for RIPPLE)\n"
