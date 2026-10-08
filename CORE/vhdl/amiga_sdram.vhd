@@ -79,6 +79,7 @@ entity amiga_sdram is
       qnice_ce_i     : in    std_logic;
       qnice_we_i     : in    std_logic;
       qnice_wait_o   : out   std_logic;
+      kick_busy_o    : out   std_logic;                      -- core clock: words still in flight
 
       -- SDRAM pins
       sdram_clk_o    : out   std_logic;
@@ -179,6 +180,11 @@ begin
    ---------------------------------------------------------------------------------------
 
    qnice_wait_o <= q_full or q_wr_rst_busy;
+
+   -- Kickstart words still in flight (core clock): the FIFO is not empty or the writer has
+   -- not finished the last word (or its mirror). amiga_cold_boot keeps the Amiga in reset
+   -- while this is high after a Kickstart load from the OSM.
+   kick_busy_o <= '1' when f_empty = '0' or m_state /= M_IDLE or m_mirror = '1' else '0';
 
    p_qnice_bytes : process (qnice_clk_i)
    begin

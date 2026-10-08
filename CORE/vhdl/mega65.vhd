@@ -34,6 +34,7 @@ use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
 use work.physical_fdd_pkg.all;
+use work.qnice_csr_pkg.all;
 
 entity MEGA65_Core is
 generic (
@@ -291,6 +292,17 @@ signal main_cpu_cacr          : std_logic_vector(3 downto 0);
 signal main_c7m               : std_logic;
 signal qnice_kick_ce          : std_logic;
 signal qnice_kick_wait        : std_logic;
+-- Kickstart selector (Memory menu): the M2M CSR of the kick device, window 0xFFFF
+signal qnice_kick_dev_ce      : std_logic;
+signal qnice_kick_csr         : std_logic;
+signal qnice_kick_csr_data    : std_logic_vector(15 downto 0);
+signal qnice_kick_csr_wait    : std_logic;
+signal qnice_kick_req         : std_logic_vector(3 downto 0);
+signal qnice_kick_resp        : std_logic_vector(3 downto 0);
+signal qnice_kick_ldng        : std_logic;
+signal main_kick_ldng         : std_logic;
+signal main_kick_busy         : std_logic;
+signal main_kick_hold         : std_logic;
 signal main_rst               : std_logic;
 
 ---------------------------------------------------------------------------------------------
@@ -936,19 +948,18 @@ begin
    main_power_led_o     <= '1';
    main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else x"00FF00";
 
-   -- Amiga floppy LED on the MEGA65 drive LED (Paula disk-DMA activity).
-   -- While unflushed ADF writes exist the LED is forced ON and turns YELLOW -
-   -- "do not power off yet" - and back to green once the background flush is
-   -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
-   -- The hard disk (IDE board) shares the LED and shows RED: a command in
-   -- progress (BSY or DRQ) lights it, stretched by C_HD_LED_HOLD so that
-   -- single short accesses still flash visibly and a long transfer stays on.
-   -- Red wins over yellow and green: during disk activity is when the user
-   -- most needs to know that the Amiga is busy.
+   -- The MEGA65 drive LED (Megamiga 0.2):
+   --   GREEN  = SD card write-back pending: unflushed ADF writes exist ("do not
+   --            power off yet"); wins over everything else
+   --   RED    = hard disk activity (IDE board BSY or DRQ, stretched by
+   --            C_HD_LED_HOLD so that single short accesses still flash)
+   --   YELLOW = floppy activity (Paula disk DMA)
+   --   ORANGE = hard disk and floppy at the same time
    main_drive_led_o     <= main_fdd_led or main_adf_any_dirty or main_hd_led;
-   main_drive_led_col_o <= x"FF0000" when main_hd_led = '1' else
-                           x"FFFF00" when main_adf_any_dirty = '1' else
-                           x"00FF00";
+   main_drive_led_col_o <= x"00FF00" when main_adf_any_dirty = '1' else
+                           x"FF8000" when main_hd_led = '1' and main_fdd_led = '1' else
+                           x"FF0000" when main_hd_led = '1' else
+                           x"FFFF00";
 
    p_hd_led : process (main_clk)
    begin
@@ -1104,6 +1115,7 @@ begin
          slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
          fast_ram_i        => main_fastram_en,
          drv_map_i         => main_drv_map,
+         kick_hold_i       => main_kick_hold,
          amiga_reset_o     => amiga_cold_reset,
          chip_scrub_o      => amiga_chip_scrub,
          chip_scrub_addr_o => amiga_chip_scrub_addr
@@ -1336,6 +1348,7 @@ begin
          qnice_ce_i     => qnice_kick_ce,
          qnice_we_i     => qnice_dev_we_i,
          qnice_wait_o   => qnice_kick_wait,
+         kick_busy_o    => main_kick_busy,
          sdram_clk_o    => sdram_clk_o,
          sdram_cke_o    => sdram_cke_o,
          sdram_ras_n_o  => sdram_ras_n_o,
@@ -1468,6 +1481,55 @@ begin
    -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
 
+   ---------------------------------------------------------------------------------------------
+   -- Kickstart selector (Memory menu, manual CRT/ROM 4 into C_DEV_AMIGA_KICK). The Shell
+   -- drives the M2M CSR protocol in window 0xFFFF of the kick device; the firmware has
+   -- already checked the size in PREP_LOAD_IMAGE, so the "parser" answers READY at once.
+   -- While the Shell reports LOADING, amiga_cold_boot holds the Amiga in reset; it releases
+   -- it with a cold boot once the load is done and the last word is in the SDRAM.
+   -- The automatic boot-time load of /amiga/kick.rom does not use the CSR.
+   ---------------------------------------------------------------------------------------------
+
+   qnice_kick_dev_ce <= qnice_dev_ce_i when qnice_dev_id_i = C_DEV_AMIGA_KICK else '0';
+
+   i_kick_csr : entity work.qnice_csr
+      generic map (
+         G_ERROR_STRINGS => (others => "OK                 \n")
+      )
+      port map (
+         qnice_clk_i          => qnice_clk_i,
+         qnice_rst_i          => qnice_rst_i,
+         qnice_addr_i         => qnice_dev_addr_i,
+         qnice_data_i         => qnice_dev_data_i,
+         qnice_ce_i           => qnice_kick_dev_ce,
+         qnice_we_i           => qnice_dev_we_i,
+         qnice_data_o         => qnice_kick_csr_data,
+         qnice_wait_o         => qnice_kick_csr_wait,
+         qnice_csr_o          => qnice_kick_csr,
+         qnice_req_status_o   => qnice_kick_req,
+         qnice_req_length_o   => open,
+         qnice_resp_status_i  => qnice_kick_resp,
+         qnice_resp_error_i   => x"0",
+         qnice_resp_address_i => (others => '0')
+      ); -- i_kick_csr
+
+   qnice_kick_resp <= C_CSR_RESP_READY when qnice_kick_req = C_CSR_REQ_OK else C_CSR_RESP_IDLE;
+   qnice_kick_ldng <= '1' when qnice_kick_req = C_CSR_REQ_LDNG else '0';
+
+   i_cdc_kick_ldng : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i     => qnice_clk_i,
+         src_data_i(0) => qnice_kick_ldng,
+         dst_clk_i     => main_clk,
+         dst_data_o(0) => main_kick_ldng
+      ); -- i_cdc_kick_ldng
+
+   main_kick_hold <= main_kick_ldng or main_kick_busy;
+
    core_specific_devices : process(all)
    begin
       -- make sure that this is x"EEEE" by default and avoid a register here by having this default value
@@ -1481,11 +1543,17 @@ begin
 
       case qnice_dev_id_i is
 
-         -- Kickstart: write-only loader into the SDRAM kick bank (amiga_sdram.vhd)
+         -- Kickstart: write-only loader into the SDRAM kick bank (amiga_sdram.vhd), plus
+         -- the M2M CSR in window 0xFFFF for the Kickstart selector of the Memory menu
          when C_DEV_AMIGA_KICK =>
-            qnice_kick_ce    <= qnice_dev_ce_i;
-            qnice_dev_data_o <= x"0000";
-            qnice_dev_wait_o <= qnice_kick_wait;
+            if qnice_kick_csr = '1' then
+               qnice_dev_data_o <= qnice_kick_csr_data;
+               qnice_dev_wait_o <= qnice_kick_csr_wait;
+            else
+               qnice_kick_ce    <= qnice_dev_ce_i;
+               qnice_dev_data_o <= x"0000";
+               qnice_dev_wait_o <= qnice_kick_wait;
+            end if;
 
          when C_DEV_AMIGA_ADF0 =>
             qnice_adf_ce(0)  <= qnice_dev_ce_i;

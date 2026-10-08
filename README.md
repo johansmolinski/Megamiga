@@ -1,12 +1,14 @@
-Megamiga - Amiga 500 for MEGA65
-===============================
+Megamiga - Amiga 500+ for MEGA65
+================================
 
 Megamiga is a fork of [AExp](https://github.com/sy2002/AExp), sy2002's Amiga
 500 core for the MEGA65, by Johan Smolinski. It adds an 8 MB Zorro II Fast RAM
-expansion (MEGA65 R4 and newer) and an IDE hard disk (HDF images on the SD
-card) that Kickstart 1.3 boots from. Version 0.1.1. Everything else - and most
-of this README - is AExp; where the text says "AExp", it describes the core
-Megamiga is built on.
+expansion and an IDE hard disk (HDF images on the SD card) that Kickstart
+boots from, and - from version 0.2 - turns the machine into an Amiga 500+:
+ECS chipset, 2 MB Chip RAM and 512 KB Kickstart ROMs (2.04, 3.x), with all
+Amiga memory in the board SDRAM. Version 0.2 needs a MEGA65 R4 or newer; the
+R3 has no SDRAM. Everything else - and most of this README - is AExp; where
+the text says "AExp", it describes the core Megamiga is built on.
 
 Experience the [Commodore Amiga 500](https://en.wikipedia.org/wiki/Amiga_500)
 on your [MEGA65](https://mega65.org/)!
@@ -39,21 +41,20 @@ Credits
 Features
 --------
 
-* Amiga 500, OCS chipset, PAL
+* Amiga 500+, ECS chipset, PAL (Megamiga 0.2)
 * Cycle accurate 68000 CPU
-* 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
-  total; the Slow RAM can be switched off in the menu for the few games
-  that need a chip-RAM-only A500
-* Optional 8 MB Zorro II Fast RAM on MEGA65 boards with SDRAM (R4, R5, R6),
-  switched off by default
+* 2 MB Chip RAM plus 512 KB Slow RAM (trapdoor expansion); the Slow RAM
+  can be switched off in the menu for the few games that need it
+* Optional 8 MB Zorro II Fast RAM, switched off by default
+* MEGA65 R4, R5 and R6 only: all Amiga memory lives in the board SDRAM
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
   as a disk image — switched on by default: mount standard 880 KB `*.adf`
   disk images via the on-screen-menu, read and write — and hand one of the
   drives to the MEGA65's own internal 3.5" drive to read and write genuine
   Amiga disks, copy-protected originals included
 * One IDE hard disk: an `*.hdf` image on the SD card, read and write, that
-  Kickstart 1.3 boots from (needs the free lide.device boot ROM)
-* Kickstart 1.3
+  Kickstart boots from (needs the free lide.device boot ROM)
+* Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), switchable in the menu
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
   two-player (two-joystick) setups work too
@@ -67,15 +68,23 @@ Features
 
 ### Kickstart ROM
 
-The core needs the Kickstart 1.3 ROM (revision 34.5, the 256 KB version
-that shipped with the Amiga 500). Put it on your SD card as
+The core needs a Kickstart ROM: 1.3 (the 256 KB version that shipped with the
+Amiga 500) or a 512 KB A500/A600 ROM such as 2.04 or 3.1. Put it on your SD
+card as
 
     /amiga/kick.rom
 
-as a raw dump of exactly 256 KB (262,144 bytes), no byte swapping. Without
-this file the core stops with an error message. Kickstart is copyrighted
-software, so it is not part of this repository or of any release; you need
-to obtain a legal copy yourself, for example from Cloanto's Amiga Forever.
+as a raw dump of exactly 256 KB or 512 KB, no byte swapping and no
+encryption. Without this file the core stops with an error message.
+Kickstart is copyrighted software, so it is not part of this repository or
+of any release; you need to obtain a legal copy yourself, for example from
+Cloanto's Amiga Forever.
+
+To switch to another Kickstart without touching the SD card, open
+**Memory** in the menu and pick a ROM file at **Kickstart**: the core loads
+it and restarts the Amiga with it (a cold boot, the old memory contents are
+gone). The choice is not saved - at the next power-on the core starts with
+`/amiga/kick.rom` again.
 
 ### Slow RAM (A501)
 
@@ -141,13 +150,15 @@ own changes, so whichever drive saved last would quietly overwrite what the
 other one saved. If a program wants two disks, give it two files.
 
 Saving happens in the background, so the Amiga never stalls. The MEGA65's
-drive LED lights **green** during disk access — reading or writing — just like
-the drive light on a real Amiga. After a write it turns **yellow** while the
-change is being written back to the `*.adf` file on the SD card, and goes
-**off** once everything is safely saved. Please **wait until the LED has stayed
-off for a few seconds** before you unmount a disk, swap disks, reset, or switch
-the machine off — the yellow light can briefly come back on as more data is
-flushed. Switching off while it is yellow loses the not-yet-saved changes,
+drive LED shows what the Amiga is doing: **yellow** during floppy access —
+reading or writing — just like the drive light on a real Amiga, **red** while
+the hard disk is busy, and **orange** when both are. After a floppy write it
+turns **green** while the change is being written back to the `*.adf` file on
+the SD card (green wins over the other colours), and goes **off** once
+everything is safely saved. Please **wait until the LED has stayed off for a
+few seconds** before you unmount a disk, swap disks, reset, or switch the
+machine off — the green light can briefly come back on as more data is
+flushed. Switching off while it is green loses the not-yet-saved changes,
 exactly like ejecting a real floppy while its drive light is still on.
 
 The **Hardware Floppy** makes the MEGA65's built-in drive behave like a real
@@ -540,10 +551,11 @@ Constraints and roadmap
 Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
-* Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
 * One hard disk only, no CD-ROM
-* OCS and PAL only: no ECS, no AGA, no NTSC
-* Fast RAM only on boards with SDRAM (R4, R5, R6), not on the R3
+* PAL only, 68000 only: no AGA, no NTSC, no 68020
+* No ECS SuperHires and Productivity modes (the video path takes at most a
+  14 MHz pixel clock), no HDMI flicker-free mode
+* Megamiga 0.2 runs on boards with SDRAM (R4, R5, R6) only, not on the R3
 
 The development history — all the alpha and beta work-in-progress builds — is
 documented in [doc/inofficial.md](doc/inofficial.md).

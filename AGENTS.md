@@ -925,6 +925,38 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   ghdl + real sdram_ctrl/cpu_cache_new + an SDRAM model with protocol checks;
   `fix_inout.py` patches ghdl's one-way inout; 5/5 mutants killed).
 
+- **Megamiga 0.2 increment 2 (branch `a500plus`, 2026-10-08, R6-built WNS +0.243 WHS +0.030, NOT hardware-tested): LED colours,
+  Kickstart selector, fast ADF I/O.** (1) Drive LED in `mega65.vhd`: GREEN =
+  unflushed ADF writes (SD write-back pending) and wins over everything, RED =
+  hard disk (IDE BSY/DRQ, stretched 50 ms), YELLOW = floppy (Paula disk DMA),
+  ORANGE (`FF8000`) = hard disk and floppy together. HELP_3 and README follow.
+  (2) KICKSTART SELECTOR: ` Kickstart:%s` at line 151 of the Memory submenu
+  (`OPTM_G_KICK` = 25, manual CRT/ROM 4 into `C_DEV_AMIGA_KICK`; OPTM_SIZE
+  156 -> 158, demand 2528, MENU_HEAP_SIZE 2528 with zero headroom - both heap
+  checks fail only on demand > size - both HEAP_SIZE -32; HEAP 0x83BE, 1826
+  words for the 1536-word stack). The kick device got the M2M CSR in window
+  0xFFFF (`qnice_csr` in mega65.vhd; loader writes are gated off that window).
+  CSR status LOADING crosses to the core clock (cdc_stable) and, ORed with the
+  new `amiga_sdram.kick_busy_o` (FIFO not empty / writer active), holds
+  `amiga_cold_boot` in reset; it scrubs SysBase, waits until the hold has been
+  low for 64 clocks and releases = a cold boot into the new ROM. Firmware
+  `KICK_PREP` (from PREP_LOAD_IMAGE): 256 or 512 KB only, then FAST_LOAD; on
+  any error it writes CSR STATUS=IDLE itself, because the Shell leaves LOADING
+  set and the Amiga would stay in reset for good. Not saved: power-on loads
+  `/amiga/kick.rom` again. (3) FAST ADF I/O: `FAST_LOAD` (ADF mount and
+  Kickstart) seeks the file to every 512-byte boundary - which reads that
+  sector into the SD buffer - and copies it straight from `IO$SD_DATA` into
+  the device window, then leaves the handle at EOF so the Shell streams
+  nothing; `FLUSH_ADF_STEP` writes each chunk with seek + direct buffer fill +
+  DIRTY flag + `f32_fflush` instead of 512 `f32_fwrite` calls. No extent maps
+  (no RAM to spare). Out-of-repo test `~/aexp-work/fw-adf` (QNICE emulator,
+  real FAST_LOAD/FLUSH_ADF_STEP extracted from m2m-rom.asm, FAT32 images with
+  1- and 8-sector clusters and fragmented files, every stored byte checked for
+  window/offset/value, flushed tracks checked on the image by the host, the
+  sector buffer stolen after every step): PASS; mutants (no DIRTY flag, lost
+  carry in the offset) fail. `~/aexp-work/a500p/coldboot/tb_cold.vhd`: hold,
+  quiet period, single release - PASS, red control fails.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

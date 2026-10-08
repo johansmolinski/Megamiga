@@ -154,8 +154,9 @@ constant C_ADF_POOL_BYTES     : natural :=
 -- QNICE device IDs of the Amiga core (must be >= 0x0100)
 ----------------------------------------------------------------------------------------------------------
 
--- Kickstart ROM (256 KB): the QNICE Shell streams the ROM file from the SD card
--- into this device at startup, while the core is still held in reset.
+-- Kickstart ROM (256 or 512 KB): the QNICE Shell streams /amiga/kick.rom into this device
+-- at startup, while the core is still held in reset; the OSM Kickstart selector loads
+-- another ROM into it later (window 0xFFFF = the M2M CSR, see mega65.vhd).
 constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 
 -- Chip RAM (512 KB) and Slow RAM (512 KB): RESERVED, not wired. The QNICE
@@ -250,11 +251,16 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- firmware moves the read pointer to the end of the file in PREP_LOAD_IMAGE, keeps
 -- its own copy of the file handle and serves the sectors straight from the file;
 -- ide_board.vhd answers the CSR handshake.
-constant C_CRTROMS_MAN_NUM       : natural := 4;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+-- Entry 4: the Kickstart selector (OSM " Kickstart:%s" line in the Memory submenu, the
+-- 5th OPTM_G_LOAD_ROM occurrence) into the same device the boot-time kick.rom goes to.
+-- The firmware checks the size and loads the ROM in PREP_LOAD_IMAGE; mega65.vhd answers
+-- the CSR handshake and cold-boots the Amiga once the ROM is in place.
+constant C_CRTROMS_MAN_NUM       : natural := 5;                                       -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF0,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF1,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF2,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_IDE,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_KICK,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

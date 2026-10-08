@@ -16,6 +16,10 @@
 -- mounted volumes. A configuration change therefore triggers the same cold boot (the
 -- SysBase scrub is harmless there).
 --
+-- Megamiga: a Kickstart load from the OSM (kick_hold_i) is a cold boot too. The Amiga is
+-- held in reset for the whole load, and released only after kick_hold_i has been low for
+-- C_RESET_HOLD_CYCLES clocks, so the last ROM words are in the SDRAM before the CPU starts.
+--
 -- The request is level-based (requested /= applied), not a pulse. Consequently a change
 -- cannot be lost, and changes arriving during a cold boot converge to the latest value.
 ---------------------------------------------------------------------------------------------
@@ -30,6 +34,7 @@ entity amiga_cold_boot is
       slow_ram_i        : in  std_logic;
       fast_ram_i        : in  std_logic;                     -- 8 MB Zorro II Fast RAM present
       drv_map_i         : in  std_logic_vector(7 downto 0);  -- Drive Settings: {count, mode per unit}
+      kick_hold_i       : in  std_logic;                     -- Kickstart load in progress
 
       amiga_reset_o     : out std_logic;
       chip_scrub_o      : out std_logic;
@@ -56,8 +61,8 @@ architecture synthesis of amiga_cold_boot is
 
 begin
 
-   -- ASSERT_RESET gives main.vhd a complete clock before the first BRAM write. HOLD_RESET
-   -- similarly keeps the Amiga stopped for a complete clock after the second write.
+   -- ASSERT_RESET gives main.vhd a complete clock before the first scrub write. HOLD_RESET
+   -- keeps the Amiga stopped for C_RESET_HOLD_CYCLES clocks after the second write.
    amiga_reset_o <= '0' when state = IDLE else '1';
 
    chip_scrub_o <= '1' when state = SCRUB_SYSBASE_HI or state = SCRUB_SYSBASE_LO else '0';
@@ -73,7 +78,7 @@ begin
          case state is
             when IDLE =>
                if slow_ram_i /= slow_ram_applied or fast_ram_i /= fast_ram_applied or
-                  drv_map_i /= drv_map_applied then
+                  drv_map_i /= drv_map_applied or kick_hold_i = '1' then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
                end if;
@@ -98,19 +103,28 @@ begin
 
             when SCRUB_SYSBASE_LO =>
                if reset_hold_count = 0 then
-                  state <= HOLD_RESET;
+                  reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
+                  state            <= HOLD_RESET;
                else
                   reset_hold_count <= reset_hold_count - 1;
                end if;
 
             when HOLD_RESET =>
-               -- Capture the latest requested values, not the values that originally triggered
-               -- the reset. If one changes again after this edge, IDLE detects the mismatch and
-               -- immediately performs another complete cold boot; no request can be lost.
-               slow_ram_applied <= slow_ram_i;
-               fast_ram_applied <= fast_ram_i;
-               drv_map_applied  <= drv_map_i;
-               state            <= IDLE;
+               -- Stay in reset while a Kickstart load runs, and for C_RESET_HOLD_CYCLES
+               -- clocks after it. Then capture the latest requested values, not the values
+               -- that originally triggered the reset. If one changes again after this edge,
+               -- IDLE detects the mismatch and immediately performs another complete cold
+               -- boot; no request can be lost.
+               if kick_hold_i = '1' then
+                  reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
+               elsif reset_hold_count /= 0 then
+                  reset_hold_count <= reset_hold_count - 1;
+               else
+                  slow_ram_applied <= slow_ram_i;
+                  fast_ram_applied <= fast_ram_i;
+                  drv_map_applied  <= drv_map_i;
+                  state            <= IDLE;
+               end if;
          end case;
       end if;
    end process cold_boot_proc;

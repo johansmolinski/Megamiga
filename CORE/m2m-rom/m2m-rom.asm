@@ -167,7 +167,12 @@ PREP_LOAD_IMAGE INCRB
                 RSUB    HDF_PREP, 1             ; R8/R9: result
                 DECRB
                 RET
-_PREP_LI_NHDF   MOVE    R8, R5                  ; R5: keep the new file handle
+_PREP_LI_NHDF   CMP     AEXP_OPTM_G_KICK, R10   ; the Kickstart selector: own path
+                RBRA    _PREP_LI_NKCK, !Z
+                RSUB    KICK_PREP, 1            ; R8/R9: result
+                DECRB
+                RET
+_PREP_LI_NKCK   MOVE    R8, R5                  ; R5: keep the new file handle
                 MOVE    R10, R8                 ; one of the three mount items?
                 RSUB    IS_ADF_GROUP, 1         ; (branch on C before anything
                 RBRA    _PREP_LI_ADF, C         ; else can touch the flags)
@@ -253,6 +258,18 @@ _PREP_LI_DUP    MOVE    R6, R9
                 RSUB    ADF_DUP_CHECK, 1        ; (branch on C before anything
                 RBRA    _PREP_LI_DUPE, C        ; else can touch the flags)
 
+                ; Load the image ourselves, a whole SD sector at a time, instead
+                ; of letting the Shell copy it byte by byte through the FAT32
+                ; byte API. FAST_LOAD leaves the handle at the end of the file,
+                ; so the Shell then reads EOF at once and goes on with the CSR
+                ; handshake (file size, STATUS=OK) as usual.
+                MOVE    ADF_DEV_TAB, R9         ; R9: the device of this drive
+                ADD     R6, R9
+                MOVE    @R9, R9
+                RSUB    FAST_LOAD, 1
+                CMP     0, R9
+                RBRA    _PREP_LI_FATE, !Z
+
 _PREP_LI_OK     XOR     R8, R8                  ; no errors
                 XOR     R9, R9                  ; image type hardcoded to 0
                 DECRB
@@ -266,6 +283,154 @@ _PREP_LI_BAD    MOVE    1, R8                   ; error: invalid size
 _PREP_LI_DUPE   MOVE    1, R8                   ; error: already in a drive
                 MOVE    WRN_ADF_DUP, R9
                 DECRB
+                RET
+
+_PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
+                MOVE    WRN_ADF_FAT, R9
+                DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; FAST_LOAD: copy a whole file into a QNICE device, one SD sector at a time
+;
+; The Shell loads an image byte by byte through f32_fread, at several dozen
+; instructions per byte. This is the fast path for the ADF drives and the
+; Kickstart selector: FAT32$FILE_SEEK to each 512-byte boundary reads that
+; sector into the one SD sector buffer (and makes the handle its owner), and
+; the 512 bytes are then copied straight from IO$SD_DATA into the device
+; window, one byte per window word, like the Shell writes them. Sequential
+; seeks are cheap: the fast seek of the QNICE fork walks forward from the
+; current cluster and reads a FAT sector only once per 128 clusters.
+;
+; The device sees exactly what the Shell would have written: byte offset n of
+; the file goes to window n >> 12, word n & 0xFFF. Sector boundaries never
+; cross a 4k window. A last partial sector is copied partially.
+;
+; Input:  R8: file handle (any position), R9: QNICE device id
+; Output: R8: unchanged; R9: 0 = OK, otherwise the FAT32 error code
+;         The handle is at the end of the file. R10..R12 clobbered, the
+;         RAMROM selection is changed.
+; ----------------------------------------------------------------------------
+FAST_LOAD       INCRB
+                MOVE    R8, R0                  ; R0: file handle
+                MOVE    R9, R1                  ; R1: device
+                MOVE    R0, R7                  ; R5:R4: file size
+                ADD     FAT32$FDH_SIZE_LO, R7
+                MOVE    @R7, R4
+                MOVE    R0, R7
+                ADD     FAT32$FDH_SIZE_HI, R7
+                MOVE    @R7, R5
+                XOR     R2, R2                  ; R3:R2: file offset
+                XOR     R3, R3
+
+_FL_NEXT        MOVE    R4, R6                  ; R7:R6: bytes left
+                MOVE    R5, R7
+                SUB     R2, R6
+                SUBC    R3, R7
+                MOVE    R6, R10
+                OR      R7, R10
+                RBRA    _FL_DONE, Z
+                MOVE    FAT32$SECTOR_SIZE, R12  ; R12: bytes from this sector
+                CMP     0, R7
+                RBRA    _FL_SEEK, !Z
+                CMP     FAT32$SECTOR_SIZE, R6   ; sector size > bytes left?
+                RBRA    _FL_SEEK, !N
+                MOVE    R6, R12
+
+_FL_SEEK        MOVE    R0, R8                  ; read the sector into the
+                MOVE    R2, R9                  ; SD sector buffer
+                MOVE    R3, R10
+                SYSCALL(f32_fseek, 1)
+                CMP     0, R9
+                RBRA    _FL_RET, !Z
+
+                MOVE    M2M$RAMROM_DEV, R8      ; the device and the 4k window:
+                MOVE    R1, @R8                 ; window = offset >> 12
+                MOVE    R3, R8
+                AND     0xFFFD, SR              ; clear X: shift in zeros
+                SHL     4, R8
+                MOVE    R2, R9
+                AND     0xFFFB, SR              ; clear C: shift in zeros
+                SHR     12, R9
+                OR      R9, R8
+                MOVE    M2M$RAMROM_4KWIN, R9
+                MOVE    R8, @R9
+                MOVE    R2, R8                  ; R8: destination in the window
+                AND     0x0FFF, R8
+                ADD     M2M$RAMROM_DATA, R8
+
+                MOVE    IO$SD_DATA_POS, R9
+                MOVE    IO$SD_DATA, R10
+                XOR     R11, R11                ; R11: byte in the sector
+                MOVE    R12, R6                 ; R6: countdown
+_FL_COPY        MOVE    R11, @R9
+                MOVE    @R10, @R8++
+                ADD     1, R11
+                SUB     1, R6
+                RBRA    _FL_COPY, !Z
+
+                ADD     R12, R2                 ; next sector
+                ADDC    0, R3
+                RBRA    _FL_NEXT, 1
+
+_FL_DONE        MOVE    R0, R8                  ; leave the handle at the end
+                MOVE    R4, R9                  ; of the file: a later byte
+                MOVE    R5, R10                 ; reader gets EOF at once
+                SYSCALL(f32_fseek, 1)           ; R9: 0 or the error
+
+_FL_RET         MOVE    R0, R8
+                DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; KICK_PREP: the PREP_LOAD_IMAGE part of the Kickstart selector (Memory menu)
+;
+; Accepts 256 KB (Kickstart 1.x, mirrored by the hardware) and 512 KB ROMs and
+; loads them with FAST_LOAD into the Kickstart device. The Shell has already
+; set the CSR of the device to LOADING, which holds the Amiga in reset
+; (mega65.vhd, amiga_cold_boot.vhd); the STATUS=OK that follows this callback
+; releases it with a cold boot. On an error the Shell leaves the CSR at
+; LOADING, so we set it back to IDLE ourselves: the Amiga restarts and is not
+; kept in reset for good. After a read error the ROM is incomplete, which the
+; message says.
+;
+; Input:  R8: the file handle of the Shell (just opened)
+; Output: R8: 0=OK, else error; R9: 0 or pointer to an error message
+; ----------------------------------------------------------------------------
+KICK_PREP       INCRB
+                MOVE    R8, R0                  ; R0: the handle of the Shell
+                MOVE    R0, R1                  ; R3:R2: file size
+                ADD     FAT32$FDH_SIZE_LO, R1
+                MOVE    @R1, R2
+                MOVE    R0, R1
+                ADD     FAT32$FDH_SIZE_HI, R1
+                MOVE    @R1, R3
+                CMP     0, R2                   ; 256 KB = 0x00040000 or
+                RBRA    _KP_BADSZ, !Z           ; 512 KB = 0x00080000
+                CMP     KICK_256K_HI, R3
+                RBRA    _KP_LOAD, Z
+                CMP     KICK_512K_HI, R3
+                RBRA    _KP_BADSZ, !Z
+
+_KP_LOAD        MOVE    R0, R8
+                MOVE    AEXP_DEV_KICK, R9
+                RSUB    FAST_LOAD, 1
+                CMP     0, R9
+                RBRA    _KP_FAT, !Z
+                XOR     R8, R8
+                XOR     R9, R9
+                RBRA    _KP_RET, 1
+
+_KP_BADSZ       MOVE    WRN_KICK_SIZE, R1
+                RBRA    _KP_ERR, 1
+_KP_FAT         MOVE    WRN_KICK_FAT, R1
+_KP_ERR         MOVE    AEXP_DEV_KICK, R8       ; LOADING -> IDLE: let the
+                MOVE    CRTROM_CSR_STATUS, R9   ; Amiga run again
+                MOVE    CRTROM_CSR_ST_IDLE, R10
+                RSUB    CRTROM_CSR_W, 1
+                MOVE    1, R8
+                MOVE    R1, R9
+_KP_RET         DECRB
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -1025,9 +1190,11 @@ _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
 ;   * idle, dirty tracks pending, gate open (or forced): pick the LOWEST
 ;     dirty track, clear its bit FIRST (write-1-to-clear; a concurrent
 ;     re-write by the Amiga re-sets it, so the track is re-flushed - torn
-;     reads self-heal), f32_fseek the retained handle to track * 5632
-;   * active session: stream ADF_FLUSH_CHUNK bytes from the ADF byte window
-;     to f32_fwrite, then f32_fflush the chunk; at track end close the session
+;     reads self-heal) and open a session at track * 5632
+;   * active session: seek the retained handle to the next chunk (which
+;     reads that SD sector into the buffer), copy ADF_FLUSH_CHUNK bytes from
+;     the ADF byte window straight into the buffer and f32_fflush it - one
+;     sector write, no byte API (Megamiga 0.2); at track end close the session
 ;
 ; The chunk is 512 bytes and every track start is 512-aligned, so chunks
 ; never cross a 4k device window and cover exactly one FAT32 sector - and
@@ -1133,22 +1300,38 @@ _FADF_SEEK      MOVE    ADF_FL_BADDR_LO, R8     ; open the session
                 MOVE    ADF_FL_REMAIN, R8
                 ADD     R0, R8
                 MOVE    ADF_TRACK_BYTES, @R8
-                MOVE    ADF_FDH_TAB, R8         ; seek to the track start, in
-                ADD     R0, R8                  ; the file of THIS drive
-                MOVE    @R8, R8                 ; (file offset = image offset)
-                MOVE    R11, R9
-                MOVE    R12, R10
-                SYSCALL(f32_fseek, 1)
-                CMP     0, R9
-                RBRA    _FADF_FATAL, !Z
-                MOVE    ADF_FL_STATE, R8
+                MOVE    ADF_FL_STATE, R8        ; (every chunk seeks itself)
                 ADD     R0, R8
                 MOVE    1, @R8
                 RBRA    _FADF_RET1, 1           ; chunks stream on later calls
 
-                ; active session: stream one chunk. window = byte addr >> 12,
-                ; offset = byte addr & 0xFFF (one file byte per window word)
-_FADF_CHUNK     MOVE    ADF_FL_BADDR_HI, R8
+                ; active session: write one chunk = one SD sector. Seeking the
+                ; FDH of THIS drive to the chunk reads that sector into the SD
+                ; sector buffer and makes this FDH its owner (file offset =
+                ; image offset); the 512 bytes are then copied from the ADF
+                ; byte window straight into the buffer, and FAT32$FLUSH writes
+                ; it back - instead of 512 f32_fwrite calls. Sequential seeks
+                ; are cheap (the fast seek walks forward from the current
+                ; cluster). The seek may use the RAMROM selection, so the
+                ; device is selected again afterwards.
+_FADF_CHUNK     MOVE    ADF_FDH_TAB, R8         ; R8: the FDH of THIS drive
+                ADD     R0, R8
+                MOVE    @R8, R8
+                MOVE    ADF_FL_BADDR_LO, R9
+                ADD     R0, R9
+                MOVE    @R9, R9
+                MOVE    ADF_FL_BADDR_HI, R10
+                ADD     R0, R10
+                MOVE    @R10, R10
+                SYSCALL(f32_fseek, 1)
+                CMP     0, R9
+                RBRA    _FADF_FATAL, !Z
+                MOVE    R0, R8                  ; the device of this drive again
+                RSUB    ADF_SEL_WBC, 1          ; (the window is set below)
+
+                ; window = byte addr >> 12, offset = byte addr & 0xFFF (one
+                ; file byte per window word)
+                MOVE    ADF_FL_BADDR_HI, R8
                 ADD     R0, R8
                 MOVE    @R8, R5
                 AND     0xFFFD, SR              ; clear X: shift in zeros
@@ -1165,17 +1348,21 @@ _FADF_CHUNK     MOVE    ADF_FL_BADDR_HI, R8
                 MOVE    R6, R7
                 AND     0x0FFF, R7
                 ADD     M2M$RAMROM_DATA, R7     ; R7: source pointer
-                MOVE    ADF_FDH_TAB, R6         ; R6: the FDH of THIS drive,
-                ADD     R0, R6                  ; hoisted out of the byte loop
+                MOVE    ADF_FDH_TAB, R6         ; R6: the FDH of THIS drive
+                ADD     R0, R6
                 MOVE    @R6, R6
+                MOVE    IO$SD_DATA_POS, R8
+                MOVE    IO$SD_DATA, R9
+                XOR     R10, R10                ; R10: byte in the sector
                 MOVE    ADF_FLUSH_CHUNK, R5     ; R5: byte countdown
-_FADF_WLOOP     MOVE    R6, R8
-                MOVE    @R7++, R9               ; one file byte per word
-                SYSCALL(f32_fwrite, 1)
-                CMP     0, R9
-                RBRA    _FADF_FATAL, !Z
+_FADF_WLOOP     MOVE    R10, @R8
+                MOVE    @R7++, @R9              ; one file byte per word
+                ADD     1, R10
                 SUB     1, R5
                 RBRA    _FADF_WLOOP, !Z
+                MOVE    R6, R8                  ; the buffer now holds new data
+                ADD     FAT32$FDH_FLAGS, R8     ; of the sector of this FDH
+                OR      FAT32$FDHF_DIRTY, @R8
 
                 ; persist the chunk NOW: the FAT32 hardware sector buffer is
                 ; shared with every other SD user (e.g. the OSM settings
@@ -3524,6 +3711,10 @@ ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
 ; others).
 ADF_DRIVES      .EQU    3
 
+; Kickstart selector: accepted ROM sizes (high words; the low words are 0)
+KICK_256K_HI    .EQU    0x0004
+KICK_512K_HI    .EQU    0x0008
+
 ; Return codes of FLUSH_ADF_STEP
 ADF_FL_IDLE     .EQU    0                   ; clean and idle, nothing left
 ADF_FL_DID      .EQU    1                   ; work remains, slice consumed
@@ -3609,6 +3800,18 @@ WRN_ADF_DUP     .ASCII_P "\n\nThis disk image is already in another\n"
                 .ASCII_P "at once: each drive collects its own\n"
                 .ASCII_P "changes and would save them over the\n"
                 .ASCII_W "changes of the other one.\n"
+
+; Warning: the image could not be read from the SD card (FAST_LOAD)
+WRN_ADF_FAT     .ASCII_P "\n\nThe ADF file cannot be read from\n"
+                .ASCII_W "the SD card (FAT32 error).\n"
+
+; Warnings of the Kickstart selector
+WRN_KICK_SIZE   .ASCII_P "\n\nThis is not a Kickstart ROM image:\n"
+                .ASCII_P "the file size must be 256 KB or 512 KB\n"
+                .ASCII_W "(a raw, unencrypted ROM dump).\n"
+WRN_KICK_FAT    .ASCII_P "\n\nThe Kickstart file cannot be read from\n"
+                .ASCII_P "the SD card (FAT32 error). The ROM is\n"
+                .ASCII_W "incomplete: load another one.\n"
 
 ; Fatal: SD card write failed during the ADF write-back
 WRN_HDF_NOROM   .ASCII_P "\n\nThe hard disk needs its boot ROM:\n"
@@ -3820,8 +4023,11 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The fourth per-item array and the 19th->20th structure word are the menu
 ; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
 ; 1 to 3 with the second and third simulated floppy drive, and to 4 with the
-; HDF line of the IDE board (WIP-V2-A11-JS-02: 156 items, demand 2478).
-MENU_HEAP_SIZE  .EQU 2496
+; HDF line of the IDE board (WIP-V2-A11-JS-02: 156 items, demand 2478), and to
+; 5 with the Kickstart selector of the Memory menu (Megamiga 0.2: 158 items,
+; demand 2528 = exactly 79 x 32, so MENU_HEAP_SIZE 2496 -> 2528 with no
+; headroom - both checks fail only on demand > size - and both HEAP_SIZE -32).
+MENU_HEAP_SIZE  .EQU 2528
 
 #ifndef RELEASE
 
@@ -3840,13 +4046,13 @@ MENU_HEAP_SIZE  .EQU 2496
 ; words the 30208 total used to leave.
 ; WIP-V2-A11-JS-02: the IDE board added 280 words of variables (mostly the HDF
 ; extent map), so the release total went down by 384 words to 29696.
-HEAP_SIZE       .EQU 4544                       ; 7040 - 2496 = 4544
+HEAP_SIZE       .EQU 4512                       ; 7040 - 2528 = 4512
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27200                      ; 29696 - 2496 = 27200
+HEAP_SIZE       .EQU 27168                      ; 29696 - 2528 = 27168
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract
