@@ -18,6 +18,13 @@ OPTM_MENULEVEL  .BLOCK 1
 ; selected menu item in main menu before diving into a submenu
 OPTM_MAINSEL    .BLOCK 1
 
+; M2M-UPSTREAM nested-submenus: parent level of every (sub)menu level (index =
+; submenu id 1..OPTM_MAXSUB-1, 0 = main menu) and the region stack that
+; _OPTM_STRUCT uses while it assigns the ids
+OPTM_PARENTS    .BLOCK OPTM_MAXSUB
+OPTM_SSTACK     .BLOCK OPTM_MAXNEST
+OPTM_SSTACKE    .BLOCK 1                        ; end marker of OPTM_SSTACK
+
 ; currently selected menu item (real-time)
 OPTM_CUR_SEL    .BLOCK 1
 

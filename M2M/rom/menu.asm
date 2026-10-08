@@ -18,6 +18,8 @@
 OPTM_CLOSE      .EQU 0x00FF                     ; menu item: close (sub)menu
 OPTM_HEADLINE   .EQU 0x1000                     ; AND mask: headline/title itm
 OPTM_SUBMENU    .EQU 0x4000                     ; AND mask: submenu start/stop
+OPTM_MAXSUB     .EQU 32                         ; M2M-UPSTREAM nested-submenus:
+OPTM_MAXNEST    .EQU 8                          ; max. submenus / nesting depth
 OPTM_SINGLESEL  .EQU 0x8000                     ; AND mask: single select item
 
 ; ----------------------------------------------------------------------------
@@ -767,9 +769,9 @@ _OPTM_RUN_5A    CMP     OPTM_KEY_CLOSE, R8      ; key: close?
 _OPTM_RUN_5B    MOVE    R2, R8                  ; return selected item
                 RBRA    _OPTM_RUN_RET, 1
 
-                ; One menu level up (i.e. as long as we only have one submenu
-                ; level this means: back to main menu) - or - close menu if
-                ; we are already in the main menu
+                ; One menu level up (M2M-UPSTREAM nested-submenus: to the
+                ; parent level) - or - close menu if we are already in the
+                ; main menu
 _OPTM_RUN_5C    CMP     OPTM_KEY_MENUUP, R8     ; key: menu up?
                 RBRA    _OPTM_RUN_6A, !Z        ; no: check other key
                 MOVE    OPTM_MENULEVEL, R7      ; already at main menu level?
@@ -1047,32 +1049,53 @@ _OPTM_RUN_SM    MOVE    OPTM_MENULEVEL, R9
                 AND     0x7FFF, R8              ; R8: (sub)menu number
 
                 ; Are we entering or leaving a (sub)menu?
+                ; M2M-UPSTREAM nested-submenus: a closing line has the group id
+                ; OPTM_CLOSE; every other submenu marker opens a submenu
                 MOVE    @R6, R7                 ; R7: selected group item
-                AND     OPTM_CLOSE, R7          ; leave submenu?
-                RBRA    _OPTM_RUN_SM_1, Z       ; no: enter submenu
+                AND     0x00FF, R7
+                CMP     OPTM_CLOSE, R7          ; leave submenu?
+                RBRA    _OPTM_RUN_SM_1, !Z      ; no: enter submenu
 
-                ; Leave submenu
-_OPTM_RUN_SM_L  MOVE    0, @R9                  ; 0=main menu
-                MOVE    OPTM_MAINSEL, R8
-                MOVE    @R8, R2                 ; restore main menu selection
+                ; Leave submenu: one level up, to the parent, with the cursor
+                ; on the label of the submenu we leave
+_OPTM_RUN_SM_L  MOVE    @R9, R8                 ; R8: the level we leave
+                MOVE    OPTM_PARENTS, R7
+                ADD     R8, R7
+                MOVE    @R7, @R9                ; level := its parent
+                XOR     R2, R2                  ; find the label: the opening
+                MOVE    SP, R7                  ; line with the id R8
+                ADD     3, R7
+                MOVE    R1, R6
+_OPTM_RUN_SM_LF MOVE    @R7++, R5
+                AND     0x7FFF, R5
+                CMP     R5, R8                  ; line of the level we leave?
+                RBRA    _OPTM_RUN_SM_LN, !Z
+                MOVE    @R6, R5
+                AND     OPTM_SUBMENU, R5        ; and a submenu marker?
+                RBRA    _OPTM_RUN_SM_LN, Z
+                MOVE    @R6, R5
+                AND     0x00FF, R5
+                CMP     OPTM_CLOSE, R5          ; but not the closing one?
+                RBRA    _OPTM_RUN_SM_4, !Z      ; found: R2 = the label
+_OPTM_RUN_SM_LN ADD     1, R6
+                ADD     1, R2
+                CMP     R0, R2
+                RBRA    _OPTM_RUN_SM_LF, !Z
+                XOR     R2, R2                  ; (cannot happen)
                 RBRA    _OPTM_RUN_SM_4, 1       ; execute level change
 
-                ; Enter submenu
+                ; Enter submenu: the cursor starts behind the label; the entry
+                ; normalization of OPTM_RUN (_OPTM_RUN_INI) walks forward to
+                ; the first line that is visible and selectable on the new
+                ; level - which may be the label of a nested submenu, and which
+                ; honors the menu dependencies
 _OPTM_RUN_SM_1  MOVE    R8, @R9                 ; R8: submenu number
-                MOVE    OPTM_MAINSEL, R8        ; remember main menu selection
+                MOVE    OPTM_MAINSEL, R8        ; remember the selection
                 MOVE    R2, @R8
-
-                ; Calculate the menu item that will be selected
-_OPTM_RUN_SM_2  ADD     1, R2                   ; next item
-                CMP     R0, R2                  ; error condition?
-                RBRA    _OPTM_RUN_SM_3, Z       ; yes
-                ADD     1, R6                   ; no error
-                MOVE    @R6, R7
-                AND     0x00FF, R7              ; selectable item?
-                RBRA    _OPTM_RUN_SM_2, Z       ; no: continue to search
-                MOVE    R2, R8                  ; M2M-UPSTREAM osm-deps: honor
-                RSUB    OPTM_DEP_OK, 1          ; dependency visibility - keep
-                RBRA    _OPTM_RUN_SM_2, !C      ; searching past a hidden line
+                ADD     1, R2
+                CMP     R0, R2
+                RBRA    _OPTM_RUN_SM_4, !Z
+                XOR     R2, R2
                 RBRA    _OPTM_RUN_SM_4, 1
 
                 ; Fatal: No selectable menu item found
@@ -1343,12 +1366,19 @@ _OPTM_CALL      MOVE    R7, @--SP               ; save R7 for usage & restore
 ; (counting from one).
 ;
 ; The highest bit (bit 15) is 1, when the entry is shown in the current menu
-; level indicated by OPTM_MENULEVEL, otherwise it is 0. There is a special
-; case around the very first entry of a sub-menu structure: If we are in the
-; main menu (OPTM_MENULEVEL is 0) then we treat the very first entry of the
-; sub-menu structure as the "headline"/"label" of the sub-menu, i.e. it needs
-; to be shown in the menu menu (bit 15 is 1). If we are within a sub-menu,
-; then this very first line is being ignored (bit 15 is 0).
+; level indicated by OPTM_MENULEVEL, otherwise it is 0.
+;
+; M2M-UPSTREAM nested-submenus: submenus can be nested. A line whose group
+; word carries OPTM_SUBMENU OPENS a submenu, unless its group id is
+; OPTM_CLOSE (OPTM_G_CLOSE + OPTM_G_SUBMENU in config.vhd), which CLOSES the
+; innermost open one - the same rule options.asm uses to count the submenus,
+; and the way every config.vhd writes its "Back" lines, so configurations
+; without nesting behave exactly as before. The opening line is the label
+; of the submenu: it belongs to the submenu (its id), but it is shown on the
+; level of the PARENT submenu (OPTM_PARENTS) and not inside its own. The
+; closing line belongs to the submenu it closes. Without nesting the parent
+; is always the main menu, which is the special case this routine used to
+; implement ("the first entry of a submenu is shown in the main menu").
 ;
 ; Input:
 ;   R8: pointer to a memory region that is as large as all items together
@@ -1366,109 +1396,101 @@ _OPTM_STRUCT    INCRB
                 MOVE    @R2, R2
                 XOR     R3, R3                  ; R3: current main/submen id
                 MOVE    1, R4                   ; R4: next submen id
-                XOR     R5, R5                  ; R5: submenu region flag
+                MOVE    OPTM_SSTACK, R5         ; R5: region stack pointer
+                MOVE    OPTM_PARENTS, R6        ; the main menu has no parent
+                MOVE    0, @R6
 
                 MOVE    R1, @R0++               ; 1st element = size
 
+                ; First pass: the (sub)menu id of every line
 _OPTM_STRUCT_1  MOVE    @R2++, R6               ; R6: next menu group item
-                AND     OPTM_SUBMENU, R6        ; check for submenu marker
-                RBRA    _OPTM_STRUCT_3, Z       ; jump, if no submenu marker
+                MOVE    R6, R7
+                AND     OPTM_SUBMENU, R7        ; check for submenu marker
+                RBRA    _OPTM_STRUCT_3, Z       ; no marker: line of this level
+                AND     0x00FF, R6
+                CMP     OPTM_CLOSE, R6          ; closing marker?
+                RBRA    _OPTM_STRUCT_2, Z       ; yes
 
-                CMP     1, R5                   ; are we already in a region?
-                RBRA    _OPTM_STRUCT_2, Z       ; yes: jump
-                MOVE    1, R5                   ; no: set region flag
+                ; opening marker: push the current id, a new submenu starts
+                CMP     OPTM_SSTACKE, R5
+                RBRA    _OPTM_STRUCT_F, Z       ; nested too deeply: fatal
+                CMP     OPTM_MAXSUB, R4
+                RBRA    _OPTM_STRUCT_F, Z       ; too many submenus: fatal
+                MOVE    R3, @R5++
+                MOVE    OPTM_PARENTS, R7        ; parent of the new submenu
+                ADD     R4, R7
+                MOVE    R3, @R7
                 MOVE    R4, R3                  ; current submen id = next..
                 ADD     1, R4                   ; ..submen id and inc. next
-                RBRA    _OPTM_STRUCT_3, 1       ; continue with storing
+                RBRA    _OPTM_STRUCT_3, 1       ; the label belongs to it
 
+                ; closing marker: belongs to the submenu, then pop
 _OPTM_STRUCT_2  MOVE    R3, @R0++               ; store item in struct array
-                XOR     R5, R5                  ; clear region flag
-                XOR     R3, R3                  ; current id = main menu
+                CMP     OPTM_SSTACK, R5         ; nothing open: fatal
+                RBRA    _OPTM_STRUCT_F, Z
+                MOVE    @--R5, R3               ; back to the enclosing level
                 RBRA    _OPTM_STRUCT_4, 1       ; continue with next iteration
 
 _OPTM_STRUCT_3  MOVE    R3, @R0++               ; store item in struct array
 _OPTM_STRUCT_4  SUB     1, R1                   ; more menu items?
                 RBRA    _OPTM_STRUCT_1, !Z      ; yes: loop
 
-                CMP     1, R5                   ; no: region cntr still actve?
-                RBRA    _OPTM_STRUCT_C, !Z      ; no: all good: continue
-                MOVE    OPTM_CLBK_FATAL, R7     ; yes: fatal
+                CMP     OPTM_SSTACK, R5         ; all submenus closed?
+                RBRA    _OPTM_STRUCT_C, Z       ; yes: all good: continue
+_OPTM_STRUCT_F  MOVE    OPTM_CLBK_FATAL, R7     ; no: fatal
                 MOVE    OPTM_F_MENUSUB, R8
                 XOR     R9, R9
                 RBRA    _OPTM_CALL, 1           ; RBRA because of fatal
 
+                ; Second pass: visibility on the current level. A label (the
+                ; opening line of a submenu) is shown on the level of the
+                ; parent, every other line on the level of its own id.
 _OPTM_STRUCT_C  MOVE    R9, R0                  ; R0: size of menu (#items)
                 MOVE    R8, R1                  ; R1: current array entry
                 ADD     1, R1                   ; skip size information
+                MOVE    OPTM_DATA, R2           ; R2: OPTM_IR_GROUPS array
+                MOVE    @R2, R2
+                ADD     OPTM_IR_GROUPS, R2
+                MOVE    @R2, R2
                 MOVE    OPTM_MENULEVEL, R3      ; R3: current menu level
                 MOVE    @R3, R3
                 XOR     R7, R7                  ; R7: count active menu items
 
-_OPTM_STRUCT_5  CMP     R3, @R1                 ; are we in the curr. men. lvl
-                RBRA    _OPTM_STRUCT_7, Z       ; yes: set to 1 and next entry
-_OPTM_STRUCT_6  AND     0x7FFF, @R1++           ; no: highest bit = 0 and next
+_OPTM_STRUCT_5  MOVE    @R1, R4                 ; R4: id of this line
+                AND     0x7FFF, R4
+                MOVE    @R2++, R6               ; R6: its group word
+                MOVE    R6, R5
+                AND     OPTM_SUBMENU, R5        ; a label?
+                RBRA    _OPTM_STRUCT_6, Z       ; no
+                AND     0x00FF, R6
+                CMP     OPTM_CLOSE, R6
+                RBRA    _OPTM_STRUCT_6, Z       ; no: closing line
+                MOVE    OPTM_PARENTS, R5        ; label: shown on the level..
+                ADD     R4, R5                  ; ..of the parent
+                CMP     @R5, R3
+                RBRA    _OPTM_STRUCT_7, Z
                 RBRA    _OPTM_STRUCT_8, 1
+_OPTM_STRUCT_6  CMP     R4, R3                  ; are we in the curr. men. lvl
+                RBRA    _OPTM_STRUCT_7, Z       ; yes: set to 1 and next entry
+_OPTM_STRUCT_8  AND     0x7FFF, @R1++           ; no: highest bit = 0 and next
+                RBRA    _OPTM_STRUCT_9, 1
 _OPTM_STRUCT_7  OR      0x8000, @R1++           ; active itm: highest bit to 1
                 ADD     1, R7                   ; one more active item
-_OPTM_STRUCT_8  SUB     1, R0                   ; more entries?
+_OPTM_STRUCT_9  SUB     1, R0                   ; more entries?
                 RBRA    _OPTM_STRUCT_5, !Z      ; yes: iterate
 
-                MOVE    R9, R4                  ; R4: preserve overall amount
                 MOVE    R7, R9                  ; return amount of active itms
-
-                ; Correct for the special case described above: In the case
-                ; that we are in main menu, the first item is part of the
-                ; list and otherwise it is not.
-                XOR     R1, R1                  ; R1: last menu number
-                MOVE    1, R5                   ; R5: first occurance flag
-                MOVE    R8, R7                  ; R7: ptr. to curr. itm in lst
-                ADD     1, R7                   ; skip size info
-_OPTM_STRUCT_9  MOVE    @R7, R6
-                AND     0x00FF, R6
-                CMP     R1, R6                  ; last menu number changed?
-                RBRA    _OPTM_STRUCT_10, Z      ; no
-                MOVE    R6, R1                  ; yes: store this num as last
-                MOVE    1, R5                   ; set first occurance flag
-
-_OPTM_STRUCT_10 MOVE    @R7, R6
-                AND     0x8000, R6              ; part of current list?
-                RBRA    _OPTM_STRUCT_11, !Z     ; yes
-
-                CMP     0, R3                   ; are we in the main menu?
-                RBRA    _OPTM_STRUCT_12, !Z     ; no
-                CMP     1, R5                   ; yes: and is it first ocurr.?
-                RBRA    _OPTM_STRUCT_12, !Z     ; no
-                XOR     R5, R5                  ; yes: delete flag and..
-                OR      0x8000, @R7             ; ..make it part of the list
-                ADD     1, R9                   ; one more active item
-                RBRA    _OPTM_STRUCT_12, 1
-
-_OPTM_STRUCT_11 CMP     0, R3                   ; are we in the main menu?
-                RBRA    _OPTM_STRUCT_12, Z      ; yes: move on
-                CMP     1, R5                   ; no: and is it first ocurr.?
-                RBRA    _OPTM_STRUCT_12, !Z     ; no
-                XOR     R5, R5                  ; yes: delete flag and..
-                AND     0x7FFF, @R7             ; ..remove it from the list
-                SUB     1, R9                   ; one less active item         
-
-_OPTM_STRUCT_12 ADD     1, R7                   ; next list element
-                SUB     1, R4                   ; one less item to process
-                RBRA    _OPTM_STRUCT_9, !Z
 
                 ; M2M-UPSTREAM osm-deps
                 ; Third pass: hide every line whose menu dependency is not
                 ; satisfied (see optm_deps.asm).
                 ;
-                ; This MUST be a separate pass that runs AFTER the special-case
-                ; correction above - folding the test into _OPTM_STRUCT_5..8
-                ; silently does nothing on the main menu level. Reason: the
-                ; correction re-sets bit 15 on the first not-shown entry of a
-                ; region (_OPTM_STRUCT_10), and on the main-menu level
-                ; (R3 = 0) _OPTM_STRUCT_11 returns without ever clearing the
-                ; first-occurrence flag R5, so R5 stays 1 across main-menu
-                ; lines and a line hidden earlier would be made visible again
-                ; plus counted into R9. Clearing bit 15 here is safe because
-                ; nothing after this point re-derives it.
+                ; This MUST be a separate pass that runs AFTER the visibility
+                ; pass above (it only ever clears bit 15). Before the nested-
+                ; submenus rework the main-menu special case of that pass could
+                ; re-set bit 15 on a label, which is why the test was never
+                ; folded into it; it still must not be, because a dependency
+                ; can hide a line that the level rule shows.
                 ;
                 ; When config.vhd does not support the feature, OPTM_IR_DEPS is
                 ; 0 and the whole pass is skipped, so this is a no-op for every
