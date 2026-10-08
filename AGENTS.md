@@ -883,7 +883,14 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
 - **BRANCH `a500plus` (Megamiga 0.2.0-dev, 2026-10-08, local only): A500+
   MODE - ECS chipset, 2 MB Chip RAM, 512 KB Kickstart, everything in SDRAM.
   R4/R5/R6 only (R3 support dropped on the user's request; CORE-R3.xpr no
-  longer builds). Simulated, R6-built, NOT hardware-tested.** Minimig's own
+  longer builds). Simulated, R6-built (WNS +0.013, WHS +0.024, BRAM 61/365,
+  all SDRAM pin registers in the IOBs except the one data-OE register, whose
+  5.75 ns to the pads leaves ~6 ns of write setup), NOT hardware-tested.**
+  Timing needs the chipset -> sdram_ctrl multicycle constraints in CORE.xdc
+  (minimig, amiga_clk cck and the static qnice2main OSM bits as sources, as in
+  MiSTer's Minimig.sdc); the build_bitstream/reroll sign-off gates now check the
+  native-pinned main_clk (35.242 ns) and the i_sdram_ctrl instance instead of
+  the flicker-free fast leg. Minimig's own
   `rtl/sdram_ctrl.v` (+ `cpu_cache_new.v`, both SFType SVerilog) is back, as on
   MiSTer: 113.5 MHz = 4 x main_clk from the NATIVE MMCM (clk.vhd CLKOUT1), 16
   states per 7 MHz cycle re-synced to c1 (`main.vhd` exports `c7m_o`), one

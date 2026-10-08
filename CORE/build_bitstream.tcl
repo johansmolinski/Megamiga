@@ -37,15 +37,20 @@ if {$wns eq "" || $whs eq "" || $wns < 0 || $whs < 0} {
 
 open_run impl_1
 set gate {}
-if {[llength [get_pins -quiet {CORE/hr_core_speed_reg[0]/Q}]] == 0} {
-    lappend gate "set_case_analysis target CORE/hr_core_speed_reg\[0\]/Q missing"
+# A500+ mode: the core clock is pinned to native (no flicker-free fast leg), and the
+# chipset -> SDRAM multicycle constraints need the controller's instance name.
+if {[llength [get_pins -quiet {CORE/clk_gen/i_bufgmux/S}]] == 0} {
+    lappend gate "set_case_analysis target CORE/clk_gen/i_bufgmux/S missing"
 }
-foreach {clk want} {main_clk 35.165} {
+if {[llength [get_cells -quiet {CORE/i_amiga_sdram/i_sdram_ctrl/*}]] == 0} {
+    lappend gate "multicycle target CORE/i_amiga_sdram/i_sdram_ctrl missing"
+}
+foreach {clk want} {main_clk 35.242} {
     set c [get_clocks -quiet $clk]
     if {[llength $c] == 0} {
         lappend gate "generated clock $clk missing"
     } elseif {[expr {abs([get_property PERIOD $c] - $want)}] > 0.05} {
-        lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (fast leg not constrained?)"
+        lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (native 28.375 MHz)"
     }
 }
 if {[llength $gate] > 0} {
