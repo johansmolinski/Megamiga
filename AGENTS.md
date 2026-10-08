@@ -1017,6 +1017,23 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   passes. R6: WNS +0.021 (framework hr_clk->hr_rwds), main_clk +4.9, LUTs 41.6k.
   HARDWARE (user, 2026-10-08): "It works as it seems" - more testing pending.
 
+- **Megamiga 0.3.0-dev, AGA step 1 (branch a1200, 2026-10-08, 8d686b7 +
+  Minimig 400e265): HARDWARE-CONFIRMED by the user ("AGA works", with the
+  68020 and the A1200 Kickstart 3.1 kick31_a1200.rom).** amiga_sdram exports
+  sdram_ctrl's chip48 (the 3 burst words after the addressed one), threaded
+  mega65 -> main -> minimig_m65 (the 48'h0 tie-off is gone) -> Minimig, which
+  uses it for the AGA fetch modes (denise_bitplanes.v latches {data16, chip48}
+  at clk7n_en after the slot - after sdram_ctrl's state-15 latch; sampling at
+  the slot edge itself reads the PREVIOUS burst's third word, which the memory
+  TB in ~/aexp-work/a500p/sim now checks at the Denise point: 8 chip48 checks
+  PASS). Memory menu chipset radio OCS 157 / ECS 158 (default) / AGA 159
+  (C_MENU_CHIPSET_OCS/_AGA, OPTM_G_CHIPSET 29) -> amiga_config 0xF3 bits 4:3
+  (minimig derives ecs = |chipset_config[4:3]); cold boot on change. OPTM_SIZE
+  168, MENU_HEAP_SIZE 2720, both HEAP_SIZE -64, settings file 168 bytes. R6:
+  WNS +0.116 (main_clk -> clk4x, the multicycled chipset path), main_clk +6.0,
+  LUTs 43.0k. Next (step 3): SuperHires - the M2M video path takes 14 MHz
+  pixels at most (hard rule 6); 31 kHz AGA modes are out of scope for now.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

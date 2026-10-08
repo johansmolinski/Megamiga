@@ -41,7 +41,10 @@ Credits
 Features
 --------
 
-* Amiga 500+, ECS chipset, PAL (Megamiga 0.2)
+* Amiga 500+, ECS chipset, PAL (Megamiga 0.2); OCS or AGA selectable in the
+  Memory menu (Megamiga 0.3) - AGA with the 68020 and an A1200 Kickstart 3.x
+  makes an A1200-class machine (256 colours, HAM8, the AGA fetch modes;
+  SuperHires and the 31 kHz modes are not displayed yet)
 * Cycle accurate 68000 CPU, or a 68020 (Megamiga 0.3, Memory menu: the TG68K
   core that MiSTer's Minimig uses for its 68020 mode; no FPU, no MMU)
 * 2 MB Chip RAM plus 512 KB Slow RAM (trapdoor expansion); the Slow RAM
@@ -564,7 +567,9 @@ Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
 * One hard disk only, no CD-ROM
-* PAL only: no AGA, no NTSC; the 68020 has no FPU and no MMU, and there is no 68030
+* PAL only, no NTSC; the 68020 has no FPU and no MMU, and there is no 68030
+* AGA: no SuperHires (1280 pixels) and no 31 kHz modes (DblPAL, Multiscan,
+  Productivity) yet
 * No ECS SuperHires and Productivity modes (the video path takes at most a
   14 MHz pixel clock), no HDMI flicker-free mode
 * Megamiga 0.2 runs on boards with SDRAM (R4, R5, R6) only, not on the R3
