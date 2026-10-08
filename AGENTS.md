@@ -1116,7 +1116,7 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   framebuffer. R6 build `-b` WNS +0.036 (`~/aexp-builds/Megamiga-0.3.1-dev-b`),
   HARDWARE-CONFIRMED by the user ("Everything works": ADF boot + write-back
   across a power cycle, three drives, HDF boot, CPU load during floppy
-  loads). Not released yet.** The three ADF pools and lide.rom
+  loads). RELEASED in Megamiga 0.3.1 (via `hdf2`).** The three ADF pools and lide.rom
   moved from HyperRAM into the board SDRAM. `sdram_ctrl.v` (submodule) gained
   a third port (`flpReq/flpAck` toggle handshake, one word per request) that
   addresses bank 0 with column bit 9 = 1 - the Amiga ports only produce
@@ -1147,6 +1147,67 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   alias check against chip $1A5, one-clock reset at 8 slot phases) PASS;
   `mut.sh` 8/8 mutants killed, `rd_stage` is equivalent. `CORE_VERSION`
   0.3.1 (settings file `megamiga-0.3.1.cfg`, content identical to 0.3.0's).
+
+- **Megamiga 0.3.1-dev, MASTER + SLAVE HDF (branch `hdf2` on top of `rtg`,
+  2026-10-09, Minimig `hdf2` = `rtg`). HARDWARE-CONFIRMED by the user
+  ("It works", then "Works now" after the menu fixes below); build -b
+  (`~/aexp-builds/Megamiga-0.3.1-dev-hdf2b`, WNS +0.104). RELEASED as Megamiga
+  0.3.1 (tag `V0.3.1`, `hdf2` merged into main).** Two IDE drives on the one RIPPLE channel, as on a real
+  A600/A1200. HDL (`ide_board.vhd`): control register 0x118 bit 2 = slave
+  present; `present` follows DEV (device/head bit 4) per drive; both drives
+  share the task file, status and data buffer (a real ATA channel does too),
+  so the firmware serves whichever drive the command was written to.
+  FIRMWARE: the disk state of ONE drive is a contiguous block (`HDF_FDH` up to
+  `HDF_SAVE`: handle copy, size, MAPOK, the extent cache and the 257-word
+  extent map, `HDF_BLK_WORDS` = 276) which `HDF_SELECT` swaps with `HDF_SAVE`
+  (the other drive) - so every sector routine stays untouched. ROM: 28572 /
+  28672 after moving the IDENTIFY strings, the screen-config strings and the
+  Hardware Floppy status templates into m2m-rodata.asm (RODATA_STR). `HDF_ACTIVE` = drive in the block,
+  `HDF_UNITS` = mounted drives (bit 0 master, bit 1 slave; replaces
+  `HDF_VALID`), `HDF_SD_SLOT` is global (a mount from the other slot drops the
+  other drive). `IDE_CMD_START` selects the drive from DEV; `HDF_PREP` takes
+  the drive in R9 (it validates BEFORE touching the drive: a bad file leaves
+  the old disk mounted); `HDF_DROP` takes a drive mask; `HDF_CTRL` writes the
+  present bits + board bit. The swap releases the SD sector buffer first: its
+  owner is tracked by handle ADDRESS and both drives use `HDF_FDH` - today
+  every data access releases it anyway (fast path `IDE_SD_TAKE`, slow path
+  `_F32_SEEK`), so that release is insurance. MENU: ` HDF 0:%s` (master,
+  manual ROM 3), new ` HDF 1:%s` (slave, manual ROM 4, `OPTM_G_HDF1` = 49),
+  Kickstart is manual ROM 5 now (`PROF_KICK_ID`); every line from 16 on moved
+  +1 (OPTM_SIZE 207, `C_MENU_PROF_BASE` 19), `C_CRTROMS_MAN_NUM` 6, demand
+  3445 -> `MENU_HEAP_SIZE` 3456; both heap totals -288 for the 278 new
+  variable words (release 29152, debug 6496; HEAP 0x85E4, stack margin 284).
+  Profiles: `PROFILE_APPLY` loops over master/slave: `/amiga/a500.hdf` +
+  `a500-1.hdf` (a600, a1200 alike); a profile with neither takes the board out
+  of the autoconfig chain.
+  ONE CSR PER HDF LINE (found on hardware: the A600 menu showed the A1200
+  slave's name): the Shell derives the "loaded" state of a manual-ROM line
+  from the CSR STATUS of its DEVICE (`CRTROM_MLST_GET`, polled while the menu
+  is open), so two lines on one device share one state. The slave line loads
+  into `C_DEV_AMIGA_IDE1` = 0x010A, a bare `qnice_csr` in mega65.vhd
+  (`i_ide1_csr`, READY on OK like the master's CSR in ide_board.vhd).
+  `HDF_DROP` writes STATUS IDLE on the device of every dropped drive (the line
+  reverts to <Load>), `PROFILE_APPLY` writes OK after a profile mount (else
+  the poll would clear the flag `PROF_NAME` set). EJECT: SPACE on a mounted
+  ` HDF 0:` / ` HDF 1:` line (`HANDLE_UNMOUNT_KEY`, gate 3 = the `HDF_UNITS`
+  bit, lines `AEXP_OSM_HDF_MOUNT_LN` / `AEXP_OSM_HDF1_MOUNT_LN`) calls
+  `HDF_EJECT`: drop, board out of the chain if no drive is left, Amiga reset
+  (lide only scans at reset); on an empty line SPACE still opens the browser.
+  Settings file 207 bytes (a 206-byte 0.3.1 file
+  gets a 0 inserted at offset 16). Tests: `~/aexp-work/fw-ide2` (records carry
+  drive/DEV and a per-file XOR key so wrong-drive data is caught; HDF1 has
+  exactly 64 extents = a full map, HDF2/HDF3 are slow-path; interleaved and
+  same-LBA commands, a read across every extent boundary of the 64-extent
+  file, a rejected slave remount, master remount, ejects of either drive and
+  of the last one, card change; CSR stub per device and a counted reset pulse;
+  cases spc 1/2/8/64 PASS; all mutants killed except `no_flush` and
+  `sel_no_release`, equivalent under the fork's FAT32 library), `~/aexp-work/fw-prof2`
+  (PROFILE_APPLY: A500 master+slave, A600 none = board out, A1200 slave only,
+  CSR OK per mounted line; 9/9 mutants killed - its runner now refuses to
+  count a harness that did not assemble as a kill), `~/aexp-work/ide/tb_ide_board.vhd` section 10 (slave
+  present/absent, DEV seen by the firmware, a command to an absent slave never
+  reaches it; 12/12 HDL mutants killed), `~/aexp-work/menu-nest/real` (207-line
+  walk) PASS.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

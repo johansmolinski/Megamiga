@@ -58,6 +58,9 @@ PN_K1200        .ASCII_W "/amiga/a1200.rom"
 PN_H500         .ASCII_W "/amiga/a500.hdf"
 PN_H600         .ASCII_W "/amiga/a600.hdf"
 PN_H1200        .ASCII_W "/amiga/a1200.hdf"
+PN_S500         .ASCII_W "/amiga/a500-1.hdf"
+PN_S600         .ASCII_W "/amiga/a600-1.hdf"
+PN_S1200        .ASCII_W "/amiga/a1200-1.hdf"
 
 ; Fatal: SD card write failed during the ADF write-back
 WRN_HDF_NOROM   .ASCII_P "\n\nThe hard disk needs its boot ROM:\n"
@@ -68,6 +71,17 @@ WRN_HDF_SIZE    .ASCII_P "\n\nThis is not a valid HDF image:\n"
                 .ASCII_W "512 bytes and at least 64 KB.\n"
 WRN_HDF_FAT     .ASCII_P "\n\nThe HDF file cannot be read from\n"
                 .ASCII_W "the SD card (FAT32 error).\n"
+; IDE board: the IDENTIFY strings (IDE_IDENTIFY, one character per word)
+IDE_ID_SERIAL   .ASCII_W "AEXP-HDF"
+IDE_ID_FWREV    .ASCII_W "JS01"
+IDE_ID_MODEL    .ASCII_W "Megamiga HDF image"
+; live Hardware Floppy status line templates (HWF_STATUS_STEP; the drive digit is patched in)
+HWF_OSM_IDLE    .ASCII_W "df0:Hardware Floppy   "
+HWF_OSM_MOTOR   .ASCII_W "df0:HW Floppy: Motor  "
+HWF_OSM_READ    .ASCII_W "df0:HW Floppy: Reading"
+; screen adjustment (LOAD_SCREEN_OFFSETS)
+SCR_FILE_NAME   .ASCII_W "/amiga/aexp_screen.cfg"
+SCR_LOADING_STR .ASCII_W "<Loading Screen Config>"
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
 ; serial-terminal (UART) log strings, MiSTer-style "new mode detected" trace

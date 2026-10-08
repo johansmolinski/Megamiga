@@ -64,8 +64,8 @@ Features
   disk images via the on-screen-menu, read and write — and hand one of the
   drives to the MEGA65's own internal 3.5" drive to read and write genuine
   Amiga disks, copy-protected originals included
-* One IDE hard disk: an `*.hdf` image on the SD card, read and write, that
-  Kickstart boots from (needs the free lide.device boot ROM)
+* Two IDE hard disks (master and slave): `*.hdf` images on the SD card, read
+  and write, that Kickstart boots from (needs the free lide.device boot ROM)
 * Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), one per profile, and
   switchable in the menu
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
@@ -83,23 +83,23 @@ Features
 
 The main page of the menu (<kbd>Help</kbd>) offers three machines:
 
-| Profile       | CPU   | Chipset | Chip RAM | Slow RAM | Kickstart file       | Hard disk file        |
-|---------------|-------|---------|----------|----------|----------------------|-----------------------|
-| A500 (OCS)    | 68000 | OCS     | 512 KB   | 512 KB   | `/amiga/a500.rom`    | `/amiga/a500.hdf`     |
-| A600 (ECS)    | 68000 | ECS     | 1 MB     | -        | `/amiga/a600.rom`    | `/amiga/a600.hdf`     |
-| A1200 (AGA)   | 68020 | AGA     | 2 MB     | -        | `/amiga/a1200.rom`   | `/amiga/a1200.hdf`    |
+| Profile       | CPU   | Chipset | Chip RAM | Slow RAM | Kickstart file       | Hard disks (master, slave)               |
+|---------------|-------|---------|----------|----------|----------------------|------------------------------------------|
+| A500 (OCS)    | 68000 | OCS     | 512 KB   | 512 KB   | `/amiga/a500.rom`    | `/amiga/a500.hdf`, `/amiga/a500-1.hdf`   |
+| A600 (ECS)    | 68000 | ECS     | 1 MB     | -        | `/amiga/a600.rom`    | `/amiga/a600.hdf`, `/amiga/a600-1.hdf`   |
+| A1200 (AGA)   | 68020 | AGA     | 2 MB     | -        | `/amiga/a1200.rom`   | `/amiga/a1200.hdf`, `/amiga/a1200-1.hdf` |
 
 Selecting a profile reconfigures the Amiga and restarts it (a cold boot): it
 loads the profile's Kickstart - `/amiga/kick.rom` if the profile's own file is
-missing - and mounts the profile's hard disk image if there is one (with none,
-the profile has no hard disk). The profile is remembered, and at power-on the
+missing - and mounts the profile's hard disk images that exist (with none, the
+profile has no hard disk). The profile is remembered, and at power-on the
 core starts with it.
 
 **Profile Settings** shows the details of the selected profile, and you can
 change each of them: CPU, chipset, Chip RAM, Slow RAM, 8 MB Zorro II Fast RAM
 and 16 MB Zorro III Fast RAM (68020 only). Every profile keeps its own
-settings. The hard disk (**HDF**) and **Kickstart** lines there load any other
-file for the running session.
+settings. The hard disk lines (**HDF 0** = master, **HDF 1** = slave) and the
+**Kickstart** line there load any other file for the running session.
 
 The floppy drives stay on the main page; the display, audio and keyboard
 options are in **Settings**.
@@ -121,17 +121,19 @@ options are in **Settings**.
    profile without its own ROM uses it. Kickstart 1.3 knows neither Zorro III
    RAM nor the AGA chipset, so give the A1200 profile an A1200 3.x ROM.
 2. **Hard disks (optional).** Copy an HDF image per profile to
-   `/amiga/a500.hdf`, `/amiga/a600.hdf` or `/amiga/a1200.hdf`, and the
-   `lide.rom` of the release to `/amiga/lide.rom` (see Hard disk below). A
-   profile without its own image starts without a hard disk; leave a file
-   out to get a floppy-only machine.
+   `/amiga/a500.hdf`, `/amiga/a600.hdf` or `/amiga/a1200.hdf` (the master,
+   unit 0), optionally a second one to `/amiga/a500-1.hdf`, `a600-1.hdf` or
+   `a1200-1.hdf` (the slave, unit 1), and the `lide.rom` of the release to
+   `/amiga/lide.rom` (see Hard disks below). A profile without its own images
+   starts without a hard disk; leave the files out to get a floppy-only
+   machine.
 3. **The settings file.** Copy `megamiga-<version>.cfg` from the release to
    `/amiga`, so that the core remembers the selected profile and every change
    in Profile Settings.
 4. **Pick a profile.** Press <kbd>Help</kbd>, move to **A500 (OCS)**,
    **A600 (ECS)** or **A1200 (AGA)** and press <kbd>Return</kbd>. The Amiga
-   restarts with that machine; the **Kickstart** and **HDF** lines in
-   **Profile Settings** show which files it loaded.
+   restarts with that machine; the **Kickstart**, **HDF 0** and **HDF 1**
+   lines in **Profile Settings** show which files it loaded.
 5. **Adjust it (optional).** Open **Profile Settings** to change the CPU,
    chipset, Chip RAM or the RAM expansions of the selected profile - for
    example 8 MB Fast RAM for the A500 with a hard disk, or a 68000 for
@@ -145,6 +147,7 @@ A typical card:
     /amiga/a600.rom          Kickstart 3.1 (A600)
     /amiga/a1200.rom         Kickstart 3.1 (A1200)
     /amiga/a1200.hdf         Workbench 3.1 hard disk for the A1200
+    /amiga/a1200-1.hdf       a second disk for the A1200 (games, data)
     /amiga/lide.rom          hard disk boot ROM (from the release)
     /amiga/megamiga-<version>.cfg
 
@@ -273,9 +276,10 @@ The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
 real Amiga disks, copy protection, and what to expect from thirty-year-old
 media.
 
-### Hard disk (HDF image)
+### Hard disks (HDF images)
 
-The Amiga can have a hard disk: an `*.hdf` image file on your SD card, served
+The Amiga can have two hard disks, master and slave on one IDE channel, as on
+an A600 or A1200: `*.hdf` image files on your SD card, served
 through an emulated Zorro II IDE controller that behaves exactly like LIV2's
 open-source [RIPPLE](https://github.com/LIV2/RIPPLE-IDE) board. Its driver
 and boot ROM is [lide.device](https://github.com/LIV2/lide.device) (GPL-2.0),
@@ -292,13 +296,23 @@ before a reset.
    the official `lide.rom` of a
    [lide.device release](https://github.com/LIV2/lide.device/releases) works
    too, except for a full format (see below).
-2. Copy your `*.hdf` image to the SD card. Named `/amiga/a500.hdf`,
-   `a600.hdf` or `a1200.hdf`, it is the hard disk of that machine profile and
-   is mounted whenever the profile starts.
+2. Copy your `*.hdf` images to the SD card. Named `/amiga/a500.hdf`,
+   `a600.hdf` or `a1200.hdf`, an image is the master (unit 0) of that machine
+   profile; named `a500-1.hdf`, `a600-1.hdf` or `a1200-1.hdf`, the slave
+   (unit 1). They are mounted whenever the profile starts.
 3. Any other image: open the menu with <kbd>Help</kbd>, go to **Profile
-   Settings** and select **HDF:**. Pick the image in the file browser. The
-   Amiga restarts at once and boots from the hard disk (a floppy in `df0:`
-   still has priority, as on a real Amiga).
+   Settings** and select **HDF 0:** (master) or **HDF 1:** (slave). Pick the
+   image in the file browser. The Amiga restarts at once and boots from the
+   hard disk (a floppy in `df0:` still has priority, as on a real Amiga).
+4. To eject a disk, highlight its **HDF 0:** or **HDF 1:** line and press
+   <kbd>Space</kbd> - on an empty line the same key opens the file browser.
+   The Amiga restarts, because it only looks for its drives at a restart;
+   with neither drive left, the IDE board leaves the Amiga's expansion list.
+
+lide.device finds both drives on its own; HDToolBox lists them as units 0 and
+1 of `lide.device`, and their partitions appear as `DH0:`, `DH1:` and so on
+in the order of the drives. Never mount the same image as master and slave at
+once: the two drives would write to one file without knowing of each other.
 
 The image must be a whole hard disk with a partition table (a Rigid Disk
 Block, RDB), not a single-partition "hardfile": WinUAE's "Create hardfile"
@@ -318,9 +332,9 @@ images for an unexpanded A500 with small cylinders (for example 2 heads x 32
 sectors), or switch on the Fast RAM.
 
 Hard disk access is a little slower than on a real IDE disk, because the
-MEGA65's small control CPU serves every sector from the SD card. The disk
-stays mounted until you mount another image, select a machine profile or swap
-the SD card; mounting an
+MEGA65's small control CPU serves every sector from the SD card. A disk stays
+mounted until you eject it, mount another image on its line, select a machine
+profile or swap the SD card; mounting an
 image always restarts the Amiga, because Kickstart only looks for hard disks
 when it starts.
 
@@ -678,7 +692,7 @@ via JTAG). Then:
 5. Put your `*.adf` disk images into `/amiga`, the file browser starts
    there.
 6. Optional, for the hard disk: copy `lide.rom` to `/amiga/lide.rom` and
-   your `*.hdf` images onto the card (see "Hard disk" above).
+   your `*.hdf` images onto the card (see "Hard disks" above).
 7. Flash the `*.cor` file using the MEGA65's bitstream utility, or, if you
    have a JTAG adaptor, load the `*.bit` file directly with the
    [M65 tool](https://github.com/MEGA65/mega65-tools):

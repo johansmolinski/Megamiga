@@ -162,9 +162,14 @@ PREP_LOAD_IMAGE INCRB
 
                 CMP     CTX_LOAD_ROM, R9        ; only guard the ADF load
                 RBRA    _PREP_LI_OK, !Z
-                CMP     AEXP_OPTM_G_HDF, R10    ; the HDF line: own path
+                CMP     AEXP_OPTM_G_HDF, R10    ; the HDF lines: own path,
+                RBRA    _PREP_LI_H0, Z          ; R9 = the drive
+                CMP     AEXP_OPTM_G_HDF1, R10
                 RBRA    _PREP_LI_NHDF, !Z
-                RSUB    HDF_PREP, 1             ; R8/R9: result
+                MOVE    1, R9                   ; slave
+                RBRA    _PREP_LI_HDF, 1
+_PREP_LI_H0     XOR     R9, R9                  ; master
+_PREP_LI_HDF    RSUB    HDF_PREP, 1             ; R8/R9: result
                 DECRB
                 RET
 _PREP_LI_NHDF   CMP     AEXP_OPTM_G_KICK, R10   ; the Kickstart selector: own path
@@ -611,7 +616,9 @@ _KP_RET         MOVE    R4, R10
 ; The HDL applies its CPU, chipset and RAM settings (mega65.vhd prof_decode,
 ; a cold boot of the Amiga). Here the files of the profile are loaded: the Kickstart
 ; /amiga/a500.rom, a600.rom or a1200.rom (if missing: /amiga/kick.rom) and the
-; hard disk /amiga/a500.hdf, a600.hdf or a1200.hdf (if missing: no hard disk).
+; hard disks /amiga/a500.hdf, a600.hdf or a1200.hdf (master, unit 0) and
+; a500-1.hdf, a600-1.hdf or a1200-1.hdf (slave, unit 1); a missing file means
+; no drive there.
 ; The menu lines Kickstart and HDF show the new names, as after a manual load.
 ;
 ; At boot (PREP_START) the mandatory /amiga/kick.rom is already loaded and no
@@ -672,29 +679,52 @@ _PA_KLD         MOVE    R8, R3                  ; R3: the name
                 MOVE    PROF_KICK_ID, R9
                 RSUB    PROF_NAME, 1
 
-                ; the hard disk
-_PA_HDF         MOVE    PROF_HDF_TAB, R8
+                ; the hard disks: R4 = drive, 0 master, 1 slave
+_PA_HDF         XOR     R4, R4
+_PA_HL          MOVE    PROF_HDF_TAB, R8        ; masters, then slaves
                 ADD     R0, R8
-                MOVE    @R8, R8
+                CMP     0, R4
+                RBRA    _PA_HU, Z
+                ADD     3, R8
+_PA_HU          MOVE    @R8, R8
                 RSUB    PROF_OPEN, 1
                 RBRA    _PA_HNO, !C
                 MOVE    R8, R3
                 MOVE    PROF_FDH, R8
+                MOVE    R4, R9
                 RSUB    HDF_PREP, 1             ; mounts, restarts the Amiga
                 CMP     0, R8
-                RBRA    _PA_RET, !Z
+                RBRA    _PA_HNX, !Z
+                MOVE    HDF_DEV_TAB, R8         ; the menu line counts as
+                ADD     R4, R8                  ; loaded: STATUS OK on its
+                MOVE    @R8, R8                 ; device (CRTROM_MLST_GET)
+                MOVE    CRTROM_CSR_STATUS, R9
+                MOVE    CRTROM_CSR_ST_OK, R10
+                RSUB    CRTROM_CSR_W, 1
                 MOVE    R3, R8
-                MOVE    PROF_HDF_ID, R9
+                MOVE    PROF_HDF_ID, R9         ; manual ROM 3 or 4
+                ADD     R4, R9
                 RSUB    PROF_NAME, 1
-                RBRA    _PA_RET, 1
-_PA_HNO         CMP     0, R1                   ; switch without a profile
-                RBRA    _PA_RET, Z              ; HDF: no hard disk
+                RBRA    _PA_HNX, 1
+_PA_HNO         CMP     0, R1                   ; switch without this HDF in
+                RBRA    _PA_HNX, Z              ; the profile: drive absent
+                MOVE    R4, R8
+                ADD     1, R8                   ; drive mask: 1 or 2
                 RSUB    HDF_DROP, 1
-                RSUB    IDE_SEL, 1              ; board out of the chain
-                MOVE    IDE_CTRL, R8
-                MOVE    0, @R8
                 MOVE    CRTROM_MAN_LDF, R8      ; the menu shows <Load>
                 ADD     PROF_HDF_ID, R8
+                ADD     R4, R8
+                MOVE    0, @R8
+_PA_HNX         ADD     1, R4
+                CMP     2, R4
+                RBRA    _PA_HL, !Z
+                CMP     0, R1                   ; switch to a profile without
+                RBRA    _PA_RET, Z              ; any HDF: the board leaves the
+                MOVE    HDF_UNITS, R8           ; autoconfig chain
+                CMP     0, @R8
+                RBRA    _PA_RET, !Z
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_CTRL, R8
                 MOVE    0, @R8
 
 _PA_RET         MOVE    FL_NOBAR, R2
@@ -762,7 +792,9 @@ _PN_RET         SYSCALL(leave, 1)
                 RET
 
 PROF_KICK_TAB   .DW     PN_K500, PN_K600, PN_K1200
-PROF_HDF_TAB    .DW     PN_H500, PN_H600, PN_H1200
+HDF_DEV_TAB     .DW     AEXP_DEV_IDE, AEXP_DEV_IDE1         ; the device of each HDF line
+PROF_HDF_TAB    .DW     PN_H500, PN_H600, PN_H1200          ; masters (unit 0)
+                .DW     PN_S500, PN_S600, PN_S1200          ; slaves (unit 1)
 
 ; ----------------------------------------------------------------------------
 ; Core specific callback functions: Custom tasks
@@ -929,7 +961,8 @@ _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 MOVE    OPTM_X, R9
                 MOVE    @R9, R9
                 ADD     1, R9                   ; R9 = screen x (+1 for frame)
-                MOVE    SCR_LOADING_STR, R8
+                MOVE    SCR_LOADING_STR, R8     ; (read-only data device:
+                RSUB    RODATA_STR, 1           ;  copied to RAM)
                 RSUB    SCR$PRINTSTRXY, 1
 
                 ; The user may have pulled the SD card to write a new file with
@@ -1790,7 +1823,8 @@ _FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
 ;
 ; Mirrors the C64 gesture: with the OSM open and the cursor on the ' ADF:'
 ; line, SPACE ejects the disk (df0 goes empty, the menu label reverts to
-; "<Load>"). The framework has NO unmount path for CRT/ROM devices
+; "<Load>"). Megamiga 0.3.1: the same on the ' HDF 0:' / ' HDF 1:' lines
+; (HDF_EJECT, which also restarts the Amiga). The framework has NO unmount path for CRT/ROM devices
 ; (HANDLE_MOUNTING always opens the browser for CRT/ROM mode, shell.asm) and
 ; M2M must not be modified, so we intercept the key core-side. HANDLE_IO calls
 ; HANDLE_CORE_IO - and thus HANDLE_UNMOUNT_KEY - at the TOP of every OSM
@@ -1871,7 +1905,29 @@ _HUK_G2         CMP     @R1++, R0
                 ADD     1, R2
                 CMP     ADF_DRIVES, R2
                 RBRA    _HUK_G2, !Z
-                RBRA    _HUK_RET, 1             ; some other line -> bail
+
+                ; Megamiga 0.3.1: the two HDF lines. Gate 3 there is the drive
+                ; being mounted (HDF_UNITS: a profile mounts without the Shell)
+                XOR     R2, R2                  ; R2: drive 0 / 1
+                CMP     AEXP_OSM_HDF_MOUNT_LN, R0
+                RBRA    _HUK_H, Z
+                ADD     1, R2
+                CMP     AEXP_OSM_HDF1_MOUNT_LN, R0
+                RBRA    _HUK_RET, !Z            ; some other line -> bail
+_HUK_H          MOVE    R2, R3                  ; drive mask 1 / 2
+                ADD     1, R3
+                MOVE    HDF_UNITS, R1
+                AND     @R1, R3
+                RBRA    _HUK_RET, Z             ; no disk -> let SPACE mount
+                MOVE    KEYB_PRESSED, R1        ; suppress the SPACE of the menu
+                OR      M2M$KEY_SPACE, @R1      ; (see gate 3 below)
+                CMP     0, R4                   ; gate 5: rising edge only
+                RBRA    _HUK_RET, Z
+                CMP     0, R5
+                RBRA    _HUK_RET, !Z
+                MOVE    R2, R8
+                RSUB    HDF_EJECT, 1
+                RBRA    _HUK_RET, 1
 
                 ; --- gate 3: is a disk in THAT drive? PARSEST == PT_OK ---
 _HUK_G3         MOVE    ADF_DEV_TAB, R8
@@ -2161,6 +2217,7 @@ _HWF_CLS        MOVE    HWF_OSM_LAST, R0        ; coarse state unchanged?
                 MOVE    HWF_OSM_STR, R0
                 ADD     R6, R0
                 MOVE    @R0, R8
+                RSUB    RODATA_STR, 1           ; (read-only data: in RAM)
                 MOVE    HWF_LABEL, R9
                 SYSCALL(strcpy, 1)
                 MOVE    HWF_LABEL, R0
@@ -2455,8 +2512,11 @@ IDE_SEL         INCRB
 IDE_INIT        INCRB
                 MOVE    FL_NOBAR, R0            ; (PROFILE_APPLY)
                 MOVE    0, @R0
-                MOVE    HDF_VALID, R0
-                MOVE    0, @R0
+                MOVE    HDF_UNITS, R0           ; no disk, the master active,
+                MOVE    HDF_SAVE_END, R1        ; both disk states zero (no
+_IDI_Z          MOVE    0, @R0++                ; device pointer: HDF_SELECT
+                CMP     R0, R1                  ; releases no SD buffer for a
+                RBRA    _IDI_Z, !Z              ; drive that was never mounted)
                 MOVE    IDE_STATE, R0
                 MOVE    IDE_ST_IDLE, @R0
                 RSUB    IDE_SEL, 1
@@ -2483,27 +2543,118 @@ _ILO_NO         AND     0xFFFB, SR              ; C=0
                 DECRB
                 RET
 
-; HDF_DROP: forget the mounted disk. The drive vanishes from the IDE bus at once
-; (all registers read 0xFF, a command in progress is never completed). The
-; board itself stays in the autoconfig chain until the next reset.
-; Input/Output: none; all registers preserved
+; HDF_DROP: forget mounted disks. The drives vanish from the IDE bus at once
+; (their registers read 0xFF, a command in progress is never completed). The
+; board itself stays in the autoconfig chain until the next reset. Their menu
+; lines revert to <Load>: the CSR STATUS of their devices goes IDLE, which the
+; Shell turns into "not loaded" (CRTROM_MLST_GET).
+; Input: R8: drives, bit 0 master, bit 1 slave. Output: none; registers preserved
 HDF_DROP        INCRB
-                MOVE    HDF_VALID, R0
-                MOVE    0, @R0
+                MOVE    R8, R2                  ; R2: the drives
+                MOVE    R9, R6
+                MOVE    R10, R7
+                NOT     R8, R0
+                MOVE    HDF_UNITS, R1
+                AND     R0, @R1
                 MOVE    IDE_STATE, R0
                 MOVE    IDE_ST_IDLE, @R0
+                MOVE    HDF_DEV_TAB, R3         ; R3: device of the drive
+                MOVE    R2, R4                  ; R4: drives still to do
+_HDD_L          MOVE    R4, R5
+                AND     1, R5
+                RBRA    _HDD_N, Z
+                MOVE    @R3, R8
+                MOVE    CRTROM_CSR_STATUS, R9
+                MOVE    CRTROM_CSR_ST_IDLE, R10
+                RSUB    CRTROM_CSR_W, 1
+_HDD_N          ADD     1, R3
+                AND     0xFFFB, SR
+                SHR     1, R4
+                CMP     0, R4
+                RBRA    _HDD_L, !Z
                 RSUB    IDE_SEL, 1
-                MOVE    IDE_CTRL, R0
-                AND     IDE_CTRL_BOARD, @R0     ; keep only the board bit
+                MOVE    IDE_CTRL, R8            ; keep the board bit
+                MOVE    @R8, R8
+                AND     IDE_CTRL_BOARD, R8
+                RSUB    HDF_CTRL, 1
+                MOVE    R2, R8
+                MOVE    R6, R9
+                MOVE    R7, R10
                 DECRB
+                RET
+
+; HDF_EJECT: SPACE on an HDF line of the menu (HANDLE_UNMOUNT_KEY). The drive
+; goes, without any drive the board leaves the autoconfig chain, and the Amiga
+; restarts: Kickstart and lide.device only look for drives at a reset.
+; Input: R8: drive 0 / 1. Output: none; R8 clobbered. Selects the IDE device.
+HDF_EJECT       INCRB
+                ADD     1, R8                   ; drive mask
+                RSUB    HDF_DROP, 1
+                MOVE    HDF_UNITS, R0
+                CMP     0, @R0
+                RBRA    _HEJ_RST, !Z
+                MOVE    IDE_CTRL, R0            ; (HDF_DROP selected the board)
+                MOVE    0, @R0
+_HEJ_RST        RSUB    IDE_RESET_AMIGA, 1
+                DECRB
+                RET
+
+; HDF_CTRL: IDE_CTRL = the present bits of HDF_UNITS + R8 (0 or
+; IDE_CTRL_BOARD). Selects the IDE device; all registers preserved.
+HDF_CTRL        INCRB
+                RSUB    IDE_SEL, 1
+                MOVE    HDF_UNITS, R0
+                MOVE    @R0, R0
+                MOVE    R0, R1
+                AND     1, R1                   ; master: bit 0
+                AND     2, R0                   ; slave: bit 1 -> bit 2
+                ADD     R0, R0
+                OR      R0, R1
+                OR      R8, R1
+                MOVE    IDE_CTRL, R0
+                MOVE    R1, @R0
+                DECRB
+                RET
+
+; HDF_SELECT: make the disk state of drive R8 (0 master, 1 slave) the active
+; one, HDF_FDH up to HDF_SAVE: swap it with HDF_SAVE. The one SD sector buffer
+; is tracked by the ADDRESS of its owner, and both drives use HDF_FDH, so the
+; buffer is released first (a written sector is always flushed already, so this
+; only drops a cached one).
+; Input: R8: drive. Output: none; all registers preserved
+HDF_SELECT      INCRB
+                MOVE    HDF_ACTIVE, R0
+                CMP     @R0, R8
+                RBRA    _HSE_RET, Z
+                MOVE    R8, @R0
+                MOVE    R8, R4
+                MOVE    R9, R5
+                MOVE    HDF_FDH, R8             ; (FAT32$FDH_DEVICE = 0)
+                CMP     0, @R8                  ; never mounted: no device
+                RBRA    _HSE_SWAP, Z
+                RSUB    _F32_RELEASE_BUF, 1
+_HSE_SWAP       MOVE    HDF_FDH, R0
+                MOVE    HDF_SAVE, R1
+                MOVE    R1, R2                  ; R2: words
+                SUB     R0, R2
+_HSE_L          MOVE    @R0, R3
+                MOVE    @R1, @R0++
+                MOVE    R3, @R1++
+                SUB     1, R2
+                RBRA    _HSE_L, !Z
+                MOVE    R4, R8
+                MOVE    R5, R9
+_HSE_RET        DECRB
                 RET
 
 ; HDF_PREP: the PREP_LOAD_IMAGE part of the HDF mount
 ;
 ; Input:  R8: the file handle of the Shell (just opened)
+;         R9: drive, 0 = master, 1 = slave
 ; Output: R8: 0=OK, else error; R9: 0 or pointer to an error message
 HDF_PREP        INCRB
                 MOVE    R8, R0                  ; R0: the handle of the Shell
+                MOVE    R9, R6                  ; R6: the drive
 
                 RSUB    IDE_LIDE_OK, 1          ; no boot ROM, no board
                 RBRA    _HDFP_NOROM, !C
@@ -2520,8 +2671,11 @@ HDF_PREP        INCRB
                 CMP     HDF_MIN_SIZE_HI, R3     ; at least HDF_MIN_SIZE_HI
                 RBRA    _HDFP_BADSZ, N          ; x 64 KB (unsigned compare)
 
-                ; the old disk goes first: from here on the drive is absent
-                ; until the new one is complete
+                ; the disk state of this drive; its old disk goes first:
+                ; from here on the drive is absent until the new one is complete
+                MOVE    R6, R8
+                RSUB    HDF_SELECT, 1
+                ADD     1, R8                   ; drive mask: 1 or 2
                 RSUB    HDF_DROP, 1
 
                 MOVE    R0, R8                  ; our own copy of the handle
@@ -2580,12 +2734,18 @@ _HDFP_SKD       CMP     0, R9
                 RBRA    _HDFP_FATERR, !Z
 
                 MOVE    M2M$CSR, R1             ; remember the SD slot (see
-                MOVE    @R1, R1                 ; the SD guards in IDE_STEP)
-                AND     M2M$CSR_SD_ACTIVE, R1
-                MOVE    HDF_SD_SLOT, R4
-                MOVE    R1, @R4
-                MOVE    HDF_VALID, R1
-                MOVE    1, @R1
+                MOVE    @R1, R1                 ; the SD guards in IDE_STEP);
+                AND     M2M$CSR_SD_ACTIVE, R1   ; the disk of the other drive
+                MOVE    HDF_SD_SLOT, R4         ; cannot stay if it came from
+                CMP     @R4, R1                 ; the other slot
+                RBRA    _HDFP_SLOT, Z
+                MOVE    3, R8
+                RSUB    HDF_DROP, 1
+_HDFP_SLOT      MOVE    R1, @R4
+                MOVE    R6, R8                  ; mounted: bit 0 or 1
+                ADD     1, R8
+                MOVE    HDF_UNITS, R1
+                OR      R8, @R1
 
                 ; drive present, board in the chain; restart the Amiga so that
                 ; Kickstart configures the board and boots from the disk
@@ -2593,9 +2753,8 @@ _HDFP_SKD       CMP     0, R9
                 MOVE    IDE_EVENTS, R1
                 MOVE    IDE_LAST_EV, R4
                 MOVE    @R1, @R4
-                MOVE    IDE_CTRL, R1
-                MOVE    IDE_CTRL_PRESENT, @R1
-                OR      IDE_CTRL_BOARD, @R1
+                MOVE    IDE_CTRL_BOARD, R8
+                RSUB    HDF_CTRL, 1
                 RSUB    IDE_RESET_AMIGA, 1
 
                 XOR     R8, R8
@@ -2698,9 +2857,9 @@ _IDC_RET        DECRB
 ; Input/Output: none; R8..R12 are clobbered
 IDE_STEP        INCRB
                 RSUB    IDE_SEL, 1
-                MOVE    HDF_VALID, R0
-                CMP     1, @R0
-                RBRA    _IDS_VALID, Z
+                MOVE    HDF_UNITS, R0
+                CMP     0, @R0
+                RBRA    _IDS_VALID, !Z
 
                 ; no disk: keep the event shadow in sync, nothing to serve
 _IDS_SYNC       MOVE    IDE_EVENTS, R0
@@ -2722,7 +2881,8 @@ _IDS_VALID      MOVE    SD_CHANGED, R0
                 MOVE    HDF_SD_SLOT, R1
                 CMP     @R1, R0
                 RBRA    _IDS_EV, Z
-_IDS_DROP       RSUB    HDF_DROP, 1
+_IDS_DROP       MOVE    3, R8                   ; both drives
+                RSUB    HDF_DROP, 1
                 RBRA    _IDS_SYNC, 1
 
 _IDS_EV         MOVE    IDE_EVENTS, R0
@@ -2824,6 +2984,13 @@ IDE_ERROR       INCRB
 ; IDE_CMD_START: a command was written to the board
 ; Output: none; R8..R12 clobbered
 IDE_CMD_START   INCRB
+                MOVE    IDE_TF_DEVH, R8         ; DEV (bit 4) picks the drive:
+                MOVE    @R8, R8                 ; the board only takes commands
+                AND     IDE_DEVH_DEV, R8        ; for a present one
+                AND     0xFFFB, SR
+                SHR     4, R8
+                RSUB    HDF_SELECT, 1
+                RSUB    IDE_SEL, 1
                 MOVE    IDE_TF_CMD, R0
                 MOVE    @R0, R0                 ; R0: command
                 AND     0x00FF, R0
@@ -3349,15 +3516,18 @@ _IID_T          MOVE    @R0++, R1
                 RSUB    IDE_ID_PUT, 1
                 RBRA    _IID_T, 1
 
-_IID_S          MOVE    IDE_ID_SERIAL, R8       ; strings
+_IID_S          MOVE    IDE_ID_SERIAL, R8       ; strings (read-only data
+                RSUB    RODATA_STR, 1           ; device: copied to RAM)
                 MOVE    IDE_IDW_SERIAL, R9
                 MOVE    10, R10
                 RSUB    IDE_ID_STR, 1
                 MOVE    IDE_ID_FWREV, R8
+                RSUB    RODATA_STR, 1
                 MOVE    IDE_IDW_FWREV, R9
                 MOVE    4, R10
                 RSUB    IDE_ID_STR, 1
                 MOVE    IDE_ID_MODEL, R8
+                RSUB    RODATA_STR, 1
                 MOVE    IDE_IDW_MODEL, R9
                 MOVE    20, R10
                 RSUB    IDE_ID_STR, 1
@@ -3563,8 +3733,11 @@ LOAD_SCREEN_OFFSETS INCRB
                 CMP     0, @R8                  ; valid? (set by HELP_MENU_INIT)
                 RBRA    _LSO_ZERO, Z            ; no SD device -> zero table
 
+                MOVE    SCR_FILE_NAME, R8       ; "/amiga/aexp_screen.cfg"
+                RSUB    RODATA_STR, 1           ; (read-only data: in RAM)
+                MOVE    R8, R10
+                MOVE    CONFIG_DEVH, R8
                 MOVE    SCR_FDH, R9        ; empty file handle struct
-                MOVE    SCR_FILE_NAME, R10      ; "/amiga/aexp_screen.cfg"
                 XOR     R11, R11                ; "/" path separator
                 SYSCALL(f32_fopen, 1)
                 CMP     0, R10                  ; open OK?
@@ -4023,7 +4196,8 @@ IDE_EV_CMD      .EQU    0x0001              ; a command was written
 IDE_EV_BUF      .EQU    0x0002              ; the CPU finished a buffer
 IDE_EV_RST      .EQU    0x0004              ; reset (Amiga, RESET instr., SRST)
 IDE_EV_ACK      .EQU    0x0008              ; a commit was applied
-IDE_CTRL_PRESENT .EQU   0x0001              ; the drive answers on the bus
+IDE_CTRL_PRESENT .EQU   0x0001              ; the master answers on the bus
+IDE_CTRL_PRES1  .EQU    0x0004              ; the slave answers on the bus
 IDE_CTRL_BOARD  .EQU    0x0002              ; the board is in the autoconfig chain
 IDE_ST_IDLE     .EQU    0                   ; server states: no command
 IDE_ST_RDPREP   .EQU    1                   ; READ: next sector to be read
@@ -4038,6 +4212,7 @@ IDE_ERR_ABRT    .EQU    0x0004              ; command aborted
 IDE_ERR_IDNF    .EQU    0x0010              ; sector not found (out of range)
 IDE_ERR_UNC     .EQU    0x0040              ; uncorrectable (SD card error)
 IDE_DEVH_LBA    .EQU    0x0040              ; device/head: LBA addressing
+IDE_DEVH_DEV    .EQU    0x0010              ; device/head: 0 master, 1 slave
 IDE_CMD_IDENTIFY .EQU   0x00EC
 IDE_CMD_READ    .EQU    0x0020
 IDE_CMD_READ_NR .EQU    0x0021
@@ -4058,6 +4233,7 @@ IDE_LIDE_AUTO_ID .EQU   1                   ; lide.rom = auto-load ROM 1
 IDE_ASCII_SPACE .EQU    0x0020
 HDF_MIN_SIZE_HI .EQU    1                   ; at least 64 KB
 HDF_MAP_WORDS   .EQU    257                 ; extent map: 64 extents
+HDF_BLK_WORDS   .EQU    276                 ; FDH (12) + 7 + HDF_MAP_WORDS
 
 ; commands that need no data and no action: answered with DRDY right away
 ; (INITIALIZE DEVICE PARAMETERS, SET FEATURES, RECALIBRATE, READ VERIFY,
@@ -4078,9 +4254,7 @@ IDE_ID_TAB      .DW     0, 0x0040           ; fixed disk
                 .DW     56, 63              ; current sectors per track
                 .DW     80, 0x001E          ; ATA-1..ATA-4
                 .DW     0xFFFF
-IDE_ID_SERIAL   .ASCII_W "AEXP-HDF"
-IDE_ID_FWREV    .ASCII_W "JS01"
-IDE_ID_MODEL    .ASCII_W "Megamiga HDF image"
+; (the IDENTIFY strings IDE_ID_SERIAL / _FWREV / _MODEL are in m2m-rodata.asm)
 
 ; ADF write-back CSR (WBC): one instance per simulated drive, behind the device
 ; of that drive (AEXP_DEV_ADF0/1/2, autogenerated into osm_const.asm from
@@ -4108,8 +4282,9 @@ ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
 ADF_DRIVES      .EQU    3
 
 ; Kickstart selector: accepted ROM sizes (high words; the low words are 0)
-PROF_KICK_ID    .EQU    4                       ; manual ROM ids (order of the
-PROF_HDF_ID     .EQU    3                       ; OPTM_G_LOAD_ROM lines)
+PROF_KICK_ID    .EQU    5                       ; manual ROM ids (order of the
+PROF_HDF_ID     .EQU    3                       ; OPTM_G_LOAD_ROM lines); the
+                                                ; slave HDF is PROF_HDF_ID + 1
 PROF_DIR_LEN    .EQU    7                       ; strlen("/amiga/")
 KICK_256K_HI    .EQU    0x0004
 KICK_512K_HI    .EQU    0x0008
@@ -4159,10 +4334,7 @@ HWF_ASCII_ZERO  .EQU    0x0030
 ; static line in config.vhd, which makes painting it a visual no-op. The drive
 ; digit is patched in at runtime (HWF_LABEL_DIGIT), so one set covers all three
 ; drives.
-HWF_OSM_STR     .DW HWF_OSM_IDLE, HWF_OSM_MOTOR, HWF_OSM_READ
-HWF_OSM_IDLE    .ASCII_W "df0:Hardware Floppy   "
-HWF_OSM_MOTOR   .ASCII_W "df0:HW Floppy: Motor  "
-HWF_OSM_READ    .ASCII_W "df0:HW Floppy: Reading"
+HWF_OSM_STR     .DW HWF_OSM_IDLE, HWF_OSM_MOTOR, HWF_OSM_READ  ; (in m2m-rodata.asm)
 
 ; MEGA65 battery RTC (issue #13): framework device C_DEV_RTC (qnice_wrapper.vhd)
 ; exposing the QNICE date/time interface of M2M/vhdl/i2c/rtc_controller.vhd. The
@@ -4188,14 +4360,13 @@ RTC_CMD_RESYNC  .EQU    0x000A              ; b1 read RTC->internal + b3 keep ru
 ; File name, table geometry, mode indices and the serial-log strings. The four
 ; rows (lores-prog, hires-prog, lores-lace, hires-lace) default to all zeros
 ; (no centering) until /amiga/aexp_screen.cfg provides tuned values.
-SCR_FILE_NAME     .ASCII_W "/amiga/aexp_screen.cfg"
+; (SCR_FILE_NAME and SCR_LOADING_STR are in m2m-rodata.asm)
 
 ; Momentary "Reload Screen Config" busy label (issue #19). SCR$PRINTSTR renders
 ; the < > as the arrow glyphs of the framework (same look as <Mount>/<Load>). It
 ; is exactly OPTM_DX (23) characters, so printed at the left edge of the content
 ; it fills the whole width; it is shown while the SD re-mount + reload runs and
 ; then OPTM_SHOW repaints it away.
-SCR_LOADING_STR   .ASCII_W "<Loading Screen Config>"
 
 SCR_MODES         .EQU 4                  ; table rows (file "count" byte)
 SCR_TABLE_WORDS   .EQU 40                 ; 4 rows x 10 words (HDMI 4 + overscan 4 + pan 2)
@@ -4282,22 +4453,30 @@ FL_BAR_ACC      .BLOCK 1                        ; Bresenham accumulator
 
 ; ADF unmount-with-SPACE state (issue #16, see HANDLE_UNMOUNT_KEY)
 ADF_UNMNT_PREV  .BLOCK 1                        ; SPACE state last poll (edge)
-HDF_FDH         .BLOCK FAT32$FDH_STRUCT_SIZE    ; our own copy of the HDF handle
-HDF_VALID       .BLOCK 1                        ; 1: an HDF is mounted
-HDF_SD_SLOT     .BLOCK 1                        ; active SD slot at mount time
-HDF_SECT_LO     .BLOCK 1                        ; size of the HDF in sectors
-HDF_SECT_HI     .BLOCK 1
-HDF_MAPOK       .BLOCK 1                        ; 1: HDF_MAP describes the file
-HDF_MAP         .BLOCK HDF_MAP_WORDS            ; FAT32$FILE_MAP extent map
 IDE_LAST_EV     .BLOCK 1                        ; event toggles seen so far
 IDE_STATE       .BLOCK 1                        ; IDE_ST_*
 IDE_LBA_LO      .BLOCK 1                        ; sector of the command
 IDE_LBA_HI      .BLOCK 1
 IDE_LEFT        .BLOCK 1                        ; sectors left in the command
+HDF_UNITS       .BLOCK 1                        ; mounted drives: bit 0 master
+                                                ; (unit 0), bit 1 slave (unit 1)
+HDF_ACTIVE      .BLOCK 1                        ; drive whose state is in the
+                                                ; block below (see HDF_SELECT)
+HDF_SD_SLOT     .BLOCK 1                        ; active SD slot at mount time
+; The disk state of ONE drive, HDF_FDH up to HDF_SAVE. HDF_SELECT swaps it with
+; HDF_SAVE, which holds the other drive; keep it contiguous and keep
+; HDF_BLK_WORDS equal to its length (the fw-ide harness checks both).
+HDF_FDH         .BLOCK FAT32$FDH_STRUCT_SIZE    ; our own copy of the HDF handle
+HDF_SECT_LO     .BLOCK 1                        ; size of the HDF in sectors
+HDF_SECT_HI     .BLOCK 1
+HDF_MAPOK       .BLOCK 1                        ; 1: HDF_MAP describes the file
 HDF_SPC_SHIFT   .BLOCK 1                        ; log2(sectors per cluster)
 HDF_EXT_IDX     .BLOCK 1                        ; extent of the last block lookup
 HDF_EXT_CLO     .BLOCK 1                        ; ... and the cluster index at
 HDF_EXT_CHI     .BLOCK 1                        ; which it starts
+HDF_MAP         .BLOCK HDF_MAP_WORDS            ; FAT32$FILE_MAP extent map
+HDF_SAVE        .BLOCK HDF_BLK_WORDS            ; the other drive
+HDF_SAVE_END    .BLOCK 1
 OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while the sub-activity of a
                                                 ; menu selection (browser/help)
                                                 ; runs: gate 4 for the unmount
@@ -4383,7 +4562,9 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; Megamiga 0.3 machine profiles (A500 / A600 / A1200 with one settings block
 ; each) and the Settings page with nested submenus: 206 items, 10 submenus,
 ; demand 3403, MENU_HEAP_SIZE 3424, headroom 21, both HEAP_SIZE -704.
-MENU_HEAP_SIZE  .EQU 3424
+; Megamiga 0.3.1 master + slave HDF: 207 items, 6 manual ROMs, demand 3445,
+; MENU_HEAP_SIZE 3456, headroom 11, both HEAP_SIZE -32.
+MENU_HEAP_SIZE  .EQU 3456
 
 #ifndef RELEASE
 
@@ -4404,13 +4585,15 @@ MENU_HEAP_SIZE  .EQU 3424
 ; extent map), so the release total went down by 384 words to 29696.
 ; Megamiga 0.2: RODATA_BUF (200 words, the RAM copy of a text from the
 ; read-only data device) - both totals down by 256 (release 29440, debug 6784).
-HEAP_SIZE       .EQU 3360                       ; 6784 - 3424 = 3360
+; Megamiga 0.3.1: the slave HDF state (HDF_SAVE, 278 words of variables) - both
+; totals down by 288 (release 29152, debug 6496).
+HEAP_SIZE       .EQU 3040                       ; 6496 - 3456 = 3040
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 26016                      ; 29440 - 3424 = 26016
+HEAP_SIZE       .EQU 25696                      ; 29152 - 3456 = 25696
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

@@ -513,6 +513,11 @@ signal qnice_adf_wrt_ack      : std_logic_vector(2 downto 0);
 signal qnice_ide_ce           : std_logic;
 signal qnice_ide_data         : std_logic_vector(15 downto 0);
 signal qnice_ide_wait         : std_logic;
+signal qnice_ide1_ce          : std_logic;   -- the slave HDF line: CSR only
+signal qnice_ide1_data        : std_logic_vector(15 downto 0);
+signal qnice_ide1_wait        : std_logic;
+signal qnice_ide1_req_status  : std_logic_vector(3 downto 0);
+signal qnice_ide1_resp_status : std_logic_vector(3 downto 0);
 signal qnice_iderom_ce        : std_logic;
 signal qnice_iderom_data      : std_logic_vector(15 downto 0);
 signal qnice_iderom_wait      : std_logic;
@@ -760,17 +765,17 @@ signal mem_arb_waitrequest         : std_logic_vector(C_ARB_SLAVES - 1 downto 0)
 -- derived drive count. The firmware keeps these two radios consistent in
 -- OSM_SEL_POST; the HDL never has to repair an inconsistent combination, it
 -- just decodes what it is given.
-constant C_MENU_DRIVES_1      : natural := 67;
-constant C_MENU_DRIVES_2      : natural := 68;
-constant C_MENU_DRIVES_3      : natural := 69;
-constant C_MENU_DF0_IMG       : natural := 73;
-constant C_MENU_DF0_HW        : natural := 74;
-constant C_MENU_DF1_IMG       : natural := 78;
-constant C_MENU_DF1_HW        : natural := 79;
-constant C_MENU_DF1_OFF       : natural := 80;
-constant C_MENU_DF2_IMG       : natural := 84;
-constant C_MENU_DF2_HW        : natural := 85;
-constant C_MENU_DF2_OFF       : natural := 86;
+constant C_MENU_DRIVES_1      : natural := 68;
+constant C_MENU_DRIVES_2      : natural := 69;
+constant C_MENU_DRIVES_3      : natural := 70;
+constant C_MENU_DF0_IMG       : natural := 74;
+constant C_MENU_DF0_HW        : natural := 75;
+constant C_MENU_DF1_IMG       : natural := 79;
+constant C_MENU_DF1_HW        : natural := 80;
+constant C_MENU_DF1_OFF       : natural := 81;
+constant C_MENU_DF2_IMG       : natural := 85;
+constant C_MENU_DF2_HW        : natural := 86;
+constant C_MENU_DF2_OFF       : natural := 87;
 
 -- Flat main-menu indexes of the six twin lines, one pair per drive: the mount
 -- line and its "Hardware Floppy" TEXT twin. These carry NO osm_control meaning
@@ -788,59 +793,60 @@ constant C_MENU_DF1_MOUNT_LN  : natural := 4;
 constant C_MENU_DF1_HW_LN     : natural := 5;
 constant C_MENU_DF2_MOUNT_LN  : natural := 6;
 constant C_MENU_DF2_HW_LN     : natural := 7;
-constant C_MENU_HDF_MOUNT_LN  : natural := 15;   -- HDF mount line (Drive Settings submenu), firmware-only
+constant C_MENU_HDF_MOUNT_LN  : natural := 15;   -- HDF master mount line (Profile Settings), firmware-only
+constant C_MENU_HDF1_MOUNT_LN : natural := 16;   -- HDF slave mount line (Profile Settings), firmware-only
 
 -- per-unit drive mode, two bits each in main_drv_mode (unit u at 2u+1 downto 2u)
 constant C_DRV_IMAGE          : std_logic_vector(1 downto 0) := "00";  -- simulated ADF drive
 constant C_DRV_HW             : std_logic_vector(1 downto 0) := "01";  -- the MEGA65 mechanism
 constant C_DRV_OFF            : std_logic_vector(1 downto 0) := "10";  -- unit does not exist
 
-constant C_MENU_HDMI_16_9_50  : natural := 99;
-constant C_MENU_HDMI_4_3_50   : natural := 100;
-constant C_MENU_HDMI_5_4_50   : natural := 101;
+constant C_MENU_HDMI_16_9_50  : natural := 100;
+constant C_MENU_HDMI_4_3_50   : natural := 101;
+constant C_MENU_HDMI_5_4_50   : natural := 102;
 
 -- DVI (no sound): single-select, default OFF. Drives the framework's qnice_dvi
 -- input, which makes M2M's vga_to_hdmi.vhd force plain DVI encoding on every
 -- non-video period - no audio sample packets and no HDMI data islands at all.
 -- Pixel timing is untouched, so the picture geometry stays identical. The bit is
 -- consumed in the qnice_clk domain; vga_to_hdmi.vhd does its own CDC.
-constant C_MENU_HDMI_DVI      : natural := 103;
+constant C_MENU_HDMI_DVI      : natural := 104;
 
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
-constant C_MENU_FLT_NO_FILTER     : natural := 109;
-constant C_MENU_FLT_SHARP         : natural := 110;
-constant C_MENU_FLT_BICUBIC       : natural := 111;
-constant C_MENU_FLT_SMOOTH        : natural := 112;
-constant C_MENU_FLT_LANCZOS       : natural := 113;
-constant C_MENU_FLT_SCANLINES     : natural := 114;
-constant C_MENU_FLT_CRT_SVIDEO    : natural := 115;
-constant C_MENU_FLT_CRT_COMPOSITE : natural := 116;
+constant C_MENU_FLT_NO_FILTER     : natural := 110;
+constant C_MENU_FLT_SHARP         : natural := 111;
+constant C_MENU_FLT_BICUBIC       : natural := 112;
+constant C_MENU_FLT_SMOOTH        : natural := 113;
+constant C_MENU_FLT_LANCZOS       : natural := 114;
+constant C_MENU_FLT_SCANLINES     : natural := 115;
+constant C_MENU_FLT_CRT_SVIDEO    : natural := 116;
+constant C_MENU_FLT_CRT_COMPOSITE : natural := 117;
 
 -- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
 -- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
-constant C_MENU_HDMI_FF       : natural := 119;
+constant C_MENU_HDMI_FF       : natural := 120;
 
-constant C_MENU_VGA_STD       : natural := 123;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 127;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 128;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+constant C_MENU_VGA_STD       : natural := 124;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 128;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 129;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
 -- OSM Scaling follows the C64 layout: line 77 (100%, default) maps to bit 0,
 -- while line 85 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
-subtype C_MENU_OSM_SCALING is natural range 143 downto 135;
+subtype C_MENU_OSM_SCALING is natural range 144 downto 136;
 
 -- Volume radio (master volume, 5% steps): line 94 (100%, default) down to line 114
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 172 downto 152;
+subtype C_MENU_VOLUME is natural range 173 downto 153;
 
 -- Stereo crossfeed radio ("Stereo: %s" submenu): line 120 (Full Stereo, default)
 -- down to line 123 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 181 downto 178;
+subtype C_MENU_STEREO is natural range 182 downto 179;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -848,26 +854,26 @@ subtype C_MENU_STEREO is natural range 181 downto 178;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 184;
-constant C_MENU_LEDFILT       : natural := 185;
+constant C_MENU_A500FILT      : natural := 185;
+constant C_MENU_LEDFILT       : natural := 186;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
 -- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 132 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 189;
+constant C_MENU_KBD_AMIGA     : natural := 190;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
 -- byte-identical (bit 7 keeps its "the menu key" meaning). Line 136 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 194;
-constant C_MENU_OSMKEY_F11    : natural := 195;
-constant C_MENU_OSMKEY_F13    : natural := 196;
-constant C_MENU_OSMKEY_COMBO  : natural := 197;
+constant C_MENU_OSMKEY_HELP   : natural := 195;
+constant C_MENU_OSMKEY_F11    : natural := 196;
+constant C_MENU_OSMKEY_F13    : natural := 197;
+constant C_MENU_OSMKEY_COMBO  : natural := 198;
 
-constant C_MENU_DRV_SPINUP    : natural := 88;   -- Drive Settings: spin-up delay of the simulated drives
+constant C_MENU_DRV_SPINUP    : natural := 89;   -- Drive Settings: spin-up delay of the simulated drives
 
 -- Megamiga 0.3 machine profiles. The main page carries the profile radio (A500 / A600 /
 -- A1200); Profile Settings holds one block of radios and toggles per profile, and only
@@ -881,7 +887,7 @@ constant C_MENU_DRV_SPINUP    : natural := 88;   -- Drive Settings: spin-up dela
 constant C_MENU_PROF_A500     : natural := 9;
 constant C_MENU_PROF_A600     : natural := 10;
 constant C_MENU_PROF_A1200    : natural := 11;
-constant C_MENU_PROF_BASE     : natural := 18;   -- first line of the A500 block
+constant C_MENU_PROF_BASE     : natural := 19;   -- first line of the A500 block
 constant C_MENU_PROF_STRIDE   : natural := 14;   -- lines per profile block
 constant C_PROF_CPU_020       : natural := 1;    -- CPU radio: 0 = 68000, 1 = 68020
 constant C_PROF_CS_OCS        : natural := 3;    -- chipset radio: 3 OCS, 4 ECS, 5 AGA
@@ -1571,12 +1577,14 @@ begin
    --   0x0106  C_DEV_AMIGA_ADF2  df2 ADF mount buffer
    --   0x0107  C_DEV_AMIGA_IDE     IDE board: firmware ATA interface (ide_board.vhd)
    --   0x0108  C_DEV_AMIGA_IDEROM  IDE board: boot ROM loader into HyperRAM
+   --   0x0109  C_DEV_AMIGA_RODATA  read-only data of the firmware (m2m-rodata.asm)
+   --   0x010A  C_DEV_AMIGA_IDE1    IDE board: CSR of the slave HDF line (i_ide1_csr)
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
    -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
 
    ---------------------------------------------------------------------------------------------
-   -- Kickstart selector (Memory menu, manual CRT/ROM 4 into C_DEV_AMIGA_KICK). The Shell
+   -- Kickstart selector (Profile Settings, manual CRT/ROM 5 into C_DEV_AMIGA_KICK). The Shell
    -- drives the M2M CSR protocol in window 0xFFFF of the kick device; the firmware has
    -- already checked the size in PREP_LOAD_IMAGE, so the "parser" answers READY at once.
    -- While the Shell reports LOADING, amiga_cold_boot holds the Amiga in reset; it releases
@@ -1646,6 +1654,33 @@ begin
          q_a          => qnice_rodata_q
       ); -- i_rodata
 
+   -- The CSR of the slave HDF line (C_DEV_AMIGA_IDE1). Like the one inside ide_board.vhd for
+   -- the master line, it answers READY as soon as the Shell reports the file: the firmware
+   -- serves the sectors itself (PREP_LOAD_IMAGE leaves nothing to stream). Its STATUS is the
+   -- "loaded" state of the menu line - the firmware sets it to IDLE when it drops the slave.
+   i_ide1_csr : entity work.qnice_csr
+      generic map (
+         G_ERROR_STRINGS => (others => "OK                 \n")
+      )
+      port map (
+         qnice_clk_i          => qnice_clk_i,
+         qnice_rst_i          => qnice_rst_i,
+         qnice_addr_i         => qnice_dev_addr_i,
+         qnice_data_i         => qnice_dev_data_i,
+         qnice_ce_i           => qnice_ide1_ce,
+         qnice_we_i           => qnice_dev_we_i,
+         qnice_data_o         => qnice_ide1_data,
+         qnice_wait_o         => qnice_ide1_wait,
+         qnice_csr_o          => open,
+         qnice_req_status_o   => qnice_ide1_req_status,
+         qnice_req_length_o   => open,
+         qnice_resp_status_i  => qnice_ide1_resp_status,
+         qnice_resp_error_i   => x"0",
+         qnice_resp_address_i => (others => '0')
+      ); -- i_ide1_csr
+
+   qnice_ide1_resp_status <= C_CSR_RESP_READY when qnice_ide1_req_status = C_CSR_REQ_OK else C_CSR_RESP_IDLE;
+
    core_specific_devices : process(all)
    begin
       -- make sure that this is x"EEEE" by default and avoid a register here by having this default value
@@ -1655,6 +1690,7 @@ begin
       qnice_kick_ce    <= '0';
       qnice_adf_ce     <= "000";
       qnice_ide_ce     <= '0';
+      qnice_ide1_ce    <= '0';
       qnice_iderom_ce  <= '0';
 
       case qnice_dev_id_i is
@@ -1691,6 +1727,12 @@ begin
             qnice_ide_ce     <= qnice_dev_ce_i;
             qnice_dev_data_o <= qnice_ide_data;
             qnice_dev_wait_o <= qnice_ide_wait;
+
+         -- the slave HDF line: only its CSR (window 0xFFFF)
+         when C_DEV_AMIGA_IDE1 =>
+            qnice_ide1_ce    <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_ide1_data;
+            qnice_dev_wait_o <= qnice_ide1_wait;
 
          when C_DEV_AMIGA_IDEROM =>
             qnice_iderom_ce  <= qnice_dev_ce_i;

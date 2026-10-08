@@ -77,7 +77,7 @@ awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); 
 # The IDE board: AEXP_DEV_IDE (firmware ATA interface) and AEXP_DEV_IDEROM (boot ROM loader),
 # the Kickstart device AEXP_DEV_KICK (the Kickstart selector of the Memory menu) and
 # AEXP_DEV_RODATA, the read-only data device (see m2m-rodata.asm)
-awk '/constant C_DEV_AMIGA_(IDE(ROM)?|KICK|RODATA) / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
+awk '/constant C_DEV_AMIGA_(IDE(ROM|1)?|KICK|RODATA) / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
 ##############################################################################
 # M2M framework: Generate globals.asm

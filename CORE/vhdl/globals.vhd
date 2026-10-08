@@ -208,6 +208,10 @@ constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 -- Keep each constant on ONE line - make_rom.sh scrapes them.
 constant C_DEV_AMIGA_IDE      : std_logic_vector(15 downto 0) := x"0107";
 constant C_DEV_AMIGA_IDEROM   : std_logic_vector(15 downto 0) := x"0108";
+-- Megamiga 0.3.1: the slave HDF line (" HDF 1:%s") loads into a device of its own, so that
+-- each HDF line has its own CSR - the Shell derives the "loaded" state of a menu line from
+-- the CSR STATUS of its device (CRTROM_MLST_GET). Only the CSR window exists (mega65.vhd).
+constant C_DEV_AMIGA_IDE1     : std_logic_vector(15 downto 0) := x"010A";
 
 -- Megamiga: read-only data of the firmware (m2m-rodata.asm): 4K words of block RAM preloaded
 -- from QNICE_RODATA_M2M, read-only, window 0 only (see mega65.vhd)
@@ -262,20 +266,24 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- there is none. It may be smaller than the number of drives only if the surplus
 -- mount lines are removed from config.vhd as well.
 --
--- Entry 3: the HDF hard disk image of the IDE board (OSM " HDF:%s" line in the Drive
--- Settings submenu, the 4th OPTM_G_LOAD_ROM occurrence). Nothing is streamed: the
+-- Entries 3 and 4: the HDF hard disk images of the IDE board, master (unit 0) and slave
+-- (unit 1) (OSM " HDF 0:%s" / " HDF 1:%s" lines in Profile Settings, the 4th and 5th
+-- OPTM_G_LOAD_ROM occurrences). They load into C_DEV_AMIGA_IDE and C_DEV_AMIGA_IDE1 - one
+-- CSR per line, so each line has its own "loaded" state; the firmware tells the drives
+-- apart by the menu group (OPTM_G_HDF / OPTM_G_HDF1). Nothing is streamed: the
 -- firmware moves the read pointer to the end of the file in PREP_LOAD_IMAGE, keeps
 -- its own copy of the file handle and serves the sectors straight from the file;
 -- ide_board.vhd answers the CSR handshake.
--- Entry 4: the Kickstart selector (OSM " Kickstart:%s" line in the Memory submenu, the
--- 5th OPTM_G_LOAD_ROM occurrence) into the same device the boot-time kick.rom goes to.
+-- Entry 5: the Kickstart selector (OSM " Kickstart:%s" line in Profile Settings, the
+-- 6th OPTM_G_LOAD_ROM occurrence) into the same device the boot-time kick.rom goes to.
 -- The firmware checks the size and loads the ROM in PREP_LOAD_IMAGE; mega65.vhd answers
 -- the CSR handshake and cold-boots the Amiga once the ROM is in place.
-constant C_CRTROMS_MAN_NUM       : natural := 5;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN_NUM       : natural := 6;                                       -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF0,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF1,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF2,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_IDE,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_IDE1,
                                                          C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_KICK,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 

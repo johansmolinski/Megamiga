@@ -18,9 +18,11 @@
 --   IDE    Channel 0 at offset 0x1000, register n at 0x1000 + n * 0x200 (A11..A9), so that
 --          a MOVEM burst stays on the data register. A14 selects the control block
 --          (device control, alternate status). The 8-bit registers are on D15..D8 (RIPPLE's
---          IDE bus is byte-swapped, so sector data needs no swapping). Channel 1, an absent
---          drive and the slave read 0xFF: lide treats a register value with bits 7:6 = 11
---          as a floating bus.
+--          IDE bus is byte-swapped, so sector data needs no swapping). Channel 1 and an
+--          absent drive read 0xFF: lide treats a register value with bits 7:6 = 11 as a
+--          floating bus. Master and slave share the task file, the status and the data
+--          buffer, as on a real ATA channel; DEV (device/head bit 4) picks the drive, and
+--          the firmware serves the one the command was written to.
 --
 -- Work split: the hardware does what must happen within a bus cycle - BSY on a command
 -- write, DRQ off with the 256th data word - and the firmware does everything else, like
@@ -37,7 +39,8 @@
 --   0x112        R/W: bit 0: the data phase started by a commit with DRQ is CPU -> buffer
 --                     bit 1: also apply the task file values 0x113-0x117
 --   0x113-0x117  R/W: sector count, LBA 7:0, 15:8, 23:16, device/head to apply on commit
---   0x118        R/W: bit 0: drive present, bit 1: board enabled (in the autoconfig chain)
+--   0x118        R/W: bit 0: master (unit 0) present, bit 1: board enabled (in the autoconfig
+--                     chain), bit 2: slave (unit 1) present (Megamiga 0.3.1)
 --   0x11F        W: commit (any value)
 --   window 0xFFFF   the M2M CSR (qnice_csr.vhd): the OSM HDF mount line is a manual
 --                CRT/ROM load into this device, so the Shell writes the file size and
@@ -154,7 +157,7 @@ architecture synthesis of ide_board is
    signal dly_cmd, dly_buf, dly_rst, dly_ack : natural range 0 to C_EVT_DELAY := 0;
 
    -- commit from the firmware
-   signal m_present, m_board_ena : std_logic;
+   signal m_present, m_present1, m_board_ena : std_logic;
    signal m_commit_tgl, commit_seen : std_logic := '0';
    signal m_nstat, m_nerr, m_nflags, m_nscnt, m_nlba0, m_nlba1, m_nlba2, m_ndevh : std_logic_vector(7 downto 0);
    signal dly_commit  : natural range 0 to C_EVT_DELAY := 0;
@@ -168,7 +171,7 @@ architecture synthesis of ide_board is
    signal q_nflags  : std_logic_vector(7 downto 0) := (others => '0');
    signal q_nscnt, q_nlba0, q_nlba1, q_nlba2 : std_logic_vector(7 downto 0) := (others => '0');
    signal q_ndevh   : std_logic_vector(7 downto 0) := x"A0";
-   signal q_ctrl    : std_logic_vector(1 downto 0) := "00";
+   signal q_ctrl    : std_logic_vector(2 downto 0) := "000";
    signal q_commit  : std_logic := '0';
    signal q_win0, q_reg_ce, q_csr, q_csr_wait : std_logic;
    signal q_csr_data, q_rd : std_logic_vector(15 downto 0);
@@ -270,7 +273,7 @@ begin
             end if;
          end if;
 
-         present := m_present = '1' and tf_devh(4) = '0';
+         present := (m_present = '1' and tf_devh(4) = '0') or (m_present1 = '1' and tf_devh(4) = '1');
 
          case bus_state is
 
@@ -435,7 +438,7 @@ begin
 
    i_cdc_to_core : entity work.cdc_stable
       generic map (
-         G_DATA_SIZE    => 67,
+         G_DATA_SIZE    => 68,
          G_REGISTER_SRC => true
       )
       port map (
@@ -451,6 +454,7 @@ begin
          src_data_i(64)           => q_ctrl(0),
          src_data_i(65)           => q_ctrl(1),
          src_data_i(66)           => q_commit,
+         src_data_i(67)           => q_ctrl(2),
          dst_clk_i                => clk_i,
          dst_data_o( 7 downto  0) => m_nstat,
          dst_data_o(15 downto  8) => m_nerr,
@@ -462,7 +466,8 @@ begin
          dst_data_o(63 downto 56) => m_ndevh,
          dst_data_o(64)           => m_present,
          dst_data_o(65)           => m_board_ena,
-         dst_data_o(66)           => m_commit_tgl
+         dst_data_o(66)           => m_commit_tgl,
+         dst_data_o(67)           => m_present1
       ); -- i_cdc_to_core
 
    i_cdc_to_qnice : entity work.cdc_stable
@@ -539,14 +544,14 @@ begin
                   when x"15" => q_nlba1  <= qnice_data_i(7 downto 0);
                   when x"16" => q_nlba2  <= qnice_data_i(7 downto 0);
                   when x"17" => q_ndevh  <= qnice_data_i(7 downto 0);
-                  when x"18" => q_ctrl   <= qnice_data_i(1 downto 0);
+                  when x"18" => q_ctrl   <= qnice_data_i(2 downto 0);
                   when x"1F" => q_commit <= not q_commit;
                   when others => null;
                end case;
             end if;
          end if;
          if qnice_rst_i = '1' then
-            q_ctrl <= "00";
+            q_ctrl <= "000";
          end if;
       end if;
    end process qnice_write_proc;
@@ -580,7 +585,7 @@ begin
                when x"15" => d(7 downto 0) := q_nlba1;
                when x"16" => d(7 downto 0) := q_nlba2;
                when x"17" => d(7 downto 0) := q_ndevh;
-               when x"18" => d(1 downto 0) := q_ctrl;
+               when x"18" => d(2 downto 0) := q_ctrl;
                when others => null;
             end case;
          end if;
