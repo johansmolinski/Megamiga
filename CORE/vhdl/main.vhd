@@ -551,6 +551,19 @@ architecture synthesis of main is
    -- .research/INTEGRATION-SPEC-video-audio.md section 3.
    signal fs_res           : std_logic_vector(1 downto 0) := "00";
    signal frame_hires      : std_logic := '0';
+
+   -- Megamiga: SuperHires (see video_shres_proc): Minimig's pixels before the averaging,
+   -- and the previous 28 MHz pixel
+   signal vid_red, vid_green, vid_blue       : std_logic_vector(7 downto 0);
+
+   function f_avg(a : std_logic_vector(7 downto 0); b : std_logic_vector(7 downto 0))
+      return std_logic_vector is
+      variable v_sum : unsigned(8 downto 0);
+   begin
+      v_sum := ('0' & unsigned(a)) + ('0' & unsigned(b));
+      return std_logic_vector(v_sum(8 downto 1));
+   end function f_avg;
+   signal vid_red_d, vid_green_d, vid_blue_d : std_logic_vector(7 downto 0) := (others => '0');
    signal vid_vs_d         : std_logic := '0';
 
    -- divide-by-2 enable (14.19 MHz) for the OSM overlay sampling in the
@@ -1205,9 +1218,9 @@ begin
          vsync_n        => vid_vsync_n,
          hblank         => vid_hblank,
          vblank         => vid_vblank,
-         red            => video_red_o,
-         green          => video_green_o,
-         blue           => video_blue_o,
+         red            => vid_red,              -- Megamiga: via the SuperHires averaging
+         green          => vid_green,
+         blue           => vid_blue,
          ce_pix         => open,                 -- we use the frame-locked CE instead
          res            => vid_res,
          lace           => open,                 -- would only gate the analog scandoubler
@@ -1245,11 +1258,33 @@ begin
          end if;
          vid_vs_d <= vid_vs;
          if vid_vs = '1' and vid_vs_d = '0' then      -- start of vsync
-            frame_hires <= fs_res(0);
+            -- Megamiga: a SuperHires line needs the 14 MHz enable as well (fs_res(1))
+            --frame_hires <= fs_res(0);
+            frame_hires <= fs_res(0) or fs_res(1);
             fs_res      <= "00";
          end if;
       end if;
    end process video_ce_proc;
+
+   -- Megamiga: SuperHires (ECS/AGA, 1280 pixels, a new pixel on every 28 MHz clock). The
+   -- M2M video path takes 14 MHz pixels at most (line buffers 768 / ascal 1024, AGENTS.md
+   -- hard rule 6), so on SuperHires lines every output pixel is the average of the two
+   -- 28 MHz pixels it covers - the previous clock's and the current one. Every SuperHires
+   -- pixel lasts exactly one clock, so the pairs neither overlap nor skip: the screen
+   -- keeps its layout, single-pixel detail is blended instead of dropped. Lores and hires
+   -- lines (also in a mixed frame) pass through unchanged; vid_res is per line.
+   video_shres_proc : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         vid_red_d   <= vid_red;
+         vid_green_d <= vid_green;
+         vid_blue_d  <= vid_blue;
+      end if;
+   end process video_shres_proc;
+
+   video_red_o   <= f_avg(vid_red,   vid_red_d)   when vid_res(1) = '1' else vid_red;
+   video_green_o <= f_avg(vid_green, vid_green_d) when vid_res(1) = '1' else vid_green;
+   video_blue_o  <= f_avg(vid_blue,  vid_blue_d)  when vid_res(1) = '1' else vid_blue;
 
    video_ce_o     <= clk7_en or (clk7n_en and frame_hires);
 
