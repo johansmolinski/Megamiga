@@ -984,8 +984,10 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   with progress bar, new LED colours, drive spin-up option, read-only data
   device, upstream WIP-V2-B1/B2 merged. Release build WNS +0.287, firmware
   28211/28672 words. User-confirmed on hardware: KS 1.3/3.1 boot, WB 3.1 from
-  ADF, HDToolBox HDF, fast ADF mount (~1.5 s, -e build). `develop` is still
-  the 0.1.x line (R3-capable); a500plus was NOT merged into it.
+  ADF, HDToolBox HDF, fast ADF mount (~1.5 s, -e build). On 2026-10-08
+  `a500plus` was fast-forwarded into `develop`, and `develop` was renamed to
+  **`main`, now the default branch** of johansmolinski/Megamiga. The R3-capable
+  0.1.x line lives on as tag `V0.1.1` (and the 0.1.2 work at `225ec4c`).
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
