@@ -978,6 +978,15 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   Lesson (twice in one session): a callee that does INCRB cannot see the
   caller's R0..R7 - pass values in R8..R12.
 
+- **MEGAMIGA 0.2.0 RELEASED (2026-10-08, tag `V0.2.0` on branch `a500plus`,
+  GitHub release asset `Megamiga-0.2.0-R6.zip`, R6 only).** A500+ (ECS, 2 MB
+  Chip, 512 KB Kickstart, memory in SDRAM), Kickstart selector, fast ADF I/O
+  with progress bar, new LED colours, drive spin-up option, read-only data
+  device, upstream WIP-V2-B1/B2 merged. Release build WNS +0.287, firmware
+  28211/28672 words. User-confirmed on hardware: KS 1.3/3.1 boot, WB 3.1 from
+  ADF, HDToolBox HDF, fast ADF mount (~1.5 s, -e build). `develop` is still
+  the 0.1.x line (R3-capable); a500plus was NOT merged into it.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
