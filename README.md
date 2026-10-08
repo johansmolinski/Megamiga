@@ -133,6 +133,14 @@ demos misbehave when the Amiga sees more than one drive, so AExp starts with
 the configuration those titles expect. Switch the others on when you need
 them.
 
+A disk image drive normally reports "ready" the moment the Amiga switches its
+motor on, as in Minimig on the MiSTer. A real drive needs about half a second
+to spin up, and test programs such as Amiga Test Kit notice the difference
+("Drive READY too fast: Gotek or modified PC drive?"). **Drive spin-up delay**
+at the bottom of **Drive Settings** makes the disk image drives behave like
+real ones: ready 500 ms after motor on. It is off by default; Kickstart waits
+for spin-up anyway, so disks do not load noticeably slower with it.
+
 Press <kbd>Help</kbd> to open the menu, which shows one line per existing
 drive: a disk image drive shows the mounted file name or `<Load>` when it is
 empty, a Hardware Floppy drive shows that instead. Move the highlight to a

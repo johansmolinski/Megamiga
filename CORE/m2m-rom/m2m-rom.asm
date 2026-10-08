@@ -306,6 +306,10 @@ _PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
 ; the file goes to window n >> 12, word n & 0xFFF. Sector boundaries never
 ; cross a 4k window. A last partial sector is copied partially.
 ;
+; It draws the same progress bar as the Shell's byte loader, on the last line
+; of the file browser window, which is still on screen while PREP_LOAD_IMAGE
+; runs (the Shell redraws that line for its own, then empty, load).
+;
 ; Input:  R8: file handle (any position), R9: QNICE device id
 ; Output: R8: unchanged; R9: 0 = OK, otherwise the FAT32 error code
 ;         The handle is at the end of the file. R10..R12 preserved - the
@@ -327,6 +331,9 @@ FAST_LOAD       MOVE    R10, @--SP
                 MOVE    @R7, R5
                 XOR     R2, R2                  ; R3:R2: file offset
                 XOR     R3, R3
+                MOVE    R4, R8                  ; progress bar for this size
+                MOVE    R5, R9
+                RSUB    FL_BAR_INIT, 1
 
 _FL_NEXT        MOVE    R4, R6                  ; R7:R6: bytes left
                 MOVE    R5, R7
@@ -376,6 +383,7 @@ _FL_COPY        MOVE    R11, @R9
 
                 ADD     R12, R2                 ; next sector
                 ADDC    0, R3
+                RSUB    FL_BAR_STEP, 1
                 RBRA    _FL_NEXT, 1
 
 _FL_DONE        MOVE    R0, R8                  ; leave the handle at the end
@@ -389,6 +397,96 @@ _FL_RET         MOVE    R0, R8
                 MOVE    @SP++, R11
                 MOVE    @SP++, R10
                 RET
+
+; FL_BAR_INIT / FL_BAR_STEP: the progress bar of FAST_LOAD
+;
+; Same look and place as the bar of LOAD_IMAGE in M2M/rom/shell.asm: a frame
+; of SCR$OSM_M_DX - 4 characters at x = 2 on the last line of the big window,
+; filled with M2M$LD_PROGRESS characters from x = 3. FL_BAR_STEP is called once
+; per sector and prints a character whenever the sectors done have crossed the
+; next 1/width of the file (Bresenham: FL_BAR_ACC += width per sector, one
+; character per FL_BAR_TOTAL). Files of 32 MB and more (more sectors than 16
+; bits hold) get no bar. SCR$PRINTSTR saves and restores the RAMROM selection.
+;
+; FL_BAR_INIT input: R9:R8 = file size. All registers preserved.
+FL_BAR_INIT     INCRB
+                MOVE    R8, R4                  ; R5:R4: file size
+                MOVE    R9, R5
+                MOVE    R8, R6
+                MOVE    R9, R7
+                XOR     R2, R2                  ; R2: total sectors, 0 = no bar
+                CMP     R5, 0x01FF              ; 32 MB or more (size high
+                RBRA    _FBI_SET, N             ; word > 0x01FF)? no bar
+                MOVE    R5, R2                  ; (size + 511) >> 9
+                AND     0xFFFD, SR
+                SHL     7, R2
+                MOVE    R4, R3
+                AND     0xFFFB, SR
+                SHR     9, R3
+                OR      R3, R2
+                MOVE    R4, R3
+                AND     0x01FF, R3
+                RBRA    _FBI_SET, Z
+                ADD     1, R2
+_FBI_SET        MOVE    FL_BAR_TOTAL, R0
+                MOVE    R2, @R0
+                MOVE    FL_BAR_ACC, R0
+                MOVE    0, @R0
+                CMP     0, R2
+                RBRA    _FBI_RET, Z
+
+                MOVE    SCR$OSM_M_DX, R0        ; R1: bar width
+                MOVE    @R0, R1
+                SUB     6, R1
+                MOVE    FL_BAR_WIDTH, R0
+                MOVE    R1, @R0
+                MOVE    SCR$OSM_M_DY, R3        ; the frame: x = 2, last line
+                MOVE    @R3, R3
+                SUB     1, R3
+                MOVE    2, R8
+                MOVE    R3, R9
+                RSUB    SCR$GOTOXY, 1
+                MOVE    FL_BAR_LEFT, R8
+                RSUB    SCR$PRINTSTR, 1
+                MOVE    FL_BAR_SPACE, R8
+_FBI_SP         RSUB    SCR$PRINTSTR, 1
+                SUB     1, R1
+                RBRA    _FBI_SP, !Z
+                MOVE    FL_BAR_RIGHT, R8
+                RSUB    SCR$PRINTSTR, 1
+                MOVE    3, R8                   ; the progress starts at x = 3
+                MOVE    R3, R9
+                RSUB    SCR$GOTOXY, 1
+
+_FBI_RET        MOVE    R6, R8
+                MOVE    R7, R9
+                DECRB
+                RET
+
+; FL_BAR_STEP: one sector done. All registers preserved.
+FL_BAR_STEP     INCRB
+                MOVE    R8, R6
+                MOVE    FL_BAR_TOTAL, R0
+                MOVE    @R0, R0                 ; R0: total sectors
+                CMP     0, R0                   ; (MOVE leaves the flags alone)
+                RBRA    _FBS_RET, Z             ; no bar
+                MOVE    FL_BAR_ACC, R1
+                MOVE    FL_BAR_WIDTH, R2
+                ADD     @R2, @R1                ; acc += width
+_FBS_L          CMP     R0, @R1                 ; total > acc: done
+                RBRA    _FBS_RET, N
+                SUB     R0, @R1
+                MOVE    FL_BAR_PROG, R8
+                RSUB    SCR$PRINTSTR, 1
+                RBRA    _FBS_L, 1
+_FBS_RET        MOVE    R6, R8
+                DECRB
+                RET
+
+FL_BAR_LEFT     .DW     M2M$FC_HE_LEFT, 0
+FL_BAR_RIGHT    .DW     M2M$FC_HE_RIGHT, 0
+FL_BAR_SPACE    .DW     M2M$LD_SPACE, 0
+FL_BAR_PROG     .DW     M2M$LD_PROGRESS, 0
 
 ; ----------------------------------------------------------------------------
 ; KICK_PREP: the PREP_LOAD_IMAGE part of the Kickstart selector (Memory menu)
@@ -3942,6 +4040,9 @@ ADF_FL_BADDR_LO .BLOCK ADF_DRIVES               ; session byte address within
 ADF_FL_BADDR_HI .BLOCK ADF_DRIVES               ; image and file (32 bit)
 ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
                                                 ; background flush time slice
+FL_BAR_TOTAL    .BLOCK 1                        ; FAST_LOAD progress bar: sectors
+FL_BAR_WIDTH    .BLOCK 1                        ; bar width in characters
+FL_BAR_ACC      .BLOCK 1                        ; Bresenham accumulator
 
 ; ADF unmount-with-SPACE state (issue #16, see HANDLE_UNMOUNT_KEY)
 ADF_UNMNT_PREV  .BLOCK 1                        ; SPACE state last poll (edge)
@@ -4037,8 +4138,10 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; HDF line of the IDE board (WIP-V2-A11-JS-02: 156 items, demand 2478), and to
 ; 5 with the Kickstart selector of the Memory menu (Megamiga 0.2: 158 items,
 ; demand 2528 = exactly 79 x 32, so MENU_HEAP_SIZE 2496 -> 2528 with no
-; headroom - both checks fail only on demand > size - and both HEAP_SIZE -32).
-MENU_HEAP_SIZE  .EQU 2528
+; headroom - both checks fail only on demand > size - and both HEAP_SIZE -32),
+; and to 160 items with the Drive spin-up delay toggle (demand 2560, again
+; exactly 80 x 32: MENU_HEAP_SIZE 2560, both HEAP_SIZE -32).
+MENU_HEAP_SIZE  .EQU 2560
 
 #ifndef RELEASE
 
@@ -4057,13 +4160,13 @@ MENU_HEAP_SIZE  .EQU 2528
 ; words the 30208 total used to leave.
 ; WIP-V2-A11-JS-02: the IDE board added 280 words of variables (mostly the HDF
 ; extent map), so the release total went down by 384 words to 29696.
-HEAP_SIZE       .EQU 4512                       ; 7040 - 2528 = 4512
+HEAP_SIZE       .EQU 4480                       ; 7040 - 2560 = 4480
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27168                      ; 29696 - 2528 = 27168
+HEAP_SIZE       .EQU 27136                      ; 29696 - 2560 = 27136
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

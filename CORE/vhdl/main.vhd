@@ -20,6 +20,7 @@ use ieee.numeric_std.all;
 
 library work;
 use work.video_modes_pkg.all;
+use work.globals.all;
 
 entity main is
    generic (
@@ -171,6 +172,8 @@ entity main is
       -- mega65.vhd next to the f_* ports):
       hwf_fdd_ctrl_o          : out std_logic_vector(7 downto 0);  -- {motor_n,sel3..0_n,side,direc,step_n}
       hwf_motor_on_o          : out std_logic_vector(3 downto 0);  -- per-unit motor latches
+      -- Megamiga: spin-up delay of the simulated drives (OSM option, static)
+      fdd_spinup_i            : in  std_logic;
       -- conditioned real drive status (synced to clk_main in mega65.vhd):
       hwf_change_n_i          : in  std_logic;
       hwf_wprot_n_i           : in  std_logic;
@@ -335,6 +338,7 @@ architecture synthesis of main is
          fdd_phys_wprot_n  : in  std_logic;
          fdd_phys_track0_n : in  std_logic;
          fdd_phys_ready_n  : in  std_logic;
+         fdd_vspin_n       : in  std_logic_vector(3 downto 0);
          fdd_phys_index    : in  std_logic;
 
          rtc            : in  std_logic_vector(64 downto 0);
@@ -577,6 +581,18 @@ architecture synthesis of main is
    -- Hardware Floppy: one-hot mask of the physical unit for paula_floppy's
    -- status muxes (0000 whenever the feature is off = bit-identical core)
    signal hwf_phys_mask    : std_logic_vector(3 downto 0);
+
+   -- Megamiga: spin-up delay of the simulated drives. Minimig reports a selected
+   -- simulated drive ready at once; a real drive raises /RDY only once its motor is
+   -- up to speed (about 500 ms; Amiga Test Kit flags anything much faster as a Gotek
+   -- or modified PC drive). With the OSM option on, unit n stays not-ready for
+   -- C_SPINUP clocks after its motor latch was switched on. vspin_n is the input of
+   -- paula_floppy.v, where it only affects simulated units (the physical unit has
+   -- its own /RDY).
+   constant C_SPINUP       : natural := CORE_CLK_SPEED / 2;    -- 500 ms
+   type t_spin_cnt is array (0 to 3) of natural range 0 to C_SPINUP;
+   signal spin_cnt         : t_spin_cnt := (others => 0);
+   signal vspin_n          : std_logic_vector(3 downto 0);
 
    -- DSKBYTR observation surface (Copylock): the engine's front-end FIFO pop
    -- IS the reconstructed real-disk word stream at true flux pace. s_hwf_rd_en
@@ -1059,6 +1075,26 @@ begin
    -- Hardware Floppy: one-hot physical-unit mask for paula_floppy's muxes
    ---------------------------------------------------------------------------
 
+   -- spin-up delay (see the declaration of vspin_n); combinational, so /RDY drops the
+   -- moment the motor latch switches on
+   p_spinup : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         for i in 0 to 3 loop
+            if hwf_motor_on_o(i) = '0' or fdd_spinup_i = '0' then
+               spin_cnt(i) <= 0;
+            elsif spin_cnt(i) /= C_SPINUP then
+               spin_cnt(i) <= spin_cnt(i) + 1;
+            end if;
+         end loop;
+      end if;
+   end process p_spinup;
+
+   g_vspin : for i in 0 to 3 generate
+      vspin_n(i) <= '1' when fdd_spinup_i = '1' and hwf_motor_on_o(i) = '1' and spin_cnt(i) /= C_SPINUP
+                    else '0';
+   end generate g_vspin;
+
    hwf_phys_mask <= "0001" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "00" else
                     "0010" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "01" else
                     "0100" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "10" else
@@ -1132,6 +1168,7 @@ begin
          fdd_phys_wprot_n  => hwf_wprot_n_i,
          fdd_phys_track0_n => hwf_track0_n_i,
          fdd_phys_ready_n  => hwf_ready_n_i,
+         fdd_vspin_n       => vspin_n,
          fdd_phys_index    => hwf_index_i,
 
          rtc            => rtc_i,

@@ -957,6 +957,27 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   carry in the offset) fail. `~/aexp-work/a500p/coldboot/tb_cold.vhd`: hold,
   quiet period, single release - PASS, red control fails.
 
+- **Megamiga 0.2 increment 3 (branch `a500plus`, 2026-10-08): fix + spin-up
+  delay + load progress bar.** FIX (`8ed64c9`): FAST_LOAD clobbered R12, which
+  the Shell's LOAD_IMAGE keeps the CRT/ROM id in across PREP_LOAD_IMAGE - every
+  ADF mount died with fatal 0x0005 (ERR_FATAL_INST5, HANDLE_CRTROM_M); FAST_LOAD
+  and KICK_PREP now preserve R10..R12, and the fw-adf harness checks it (red on
+  the old code). SPIN-UP DELAY: ` Drive spin-up delay` at line 36 (end of Drive
+  Settings, `OPTM_G_SPINUP` = 26, `C_MENU_DRV_SPINUP`, default OFF); every line
+  from the old 36 on moved +2 (OPTM_SIZE 160, demand 2560 = MENU_HEAP_SIZE,
+  both HEAP_SIZE -32, settings file 160 bytes). main.vhd counts CORE_CLK_SPEED/2
+  clocks per unit from its motor latch (`hwf_motor_on_o`) and drives the new
+  `fdd_vspin_n[3:0]` (minimig_m65 -> minimig -> paula -> paula_floppy
+  `vspin_n`, ORed into the simulated units' /RDY source; 0000 = bit-identical,
+  physical unit unaffected). Motor off = ready as before (drive-ID protocol).
+  Reason: Amiga Test Kit reports "Drive READY too fast (207us): Gotek or
+  modified PC drive?" on the instantly-ready Minimig drives. PROGRESS BAR:
+  FAST_LOAD draws the Shell's bar itself (FL_BAR_INIT/STEP, Bresenham over the
+  sectors, frame SCR$OSM_M_DX-4 at x=2 on the last line of the browser window,
+  3 RAM words). Harness: exactly 44 progress + 46 frame characters per load.
+  Lesson (twice in one session): a callee that does INCRB cannot see the
+  caller's R0..R7 - pass values in R8..R12.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
