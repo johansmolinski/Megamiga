@@ -305,7 +305,7 @@ _PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
 ; ----------------------------------------------------------------------------
 ; Read-only data device (m2m-rodata.asm, mega65.vhd C_DEV_AMIGA_RODATA)
 ;
-; The QNICE ROM ends at 0x7000. Long texts and the core's filter tables live in
+; The QNICE ROM ends at 0x7000. Long texts and the filter tables of the core live in
 ; the read-only data device instead; their labels (rodata_sym.asm) are window
 ; addresses >= 0x7000 that are only valid while that device and window 0 are
 ; selected. Texts are therefore always copied into RODATA_BUF (RAM) before use,
@@ -317,7 +317,7 @@ _PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
 ; the next RODATA_STR (the Shell copies a mount warning at once, FATAL halts).
 RODATA_STR      INCRB
                 MOVE    M2M$RAMROM_DEV, R0
-                MOVE    @R0, R1                 ; R1/R2: the caller's selection
+                MOVE    @R0, R1                 ; R1/R2: selection of the caller
                 MOVE    M2M$RAMROM_4KWIN, R6
                 MOVE    @R6, R2
                 MOVE    AEXP_DEV_RODATA, @R0
@@ -362,7 +362,7 @@ RODATA_PUTS     MOVE    R8, @--SP
 ; the file goes to window n >> 12, word n & 0xFFF. Sector boundaries never
 ; cross a 4k window. A last partial sector is copied partially.
 ;
-; It draws the same progress bar as the Shell's byte loader, on the last line
+; It draws the same progress bar as the byte loader of the Shell, on the last line
 ; of the file browser window, which is still on screen while PREP_LOAD_IMAGE
 ; runs (the Shell redraws that line for its own, then empty, load).
 ;
@@ -3768,7 +3768,7 @@ M2M$LOAD_POLYPHASE  SYSCALL(enter, 1)
 ; Megamiga: a table at 0x7000 or above is a window address of the read-only
 ; data device (m2m-rodata.asm) - the QNICE ROM ends at 0x7000 - and is copied
 ; word by word, switching between that device and the polyphase device;
-; tables in the ROM (the framework's LANCZOS2_12, SCAN_BR_110_80) are copied
+; tables in the ROM (LANCZOS2_12 of the framework, SCAN_BR_110_80) are copied
 ; with memcpy as before. Expects the polyphase device to be selected and
 ; leaves it selected. R8..R10 preserved.
 _PP_COPY        CMP     R8, 0x6FFF              ; table in the ROM?

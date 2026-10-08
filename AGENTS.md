@@ -1551,11 +1551,43 @@ the deep material lives in `doc/` (see "Key documents").
   m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
   m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
   produce a `.def`-identical ROM vs the VM build).
+  **The firmware ROM must end below `0x7000`**: M2M maps the 4K RAMROM/device
+  window at `0x7000`-`0x7FFF`, so only 28672 words of the 32K-word QNICE ROM
+  are usable; `make_rom.sh` enforces this (ported from the C64 core): it
+  derives the image size from the serialized addresses rather than from
+  the `.rom` line count, which qasm2rom inflates with the zero words of the
+  RAM variables, cross-checks it against the `END_OF_ROM` label (which must
+  stay the last ROM item before `.ORG 0x8000`), trims the variable words
+  off the image and fails the Vivado build loudly on overflow or on a
+  layout qasm2rom cannot serialize. `WIP-V2-B1` uses 27533 words, 1139
+  free; the VM log line to look for is `Shell ROM: N/28672 words.`
+  **Megamiga (fork):** the fork's firmware had grown past `0x7000` before this
+  guard arrived (0x75D5 - ADF tables in the window silently broke ADF
+  filtering, SPACE eject and the fast load), so the long texts and the core's
+  three filter tables live in `m2m-rodata.asm`, a read-only QNICE device
+  (`C_DEV_AMIGA_RODATA` 0x0109, 4K-word preloaded block RAM in mega65.vhd);
+  `make_rom.sh` assembles it first and exports its labels as window addresses
+  (`rodata_sym.asm`). Texts are used through `RODATA_STR`/`RODATA_PUTS` (RAM
+  copy), filter tables through `M2M$LOAD_POLYPHASE` (any table >= 0x7000).
+  After the upstream merge: 28211/28672 words. Move more constant data there
+  when the ROM fills up again - never reference a rodata label directly.
+- **The QNICE submodule tracks `dev-V1.61`** (upstream AExp; in the Megamiga
+  fork it is the branch `fat32-fastseek` of johansmolinski/QNICE-FPGA, which
+  merged `dev-V1.61`/`2541cce` on 2026-10-08 on top of the fast seek;
+  `.gitmodules` `branch`, update with `git submodule update --remote
+  M2M/QNICE`, the pre-synth hook reassembles the firmware against the new
+  monitor). That branch carries two FAT32 library fixes under the ADF
+  write-back: the sector buffer is written back before `DIR_OPEN`/`FILE_OPEN`
+  re-fill it (`a937af2`, the single-buffer-owner hazard the firmware also
+  guards against itself, see hard rule 11 and the write spec) and the 32-bit
+  sector-address overflow check (`2541cce`). The M2M V2.0.1 template pins the
+  2024 commit `2eb27dd`, 13 commits behind; a template sync must never drag
+  the pointer back there.
 - **Headless QNICE menu regression**: `M2M/rom/menu_percent_test.asm` runs
   the real `OPTM_SHOW` scanner and guards the C64 `%`-at-end-of-label fix.
-  The QNICE snapshot pinned here predates multi-image `-b` mode, even when
-  rebuilt; use a current batch-capable QNICE emulator externally (the C64
-  repository has one) without importing that emulator feature. Assemble the
+  The pinned QNICE (`dev-V1.61`) ships the emulator's headless batch mode
+  (`-b`, one or more `.out` images), so build the POSIX terminal flavour
+  from `M2M/QNICE/emulator` and use it as `$QNICE_HEADLESS`. Assemble the
   test with the native/VM assembler, then run `$QNICE_HEADLESS -b 0x8000
   M2M/QNICE/monitor/monitor.out M2M/rom/menu_percent_test.out`. Expected:
   `PASS: percentage labels preserve later %s indices`. Run this after every
