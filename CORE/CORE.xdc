@@ -116,3 +116,17 @@ set_max_delay -datapath_only 20.000 \
 
 ## Megamiga: SDRAM pin registers in the IOBs (see the note above)
 set_property IOB TRUE [get_ports {sdram_a_o[*] sdram_ba_o[*] sdram_ras_n_o sdram_cas_n_o sdram_we_n_o sdram_dqml_o sdram_dqmh_o sdram_clk_o sdram_dq_io[*]}]
+
+## Megamiga: minimig -> SDRAM controller, 2 cycles of the 113.5 MHz clock (MiSTer's
+## Minimig.sdc does the same: "-from minimig -to ram1 -setup 2 / -hold 1"). A minimig signal
+## only changes on the core clock edge that starts a 7 MHz cycle (c1 rising); sdram_ctrl
+## detects that edge one fast clock later (old_7m) and samples the chipset address, data and
+## strobes in state 0, at the SECOND fast clock edge after the launch. The cache snoop uses
+## them even later. The maintenance writer (amiga_sdram.vhd) and the CPU port are NOT
+## covered: they stay single-cycle timed, so the controller can never sample a half-settled
+## address from them. Two more sources feed the same chipset nets: the cck register of
+## amiga_clk (like MiSTer's sdc) and the framework's qnice2main OSM bits, which reach the
+## chip write data through Paula's floppy muxes (Hardware Floppy unit mapping) - menu
+## settings that are static while the Amiga runs.
+set_multicycle_path -setup 2 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_minimig/minimig_inst/* || NAME =~ CORE/i_main/i_amiga_clk/cck* || NAME =~ i_framework/i_qnice2main/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
+set_multicycle_path -hold 1 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_minimig/minimig_inst/* || NAME =~ CORE/i_main/i_amiga_clk/cck* || NAME =~ i_framework/i_qnice2main/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
