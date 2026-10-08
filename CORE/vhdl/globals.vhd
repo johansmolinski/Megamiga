@@ -31,6 +31,11 @@ package globals is
 constant QNICE_FIRMWARE_MONITOR   : string  := "../../../M2M/QNICE/monitor/monitor.rom";    -- debug/development
 constant QNICE_FIRMWARE_M2M       : string  := "../../../CORE/m2m-rom/m2m-rom.rom";         -- release
 
+-- Megamiga: the read-only data of the firmware (long texts, filter tables), served by the
+-- QNICE device C_DEV_AMIGA_RODATA, because the QNICE ROM ends at 0x7000. Built together with
+-- the firmware by make_rom.sh (m2m-rodata.asm); see mega65.vhd.
+constant QNICE_RODATA_M2M         : string  := "../../../CORE/m2m-rom/m2m-rodata.rom";
+
 -- Select firmware here
 constant QNICE_FIRMWARE           : string  := QNICE_FIRMWARE_M2M;
 
@@ -196,6 +201,10 @@ constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 -- Keep each constant on ONE line - make_rom.sh scrapes them.
 constant C_DEV_AMIGA_IDE      : std_logic_vector(15 downto 0) := x"0107";
 constant C_DEV_AMIGA_IDEROM   : std_logic_vector(15 downto 0) := x"0108";
+
+-- Megamiga: read-only data of the firmware (m2m-rodata.asm): 4K words of block RAM preloaded
+-- from QNICE_RODATA_M2M, read-only, window 0 only (see mega65.vhd)
+constant C_DEV_AMIGA_RODATA   : std_logic_vector(15 downto 0) := x"0109";
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System

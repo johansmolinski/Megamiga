@@ -206,7 +206,10 @@ _PREP_LI_FL     MOVE    1, R8                   ; forced step (ignore the
                 SUB     1, R4
                 RBRA    _PREP_LI_FL, !Z
                 MOVE    1, R8                   ; budget exhausted: bail out
-                MOVE    WRN_ADF_BUSY, R9
+                MOVE    WRN_ADF_BUSY, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 DECRB
                 RET
 
@@ -276,18 +279,71 @@ _PREP_LI_OK     XOR     R8, R8                  ; no errors
                 RET
 
 _PREP_LI_BAD    MOVE    1, R8                   ; error: invalid size
-                MOVE    WRN_ADF_SIZE, R9
+                MOVE    WRN_ADF_SIZE, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 DECRB
                 RET
 
 _PREP_LI_DUPE   MOVE    1, R8                   ; error: already in a drive
-                MOVE    WRN_ADF_DUP, R9
+                MOVE    WRN_ADF_DUP, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 DECRB
                 RET
 
 _PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
-                MOVE    WRN_ADF_FAT, R9
+                MOVE    WRN_ADF_FAT, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; Read-only data device (m2m-rodata.asm, mega65.vhd C_DEV_AMIGA_RODATA)
+;
+; The QNICE ROM ends at 0x7000. Long texts and the core's filter tables live in
+; the read-only data device instead; their labels (rodata_sym.asm) are window
+; addresses >= 0x7000 that are only valid while that device and window 0 are
+; selected. Texts are therefore always copied into RODATA_BUF (RAM) before use,
+; so the Shell, FATAL and puts see a plain RAM pointer.
+;
+; RODATA_STR: R8 = label of a zero-terminated text -> R8 = RODATA_BUF holding
+; a copy (at most RODATA_BUF_SIZE - 1 characters). All other registers and the
+; RAMROM selection are preserved. One buffer: a caller must use the text before
+; the next RODATA_STR (the Shell copies a mount warning at once, FATAL halts).
+RODATA_STR      INCRB
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R1                 ; R1/R2: the caller's selection
+                MOVE    M2M$RAMROM_4KWIN, R6
+                MOVE    @R6, R2
+                MOVE    AEXP_DEV_RODATA, @R0
+                MOVE    0, @R6
+                MOVE    RODATA_BUF, R3
+                MOVE    RODATA_BUF_SIZE, R4
+                SUB     1, R4
+_RDS_L          MOVE    @R8++, R5
+                MOVE    R5, @R3++
+                CMP     0, R5
+                RBRA    _RDS_E, Z
+                SUB     1, R4
+                RBRA    _RDS_L, !Z
+                MOVE    0, @R3                  ; too long: truncated
+_RDS_E          MOVE    R1, @R0
+                MOVE    R2, @R6
+                MOVE    RODATA_BUF, R8
+                DECRB
+                RET
+
+; RODATA_PUTS: print the text R8 (label as above) to the serial terminal.
+; All registers preserved.
+RODATA_PUTS     MOVE    R8, @--SP
+                RSUB    RODATA_STR, 1
+                SYSCALL(puts, 1)
+                MOVE    @SP++, R8
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -536,8 +592,10 @@ _KP_ERR         MOVE    AEXP_DEV_KICK, R8       ; LOADING -> IDLE: let the
                 MOVE    CRTROM_CSR_STATUS, R9   ; Amiga run again
                 MOVE    CRTROM_CSR_ST_IDLE, R10
                 RSUB    CRTROM_CSR_W, 1
+                MOVE    R1, R8                  ; (text in the read-only data
+                RSUB    RODATA_STR, 1           ; device: copy it to RAM)
+                MOVE    R8, R9
                 MOVE    1, R8
-                MOVE    R1, R9
 _KP_RET         MOVE    R4, R10
                 DECRB
                 RET
@@ -1537,6 +1595,7 @@ _FADF_RET       MOVE    R1, R10                 ; restore R10..R12
                 RET
 
 _FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
+                RSUB    RODATA_STR, 1           ; (read-only data; keeps R9)
                 RBRA    FATAL, 1
 
 ; ----------------------------------------------------------------------------
@@ -2355,13 +2414,22 @@ _HDFP_SKD       CMP     0, R9
                 RBRA    _HDFP_RET, 1
 
 _HDFP_NOROM     MOVE    1, R8
-                MOVE    WRN_HDF_NOROM, R9
+                MOVE    WRN_HDF_NOROM, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 RBRA    _HDFP_RET, 1
 _HDFP_BADSZ     MOVE    1, R8
-                MOVE    WRN_HDF_SIZE, R9
+                MOVE    WRN_HDF_SIZE, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
                 RBRA    _HDFP_RET, 1
 _HDFP_FATERR    MOVE    1, R8
-                MOVE    WRN_HDF_FAT, R9
+                MOVE    WRN_HDF_FAT, R8
+                RSUB    RODATA_STR, 1           ; (text in the read-only data
+                MOVE    R8, R9                  ; device: copy it to RAM)
+                MOVE    1, R8
 
 _HDFP_RET       DECRB
                 RET
@@ -3501,7 +3569,7 @@ _DSM_ZLOOP      XOR     R8, R8                  ;  HDMI 4..7, pan 8..9)
                 SUB     1, R2
                 RBRA    _DSM_ZLOOP, !Z
                 MOVE    MSG_SCR_UNSUP, R8
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 RBRA    _DSM_LOGGEO, 1
 
 _DSM_KNOWN      MOVE    R7, R0                  ; row offset = mode * SCR_ROW_WORDS
@@ -3537,77 +3605,77 @@ _DSM_PLOOPP     MOVE    @R0++, R8
                 SUB     1, R2
                 RBRA    _DSM_PLOOPP, !Z
                 MOVE    MSG_SCR_PFX, R8         ; "Screen: Amiga mode "
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    R7, R0                  ; LORES / HIRES
                 AND     SCR_HIRES_BIT, R0
                 RBRA    _DSM_LHIR, !Z
                 MOVE    MSG_SCR_LORES, R8
                 RBRA    _DSM_LHPUT, 1
 _DSM_LHIR       MOVE    MSG_SCR_HIRES, R8
-_DSM_LHPUT      SYSCALL(puts, 1)
+_DSM_LHPUT      RSUB    RODATA_PUTS, 1
                 MOVE    R6, R0                  ; PROGRESSIVE / INTERLACED
                 AND     M2M$SYS_CORE_FL_INT, R0
                 RBRA    _DSM_LLAC, !Z
                 MOVE    MSG_SCR_PROG, R8
                 RBRA    _DSM_LSPUT, 1
 _DSM_LLAC       MOVE    MSG_SCR_LACE, R8
-_DSM_LSPUT      SYSCALL(puts, 1)
+_DSM_LSPUT      RSUB    RODATA_PUTS, 1
 
 _DSM_LOGGEO     MOVE    MSG_SCR_GEO1, R8        ; "  (hdmax="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    R4, R8
                 RSUB    _SCR_LOGDEC, 1
                 MOVE    MSG_SCR_GEO2, R8        ; " vdmax="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    R5, R8
                 RSUB    _SCR_LOGDEC, 1
                 MOVE    MSG_SCR_GEO3, R8        ; ")"
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 SYSCALL(crlf, 1)
                 CMP     SCR_MODE_UNKNOWN, R7    ; unknown: no offset lines
                 RBRA    _DSM_RET, Z
                 MOVE    R3, R0                  ; row ptr -> HDMI half then VGA half
                 ; --- line "HDMI:": ascal input-crop offsets (row words 0..3) ---
                 MOVE    MSG_SCR_HDMI, R8        ; "HDMI: himin="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_OFF2, R8        ; " himax="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_OFF3, R8        ; " vimin="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_OFF4, R8        ; " vimax="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 SYSCALL(crlf, 1)
                 ; --- line "Analog:": overscan (row words 4..7) + pan (8..9) ---
                 MOVE    MSG_SCR_VGA, R8         ; "Analog: os_l="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_VOF2, R8        ; " os_r="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_VOF3, R8        ; " os_t="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_VOF4, R8        ; " os_b="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_VOF5, R8        ; " pan_x="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 MOVE    MSG_SCR_VOF6, R8        ; " pan_y="
-                SYSCALL(puts, 1)
+                RSUB    RODATA_PUTS, 1
                 MOVE    @R0++, R8
                 RSUB    _SCR_LOGSDEC, 1
                 SYSCALL(crlf, 1)
@@ -3685,24 +3753,48 @@ M2M$LOAD_POLYPHASE  SYSCALL(enter, 1)
                 MOVE    R9, R0                  ; stash V pointer
                 MOVE    M2M$RAMROM_DATA, R9
                 ADD     M2M$ASCAL_PP_HORIZ, R9
-                SYSCALL(memcpy, 1)
+                RSUB    _PP_COPY, 1
 
                 ; copy vertical filter (R0 = stashed V label) to PP_VERT.
                 MOVE    R0, R8
                 MOVE    M2M$RAMROM_DATA, R9
                 ADD     M2M$ASCAL_PP_VERT, R9
-                SYSCALL(memcpy, 1)
+                RSUB    _PP_COPY, 1
 
                 SYSCALL(leave, 1)
                 RET
 
-; Filter coefficient blobs for the polyphase-based options that the M2M
-; framework does not already link: LANCZOS2_12 and SCAN_BR_110_80 come in
-; via M2M/rom/filters.asm (included from M2M/rom/shell.asm); the three blobs
-; below are core-local copies from C64MEGA65 V6 (see video_filters/README.md).
-#include "video_filters/GS_Sharpness_050.asm"
-#include "video_filters/CRT_Sim_Composite_H.asm"
-#include "video_filters/CRT_Sim_SVideo_H.asm"
+; _PP_COPY: copy R10 words from the table R8 to R9 in the polyphase window.
+; Megamiga: a table at 0x7000 or above is a window address of the read-only
+; data device (m2m-rodata.asm) - the QNICE ROM ends at 0x7000 - and is copied
+; word by word, switching between that device and the polyphase device;
+; tables in the ROM (the framework's LANCZOS2_12, SCAN_BR_110_80) are copied
+; with memcpy as before. Expects the polyphase device to be selected and
+; leaves it selected. R8..R10 preserved.
+_PP_COPY        CMP     R8, 0x6FFF              ; table in the ROM?
+                RBRA    _PPC_RD, N              ; no (R8 > 0x6FFF)
+                SYSCALL(memcpy, 1)
+                RET
+_PPC_RD         INCRB
+                MOVE    R8, R0                  ; R0: source, R1: target
+                MOVE    R9, R1
+                MOVE    R10, R2                 ; R2: words
+                MOVE    M2M$RAMROM_DEV, R3
+                MOVE    M2M$RAMROM_4KWIN, R4    ; (polyphase and data device
+_PPC_L          MOVE    AEXP_DEV_RODATA, @R3    ; both use window 0)
+                MOVE    @R0++, R5
+                MOVE    M2M$ASCAL_PPHASE, @R3
+                MOVE    0, @R4
+                MOVE    R5, @R1++
+                SUB     1, R2
+                RBRA    _PPC_L, !Z
+                DECRB
+                RET
+
+; The three core-local filter coefficient blobs (GS_SHARPNESS_050,
+; CRT_SIM_COMPOSITE_H, CRT_SIM_SVIDEO_H) live in m2m-rodata.asm; their labels
+; are window addresses >= 0x7000 of the read-only data device, which
+; M2M$LOAD_POLYPHASE recognises.
 
 ; ----------------------------------------------------------------------------
 ; Core specific constants and strings
@@ -3713,6 +3805,12 @@ M2M$LOAD_POLYPHASE  SYSCALL(enter, 1)
 ; ../vhdl/mega65.vhd and the AEXP_OPTM_G_* group ids from the OPTM_G_*
 ; constants in ../vhdl/config.vhd -- no hardcoded menu indexes here.
 #include "osm_const.asm"
+
+; Labels of the read-only data device (window addresses), generated by
+; make_rom.sh from m2m-rodata.asm. RODATA_BUF_SIZE must hold the longest text
+; (make_rom.sh checks it).
+#include "rodata_sym.asm"
+RODATA_BUF_SIZE .EQU    200
 
 ; ADF file extension (needs to be upper case)
 ADF_FILE_EXT    .ASCII_W ".ADF"
@@ -3891,47 +3989,8 @@ RTC_CMD_RESYNC  .EQU    0x000A              ; b1 read RTC->internal + b3 keep ru
 ; so the strings must not contain such a prompt themselves. The trailing
 ; newline leaves one empty line between the message and the Shell prompt.
 
-; Warning: file size out of the valid ADF range
-WRN_ADF_SIZE    .ASCII_P "\n\nThis is not a valid ADF disk image:\n"
-                .ASCII_P "the file size must be 901,120 bytes\n"
-                .ASCII_P "(880 KB standard ADF; 81..83-track over-\n"
-                .ASCII_W "dumps up to 934,912 bytes are accepted).\n"
-
-; Warning: could not write back the current disk before mounting a new one
-WRN_ADF_BUSY    .ASCII_P "\n\nUnsaved changes on the current disk\n"
-                .ASCII_P "could not be written back because the\n"
-                .ASCII_P "Amiga keeps writing to the drive.\n"
-                .ASCII_W "Stop the disk activity, then try again.\n"
-
-; Warning: the same image file is already mounted in another drive
-WRN_ADF_DUP     .ASCII_P "\n\nThis disk image is already in another\n"
-                .ASCII_P "drive. One file cannot serve two drives\n"
-                .ASCII_P "at once: each drive collects its own\n"
-                .ASCII_P "changes and would save them over the\n"
-                .ASCII_W "changes of the other one.\n"
-
-; Warning: the image could not be read from the SD card (FAST_LOAD)
-WRN_ADF_FAT     .ASCII_P "\n\nThe ADF file cannot be read from\n"
-                .ASCII_W "the SD card (FAT32 error).\n"
-
-; Warnings of the Kickstart selector
-WRN_KICK_SIZE   .ASCII_P "\n\nThis is not a Kickstart ROM image:\n"
-                .ASCII_P "the file size must be 256 KB or 512 KB\n"
-                .ASCII_W "(a raw, unencrypted ROM dump).\n"
-WRN_KICK_FAT    .ASCII_P "\n\nThe Kickstart file cannot be read from\n"
-                .ASCII_P "the SD card (FAT32 error). The ROM is\n"
-                .ASCII_W "incomplete: load another one.\n"
-
-; Fatal: SD card write failed during the ADF write-back
-WRN_HDF_NOROM   .ASCII_P "\n\nThe hard disk needs its boot ROM:\n"
-                .ASCII_P "put lide.rom (lide.device for RIPPLE)\n"
-                .ASCII_W "into /amiga on the SD card and restart.\n"
-WRN_HDF_SIZE    .ASCII_P "\n\nThis is not a valid HDF image:\n"
-                .ASCII_P "the file size must be a multiple of\n"
-                .ASCII_W "512 bytes and at least 64 KB.\n"
-WRN_HDF_FAT     .ASCII_P "\n\nThe HDF file cannot be read from\n"
-                .ASCII_W "the SD card (FAT32 error).\n"
-ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
+; The warning texts themselves live in the read-only data device
+; (m2m-rodata.asm); RODATA_STR copies one into RAM before it is used.
 
 ; Screen centering (issue #5): per-Amiga-mode HDMI input-crop + VGA soft-blank table.
 ; File name, table geometry, mode indices and the serial-log strings. The four
@@ -3980,26 +4039,8 @@ SCR_LORES_HI      .EQU 388
 SCR_HIRES_LO      .EQU 744                ; hires hdmax window [744, 765) (~754/755)
 SCR_HIRES_HI      .EQU 765
 
-; serial-terminal (UART) log strings, MiSTer-style "new mode detected" trace
-MSG_SCR_PFX       .ASCII_W "Screen: Amiga mode "
-MSG_SCR_LORES     .ASCII_W "LORES"
-MSG_SCR_HIRES     .ASCII_W "HIRES"
-MSG_SCR_PROG      .ASCII_W " PROGRESSIVE"
-MSG_SCR_LACE      .ASCII_W " INTERLACED"
-MSG_SCR_GEO1      .ASCII_W "  (hdmax="
-MSG_SCR_GEO2      .ASCII_W " vdmax="
-MSG_SCR_GEO3      .ASCII_W ")"
-MSG_SCR_HDMI      .ASCII_W "  HDMI: himin="
-MSG_SCR_OFF2      .ASCII_W " himax="
-MSG_SCR_OFF3      .ASCII_W " vimin="
-MSG_SCR_OFF4      .ASCII_W " vimax="
-MSG_SCR_VGA       .ASCII_W "  Analog: os_l="
-MSG_SCR_VOF2      .ASCII_W " os_r="
-MSG_SCR_VOF3      .ASCII_W " os_t="
-MSG_SCR_VOF4      .ASCII_W " os_b="
-MSG_SCR_VOF5      .ASCII_W " pan_x="
-MSG_SCR_VOF6      .ASCII_W " pan_y="
-MSG_SCR_UNSUP     .ASCII_W "screen: unsupported mode, adjustments disabled"
+; The serial-terminal log strings (MSG_SCR_*) live in m2m-rodata.asm; they
+; are printed through RODATA_PUTS.
 
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
@@ -4040,6 +4081,7 @@ ADF_FL_BADDR_LO .BLOCK ADF_DRIVES               ; session byte address within
 ADF_FL_BADDR_HI .BLOCK ADF_DRIVES               ; image and file (32 bit)
 ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
                                                 ; background flush time slice
+RODATA_BUF      .BLOCK RODATA_BUF_SIZE          ; RAM copy of one read-only text
 FL_BAR_TOTAL    .BLOCK 1                        ; FAST_LOAD progress bar: sectors
 FL_BAR_WIDTH    .BLOCK 1                        ; bar width in characters
 FL_BAR_ACC      .BLOCK 1                        ; Bresenham accumulator
@@ -4160,13 +4202,15 @@ MENU_HEAP_SIZE  .EQU 2560
 ; words the 30208 total used to leave.
 ; WIP-V2-A11-JS-02: the IDE board added 280 words of variables (mostly the HDF
 ; extent map), so the release total went down by 384 words to 29696.
-HEAP_SIZE       .EQU 4480                       ; 7040 - 2560 = 4480
+; Megamiga 0.2: RODATA_BUF (200 words, the RAM copy of a text from the
+; read-only data device) - both totals down by 256 (release 29440, debug 6784).
+HEAP_SIZE       .EQU 4224                       ; 6784 - 2560 = 4224
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27136                      ; 29696 - 2560 = 27136
+HEAP_SIZE       .EQU 26880                      ; 29440 - 2560 = 26880
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

@@ -303,6 +303,8 @@ signal qnice_kick_ldng        : std_logic;
 signal main_kick_ldng         : std_logic;
 signal main_kick_busy         : std_logic;
 signal main_kick_hold         : std_logic;
+-- read-only data of the firmware (m2m-rodata.asm), QNICE device C_DEV_AMIGA_RODATA
+signal qnice_rodata_q         : std_logic_vector(15 downto 0);
 signal main_rst               : std_logic;
 
 ---------------------------------------------------------------------------------------------
@@ -1532,6 +1534,28 @@ begin
 
    main_kick_hold <= main_kick_ldng or main_kick_busy;
 
+   ---------------------------------------------------------------------------------------------
+   -- Read-only data of the firmware: the QNICE ROM ends at 0x7000 (the RAMROM window), so
+   -- long texts and filter tables are assembled separately (CORE/m2m-rom/m2m-rodata.asm)
+   -- into m2m-rodata.rom, which preloads this 4K-word block RAM. QNICE reads it like any
+   -- device in window 0: the address is stable at the falling edge, where the RAM reads,
+   -- and the word is taken at the next rising edge (the old Kickstart BRAM pattern).
+   ---------------------------------------------------------------------------------------------
+
+   i_rodata : entity work.dualport_2clk_ram
+      generic map (
+         ADDR_WIDTH   => 12,
+         DATA_WIDTH   => 16,
+         ROM_PRELOAD  => true,
+         ROM_FILE     => QNICE_RODATA_M2M,
+         FALLING_A    => true
+      )
+      port map (
+         clock_a      => qnice_clk_i,
+         address_a    => qnice_dev_addr_i(11 downto 0),
+         q_a          => qnice_rodata_q
+      ); -- i_rodata
+
    core_specific_devices : process(all)
    begin
       -- make sure that this is x"EEEE" by default and avoid a register here by having this default value
@@ -1582,6 +1606,10 @@ begin
             qnice_iderom_ce  <= qnice_dev_ce_i;
             qnice_dev_data_o <= qnice_iderom_data;
             qnice_dev_wait_o <= qnice_iderom_wait;
+
+         -- read-only data of the firmware (window 0; the block RAM reads on the falling edge)
+         when C_DEV_AMIGA_RODATA =>
+            qnice_dev_data_o <= qnice_rodata_q;
 
          -- Hardware Floppy diagnostics: registered readout (the diag bank
          -- latches the addressed word on the falling edge and this arm sees
