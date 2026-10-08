@@ -989,6 +989,34 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   **`main`, now the default branch** of johansmolinski/Megamiga. The R3-capable
   0.1.x line lives on as tag `V0.1.1` (and the 0.1.2 work at `225ec4c`).
 
+- **Megamiga 0.3.0-dev (main, 2026-10-08, local commits 440cf04/f6a87e2 +
+  Minimig 1ea4fe6, NOT pushed): 68020 + 16 MB Zorro III Fast RAM.** Memory
+  menu: `CPU: 68000` (default, fx68k) / `CPU: 68020` (C_MENU_CPU_020 = 155,
+  OPTM_G_CPU 28) and `Zorro III RAM (16 MB)` (C_MENU_Z3RAM = 152, OPTM_G_Z3RAM
+  27, effective only with the 68020); both cold-boot (amiga_cold_boot). OPTM_SIZE
+  164, MENU_HEAP_SIZE 2656, both HEAP_SIZE -96, settings file 164 bytes.
+  cpu_wrapper.v: TG68KdotC_Kernel instantiated again (MiSTer runs it on clk_sys
+  = 28 MHz too; only the SDRAM controller is 4x), cpucfg 11 from the menu (also
+  sent to Minimig via userio 0xF4 TT in amiga_config). MiSTer's 128/256 MB Z3
+  boards (DDR3) replaced by ONE 16 MB Z3 board (ac_z3/z3_base A31..A24 from the
+  0x44 word write, size code 000 extended) after the Z2 board; sel_rtg dropped
+  from ramsel. ramaddr[28:27]: 11 = Z2 -> SDRAM bank 1, 10 = Z3 -> banks 2/3, 00
+  = bank 0 (main.vhd builds the 24-bit fram_addr). amiga_sdram: MiSTer's
+  Minimig.sv ram_cs gating in clk4x (div synced to c1, cyc, cs drops after
+  ready&cyc for the 020; for the 68000 cs = sel, now registered). IDE board on
+  the 020: ext_sel drops one clock after each completed access (ext_done) and
+  the chip FSM ignores IDE cycles - the board ends a cycle only when sel goes
+  away and TG68K has no AS gap (MOVEM). TG68K files in R4/R5/R6 .xpr (no
+  SFType; TG68K_ALU infers a latch on msb - ghdl needs --latches).
+  SIM: `~/aexp-work/a500p/e2e020` (TG68K + real cpu_wrapper + amiga_sdram +
+  sdram_ctrl/cpu_cache_new via ghdl/Icarus, chip bus model, 68020 program
+  prog.S): 020 instructions, autoconfig Z2/Z3/IDE, memory tests incl. window
+  ends and aliasing, byte/word in Z3, code from Z2/Z3 with caches off/on, MOVEM
+  bursts to an IDE handshake model - PASS; mutants (no ext_done, no ram_cs
+  gating, wrong Z3 base byte, Z3 on the Z2 bank) all fail; the 68000 memory TB
+  passes. R6: WNS +0.021 (framework hr_clk->hr_rwds), main_clk +4.9, LUTs 41.6k.
+  HARDWARE (user, 2026-10-08): "It works as it seems" - more testing pending.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
