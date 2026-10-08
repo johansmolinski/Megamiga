@@ -4184,8 +4184,9 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; and to 160 items with the Drive spin-up delay toggle (demand 2560, again
 ; exactly 80 x 32: MENU_HEAP_SIZE 2560, both HEAP_SIZE -32), and to 164 items
 ; with the Zorro III RAM toggle and the CPU radio (demand 2628, MENU_HEAP_SIZE
-; 2656, headroom 28, both HEAP_SIZE -96).
-MENU_HEAP_SIZE  .EQU 2656
+; 2656, headroom 28, both HEAP_SIZE -96), and to 168 items with the chipset
+; radio (demand 2691, MENU_HEAP_SIZE 2720, headroom 29, both HEAP_SIZE -64).
+MENU_HEAP_SIZE  .EQU 2720
 
 #ifndef RELEASE
 
@@ -4206,13 +4207,13 @@ MENU_HEAP_SIZE  .EQU 2656
 ; extent map), so the release total went down by 384 words to 29696.
 ; Megamiga 0.2: RODATA_BUF (200 words, the RAM copy of a text from the
 ; read-only data device) - both totals down by 256 (release 29440, debug 6784).
-HEAP_SIZE       .EQU 4128                       ; 6784 - 2656 = 4128
+HEAP_SIZE       .EQU 4064                       ; 6784 - 2720 = 4064
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 26784                      ; 29440 - 2656 = 26784
+HEAP_SIZE       .EQU 26720                      ; 29440 - 2720 = 26720
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

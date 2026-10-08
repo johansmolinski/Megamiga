@@ -81,6 +81,7 @@ entity main is
       ram_addr_o              : out std_logic_vector(22 downto 1);
       ram_data_o              : out std_logic_vector(15 downto 0);  -- write data
       ram_data_i              : in  std_logic_vector(15 downto 0);  -- read data
+      chip48_i                : in  std_logic_vector(47 downto 0);  -- AGA wide read (amiga_sdram)
       ram_bhe_n_o             : out std_logic;                      -- byte enable bits 15:8, active low
       ram_ble_n_o             : out std_logic;                      -- byte enable bits 7:0, active low
       ram_we_n_o              : out std_logic;                      -- write enable, active low
@@ -140,6 +141,8 @@ entity main is
       -- 16 MB Zorro III board (68020 only). Static OSM bits; a change cold-boots.
       cpu_020_i               : in  std_logic;
       z3_ram_i                : in  std_logic;
+      -- Megamiga: chipset "00" OCS, "01" ECS, "10" AGA (userio 0xF3, static OSM bits)
+      chipset_i               : in  std_logic_vector(1 downto 0);
       fram_sel_o              : out std_logic;
       fram_we_o               : out std_logic;                      -- '1' = write cycle
       -- Megamiga: the SDRAM word address of the CPU port (bank in bits 24:23):
@@ -298,6 +301,7 @@ architecture synthesis of main is
 
          ram_data       : out std_logic_vector(15 downto 0);
          ramdata_in     : in  std_logic_vector(15 downto 0);
+         chip48         : in  std_logic_vector(47 downto 0);
          ram_address    : out std_logic_vector(22 downto 1);
          ram_bhe_n      : out std_logic;
          ram_ble_n      : out std_logic;
@@ -780,6 +784,7 @@ begin
          -- each unit IS. The standard configuration is one unit.
          floppy_drives_i  => drv_count_i,
          cpu_020_i        => cpu_020_i,
+         chipset_i        => chipset_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,
@@ -1136,6 +1141,7 @@ begin
 
          ram_data       => ram_data_o,
          ramdata_in     => ram_data_i,
+         chip48         => chip48_i,
          ram_address    => ram_addr_o,
          ram_bhe_n      => ram_bhe_n_o,
          ram_ble_n      => ram_ble_n_o,

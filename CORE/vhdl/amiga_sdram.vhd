@@ -50,6 +50,7 @@ entity amiga_sdram is
       ram_addr_i     : in    std_logic_vector(22 downto 1);  -- banked word address
       ram_data_i     : in    std_logic_vector(15 downto 0);  -- write data
       ram_data_o     : out   std_logic_vector(15 downto 0);  -- read data
+      chip48_o       : out   std_logic_vector(47 downto 0);  -- AGA wide read (fetch modes)
       ram_bhe_n_i    : in    std_logic;
       ram_ble_n_i    : in    std_logic;
       ram_we_n_i     : in    std_logic;
@@ -366,7 +367,7 @@ begin
          chipDMA        => c_dma,
          chipWR         => c_data,
          chipRD         => ram_data_o,
-         chip48         => open,
+         chip48         => chip48_o,
          cpuAddr        => fram_addr_i,                              -- bank chosen by main.vhd
          cpuCS          => ram_cs,
          cpustate       => fram_state_i,

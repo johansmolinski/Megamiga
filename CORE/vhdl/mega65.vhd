@@ -315,6 +315,7 @@ signal main_rst               : std_logic;
 signal main_ram_addr          : std_logic_vector(22 downto 1);  -- banked word address
 signal main_ram_wrdata        : std_logic_vector(15 downto 0);
 signal main_ram_rddata        : std_logic_vector(15 downto 0);
+signal main_chip48            : std_logic_vector(47 downto 0);   -- Megamiga: AGA wide read
 signal main_ram_bhe_n         : std_logic;
 signal main_ram_ble_n         : std_logic;
 signal main_ram_we_n          : std_logic;
@@ -330,6 +331,7 @@ signal main_fram_we           : std_logic;
 signal main_fram_addr         : std_logic_vector(24 downto 1);   -- SDRAM word address
 signal main_cpu_020           : std_logic;                       -- Megamiga: 68020 (TG68K)
 signal main_z3_ram            : std_logic;                       -- Megamiga: 16 MB Zorro III board
+signal main_chipset           : std_logic_vector(1 downto 0);    -- Megamiga: 00 OCS, 01 ECS, 10 AGA
 signal main_fram_uds_n        : std_logic;
 signal main_fram_lds_n        : std_logic;
 signal main_fram_wrdata       : std_logic_vector(15 downto 0);
@@ -867,6 +869,8 @@ constant C_MENU_SLOWRAM       : natural := 150;
 constant C_MENU_FASTRAM       : natural := 151;
 constant C_MENU_Z3RAM         : natural := 152;  -- Memory: Zorro III RAM (16 MB), 68020 only
 constant C_MENU_CPU_020       : natural := 155;  -- Memory: CPU radio, 68020 (154 = 68000, default)
+constant C_MENU_CHIPSET_OCS   : natural := 157;  -- Memory: chipset radio, OCS
+constant C_MENU_CHIPSET_AGA   : natural := 159;  -- Memory: chipset radio, AGA (158 = ECS, default)
 
 begin
 
@@ -1120,6 +1124,10 @@ begin
    -- only) are memory topology too: a change cold-boots the Amiga like the RAM toggles
    main_cpu_020 <= main_osm_control_i(C_MENU_CPU_020);
    main_z3_ram  <= main_osm_control_i(C_MENU_Z3RAM) and main_cpu_020;
+   -- chipset radio: AGA / OCS explicitly, everything else is the default ECS
+   main_chipset <= "10" when main_osm_control_i(C_MENU_CHIPSET_AGA) = '1' else
+                   "00" when main_osm_control_i(C_MENU_CHIPSET_OCS) = '1' else
+                   "01";
 
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
@@ -1128,6 +1136,7 @@ begin
          fast_ram_i        => main_fastram_en,
          cpu_020_i         => main_cpu_020,
          z3_ram_i          => main_z3_ram,
+         chipset_i         => main_chipset,
          drv_map_i         => main_drv_map,
          kick_hold_i       => main_kick_hold,
          amiga_reset_o     => amiga_cold_reset,
@@ -1191,6 +1200,7 @@ begin
          ram_addr_o           => main_ram_addr,
          ram_data_o           => main_ram_wrdata,
          ram_data_i           => main_ram_rddata,
+         chip48_i             => main_chip48,
          ram_bhe_n_o          => main_ram_bhe_n,
          ram_ble_n_o          => main_ram_ble_n,
          ram_we_n_o           => main_ram_we_n,
@@ -1238,6 +1248,7 @@ begin
          fast_ram_i           => main_fastram_en,
          cpu_020_i            => main_cpu_020,
          z3_ram_i             => main_z3_ram,
+         chipset_i            => main_chipset,
          fram_sel_o           => main_fram_sel,
          fram_we_o            => main_fram_we,
          fram_addr_o          => main_fram_addr,
@@ -1342,6 +1353,7 @@ begin
          ram_addr_i     => main_ram_addr,
          ram_data_i     => main_ram_wrdata,
          ram_data_o     => main_ram_rddata,
+         chip48_o       => main_chip48,
          ram_bhe_n_i    => main_ram_bhe_n,
          ram_ble_n_i    => main_ram_ble_n,
          ram_we_n_i     => main_ram_we_n,

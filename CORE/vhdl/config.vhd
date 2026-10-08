@@ -502,7 +502,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 164; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 168; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -526,7 +526,7 @@ constant OPTM_SIZE         : natural := 164; -- amount of items including empty 
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
 -- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
 -- Stereo Mix submenu view = 8 lines, OSM-open key submenu view = 8 lines,
--- Memory submenu view = 12 lines.
+-- Memory submenu view = 16 lines.
 -- The main view is the tallest, so OPTM_DY tracks it.
 --
 -- CEILING: OPTM_DY + 2 (frame) must not exceed CHARS_DY = VGA_DY / FONT_DY = 36
@@ -580,12 +580,15 @@ constant OPTM_DY           : natural := 34;
 --            Kickstart 2.0 or newer (1.3 does not know Zorro III - leave it off there)
 --   lines 154/155: CPU radio (C_MENU_CPU_020 = 155): 68000 (fx68k, cycle-exact, default)
 --            or 68020 (TG68K, MiSTer's 68020 mode). Both changes cold-boot the Amiga.
---   line 157: Kickstart selector (manual CRT/ROM 4 into C_DEV_AMIGA_KICK); firmware-only:
+--   lines 157..159: chipset radio (C_MENU_CHIPSET_OCS = 157, C_MENU_CHIPSET_AGA = 159):
+--            OCS / ECS (158, default) / AGA -> userio 0xF3 G/E bits (amiga_config.vhd);
+--            a change cold-boots the Amiga. AGA = Minimig-AGA with the chip48 wide read.
+--   line 161: Kickstart selector (manual CRT/ROM 4 into C_DEV_AMIGA_KICK); firmware-only:
 --            PREP_LOAD_IMAGE checks the size (256 or 512 KB) and loads the ROM, the
 --            kick device holds the Amiga in reset meanwhile and cold-boots it after.
 --            Not saved: at power-on the core loads /amiga/kick.rom again.
 --   The memory toggles and the Kickstart selector live in the Memory submenu (lines
---   147..159), because the main menu has no room for another line (see the CEILING
+--   147..163), because the main menu has no room for another line (see the CEILING
 --   note above).
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 55..62 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
@@ -790,14 +793,18 @@ constant OPTM_ITEMS        : string :=
    " CPU: 68000\n"          &    -- 154: CPU radio: 68000 (fx68k, cycle-exact); default
    " CPU: 68020\n"          &    -- 155: CPU radio: 68020 (TG68K)
    "\n"                     &    -- 156: line
-   " Kickstart:%s\n"        &    -- 157: load a Kickstart ROM and cold-boot (manual CRT/ROM 4)
-   "\n"                     &    -- 158: line
-   " Back to main menu\n"   &    -- 159: close submenu
-
+   " Chipset: OCS\n"        &    -- 157: chipset radio: OCS (A500)
+   " Chipset: ECS\n"        &    -- 158: chipset radio: ECS (A500+); default
+   " Chipset: AGA\n"        &    -- 159: chipset radio: AGA (A1200)
    "\n"                     &    -- 160: line
-   " About & Help\n"        &    -- 161: help
+   " Kickstart:%s\n"        &    -- 161: load a Kickstart ROM and cold-boot (manual CRT/ROM 4)
    "\n"                     &    -- 162: line
-   " Close Menu\n";              -- 163: close
+   " Back to main menu\n"   &    -- 163: close submenu
+
+   "\n"                     &    -- 164: line
+   " About & Help\n"        &    -- 165: help
+   "\n"                     &    -- 166: line
+   " Close Menu\n";              -- 167: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -839,6 +846,7 @@ constant OPTM_G_KICK       : integer := 25;  -- load a Kickstart ROM into C_DEV_
 constant OPTM_G_SPINUP     : integer := 26;  -- Drive spin-up delay toggle; read in HDL (mega65.vhd -> main.vhd)
 constant OPTM_G_Z3RAM      : integer := 27;  -- Zorro III RAM (16 MB) toggle, 68020 only; read and cold-booted in mega65.vhd
 constant OPTM_G_CPU        : integer := 28;  -- CPU radio 68000 / 68020; read and cold-booted in mega65.vhd
+constant OPTM_G_CHIPSET    : integer := 29;  -- chipset radio OCS / ECS / AGA; read and cold-booted in mega65.vhd
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -1074,14 +1082,18 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_CPU + OPTM_G_STDSEL,               -- 154: CPU: 68000 (default)
                                              OPTM_G_CPU,                               -- 155: CPU: 68020
                                              OPTM_G_LINE,                              -- 156: Line
-                                             OPTM_G_KICK + OPTM_G_LOAD_ROM,            -- 157: Kickstart (manual CRT/ROM load 4)
-                                             OPTM_G_LINE,                              -- 158: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 159: Close submenu / back to main menu
-
+                                             OPTM_G_CHIPSET,                           -- 157: Chipset: OCS
+                                             OPTM_G_CHIPSET + OPTM_G_STDSEL,           -- 158: Chipset: ECS (default)
+                                             OPTM_G_CHIPSET,                           -- 159: Chipset: AGA
                                              OPTM_G_LINE,                              -- 160: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 161: About & Help (WHS(1))
+                                             OPTM_G_KICK + OPTM_G_LOAD_ROM,            -- 161: Kickstart (manual CRT/ROM load 4)
                                              OPTM_G_LINE,                              -- 162: Line
-                                             OPTM_G_CLOSE                              -- 163: Close Menu
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 163: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 164: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 165: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 166: Line
+                                             OPTM_G_CLOSE                              -- 167: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

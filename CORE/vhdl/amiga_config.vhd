@@ -168,6 +168,11 @@ entity amiga_config is
       -- "11" for the 68020, like MiSTer's HPS sends it); sampled like slow_ram_i.
       cpu_020_i        : in  std_logic;
 
+      -- Megamiga: chipset for command 0xF3 bits [4:3] (G, E): "00" OCS, "01" ECS, "10" AGA
+      -- (minimig.v derives ecs = |chipset_config[4:3], so AGA includes ECS); sampled like
+      -- slow_ram_i.
+      chipset_i        : in  std_logic_vector(1 downto 0);
+
       -- Minimig host/userio port (minimig.v:214-218)
       io_uio_o         : out std_logic;                     -- minimig IO_UIO  (userio IO_ENA)
       io_strobe_o      : out std_logic;                     -- minimig IO_STROBE, 1 clk per word
@@ -192,7 +197,8 @@ architecture synthesis of amiga_config is
    -- The configuration sequence: see the header comment for the why of each value
    constant C_SEQ : t_cfg_seq := (
       0 => (cmd => x"F1", payload => x"0007"),  -- cpuhlt=1 cpurst=1 usrrst=1: halt CPU, hold sys_reset
-      1 => (cmd => x"F3", payload => x"0008"),  -- chipset "XXXGEANT" = 0x08: ECS (Megamiga, A500+), PAL
+      1 => (cmd => x"F3", payload => x"0008"),  -- chipset "XXXGEANT" = 0x08: ECS (Megamiga, A500+), PAL;
+                                                --   G/E bits from chipset_q, see C_IDX_CHIPSET
       2 => (cmd => x"F4", payload => x"0000"),  -- cpu "XXXXKCTT" = 0: 68000, no cache, no fast-kick;
                                                 --   TT = "11" (68020) from cpu_020_q, see C_IDX_CPUCFG
       3 => (cmd => x"F5", payload => x"0007"),  -- memory "XHFFSSCC" = 0x07: 2M chip (Megamiga), 512K slow,
@@ -245,6 +251,9 @@ architecture synthesis of amiga_config is
    -- index of the 0xF4 cpu-config entry in C_SEQ: bits [1:0] (TT) from cpu_020_q
    constant C_IDX_CPUCFG : natural := 2;
 
+   -- index of the 0xF3 chipset-config entry in C_SEQ: bits [4:3] (G, E) from chipset_q
+   constant C_IDX_CHIPSET : natural := 1;
+
    signal state : t_state := ST_RESET;
    signal idx   : natural range 0 to C_SEQ'high := 0;                         -- current transfer
    signal cnt   : natural range 0 to f_max(G_START_DELAY, G_STEP_DELAY) := 0; -- pacing down-counter
@@ -254,6 +263,7 @@ architecture synthesis of amiga_config is
    signal slow_ram_q      : std_logic := '1';
    signal floppy_drives_q : std_logic_vector(1 downto 0) := "01";
    signal cpu_020_q       : std_logic := '0';
+   signal chipset_q       : std_logic_vector(1 downto 0) := "01";
 
 begin
 
@@ -277,6 +287,7 @@ begin
                slow_ram_q       <= slow_ram_i;       -- freeze when reset_i releases
                floppy_drives_q  <= floppy_drives_i;
                cpu_020_q        <= cpu_020_i;
+               chipset_q        <= chipset_i;
                if reset_i = '0' then
                   state <= ST_START_WAIT;
                end if;
@@ -324,6 +335,9 @@ begin
                end if;
                if idx = C_IDX_FLOPPY then
                   io_din_o(3 downto 2) <= floppy_drives_q;  -- FF: drive count - 1
+               end if;
+               if idx = C_IDX_CHIPSET then
+                  io_din_o(4 downto 3) <= chipset_q;  -- G, E: AGA / ECS
                end if;
                if idx = C_IDX_CPUCFG then
                   io_din_o(1 downto 0) <= cpu_020_q & cpu_020_q;  -- TT: "11" = 68020
