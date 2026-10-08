@@ -308,10 +308,15 @@ _PREP_LI_FATE   MOVE    1, R8                   ; error: SD card read failed
 ;
 ; Input:  R8: file handle (any position), R9: QNICE device id
 ; Output: R8: unchanged; R9: 0 = OK, otherwise the FAT32 error code
-;         The handle is at the end of the file. R10..R12 clobbered, the
+;         The handle is at the end of the file. R10..R12 preserved - the
+;         Shell keeps the CRT/ROM id in R12 across PREP_LOAD_IMAGE (LOAD_IMAGE
+;         in M2M/rom/shell.asm), a clobbered R12 is fatal 0x0005 there. The
 ;         RAMROM selection is changed.
 ; ----------------------------------------------------------------------------
-FAST_LOAD       INCRB
+FAST_LOAD       MOVE    R10, @--SP
+                MOVE    R11, @--SP
+                MOVE    R12, @--SP
+                INCRB
                 MOVE    R8, R0                  ; R0: file handle
                 MOVE    R9, R1                  ; R1: device
                 MOVE    R0, R7                  ; R5:R4: file size
@@ -380,6 +385,9 @@ _FL_DONE        MOVE    R0, R8                  ; leave the handle at the end
 
 _FL_RET         MOVE    R0, R8
                 DECRB
+                MOVE    @SP++, R12
+                MOVE    @SP++, R11
+                MOVE    @SP++, R10
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -395,9 +403,11 @@ _FL_RET         MOVE    R0, R8
 ; message says.
 ;
 ; Input:  R8: the file handle of the Shell (just opened)
-; Output: R8: 0=OK, else error; R9: 0 or pointer to an error message
+; Output: R8: 0=OK, else error; R9: 0 or pointer to an error message;
+;         R10..R12 preserved (see FAST_LOAD)
 ; ----------------------------------------------------------------------------
 KICK_PREP       INCRB
+                MOVE    R10, R4                 ; R4: R10 of the caller
                 MOVE    R8, R0                  ; R0: the handle of the Shell
                 MOVE    R0, R1                  ; R3:R2: file size
                 ADD     FAT32$FDH_SIZE_LO, R1
@@ -430,7 +440,8 @@ _KP_ERR         MOVE    AEXP_DEV_KICK, R8       ; LOADING -> IDLE: let the
                 RSUB    CRTROM_CSR_W, 1
                 MOVE    1, R8
                 MOVE    R1, R9
-_KP_RET         DECRB
+_KP_RET         MOVE    R4, R10
+                DECRB
                 RET
 
 ; ----------------------------------------------------------------------------
