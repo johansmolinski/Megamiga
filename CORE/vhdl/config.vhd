@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "0.2.0";
+constant CORE_VERSION : string := "0.3.0-dev";
 
 constant SCR_WELCOME : string :=
 
@@ -99,11 +99,11 @@ constant HELP_1 : string :=
 
    " THE MACHINE\n\n" &
 
-   " Amiga 500+, 68000 CPU, ECS, PAL only\n" &
-   " 2 MB Chip RAM, 512 KB Slow RAM and\n" &
-   " 8 MB Fast RAM, in the Memory menu\n" &
-   " Kickstart 1.3, 2.04 or 3.x: kick.rom\n" &
-   " at boot, or any ROM in the Memory menu\n" &
+   " Amiga 500+, ECS, PAL. Memory menu:\n" &
+   " 68000 or 68020, 2 MB Chip, 512 KB Slow,\n" &
+   " 8 MB Zorro II + 16 MB Zorro III Fast\n" &
+   " RAM (Z3 needs 68020 + Kickstart 2.0+)\n" &
+   " and Kickstart: 1.3, 2.04, 3.x (kick.rom)\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
    " (volume and filters in the menu)\n" &
@@ -502,7 +502,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 160; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 164; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -526,7 +526,7 @@ constant OPTM_SIZE         : natural := 160; -- amount of items including empty 
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
 -- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
 -- Stereo Mix submenu view = 8 lines, OSM-open key submenu view = 8 lines,
--- Memory submenu view = 8 lines.
+-- Memory submenu view = 12 lines.
 -- The main view is the tallest, so OPTM_DY tracks it.
 --
 -- CEILING: OPTM_DY + 2 (frame) must not exceed CHARS_DY = VGA_DY / FONT_DY = 36
@@ -575,12 +575,17 @@ constant OPTM_DY           : natural := 34;
 --            8 MB Zorro II Fast RAM at $200000 in the board SDRAM. R4/R5/R6 only:
 --            mega65.vhd ignores the bit on R3, which has no SDRAM. A change
 --            cold-boots the Amiga like the Slow RAM toggle.
---   line 153: Kickstart selector (manual CRT/ROM 4 into C_DEV_AMIGA_KICK); firmware-only:
+--   line 152: Zorro III RAM (16 MB) toggle (C_MENU_Z3RAM), default OFF; only with the
+--            68020: one 16 MB Zorro III board in SDRAM banks 2/3, autoconfig'd by
+--            Kickstart 2.0 or newer (1.3 does not know Zorro III - leave it off there)
+--   lines 154/155: CPU radio (C_MENU_CPU_020 = 155): 68000 (fx68k, cycle-exact, default)
+--            or 68020 (TG68K, MiSTer's 68020 mode). Both changes cold-boot the Amiga.
+--   line 157: Kickstart selector (manual CRT/ROM 4 into C_DEV_AMIGA_KICK); firmware-only:
 --            PREP_LOAD_IMAGE checks the size (256 or 512 KB) and loads the ROM, the
 --            kick device holds the Amiga in reset meanwhile and cold-boots it after.
 --            Not saved: at power-on the core loads /amiga/kick.rom again.
 --   The memory toggles and the Kickstart selector live in the Memory submenu (lines
---   147..155), because the main menu has no room for another line (see the CEILING
+--   147..159), because the main menu has no room for another line (see the CEILING
 --   note above).
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 55..62 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
@@ -780,15 +785,19 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 149: line
    " Slow RAM (A501)\n"     &    -- 150: single-select toggle, default ON (issue #20)
    " Fast RAM (8 MB)\n"     &    -- 151: single-select toggle, default OFF (R4+ only)
-   "\n"                     &    -- 152: line
-   " Kickstart:%s\n"        &    -- 153: load a Kickstart ROM and cold-boot (manual CRT/ROM 4)
-   "\n"                     &    -- 154: line
-   " Back to main menu\n"   &    -- 155: close submenu
-
+   " Zorro III RAM (16 MB)\n" & --  152: single-select toggle, default OFF (68020 + Kickstart 2.0+)
+   "\n"                     &    -- 153: line
+   " CPU: 68000\n"          &    -- 154: CPU radio: 68000 (fx68k, cycle-exact); default
+   " CPU: 68020\n"          &    -- 155: CPU radio: 68020 (TG68K)
    "\n"                     &    -- 156: line
-   " About & Help\n"        &    -- 157: help
+   " Kickstart:%s\n"        &    -- 157: load a Kickstart ROM and cold-boot (manual CRT/ROM 4)
    "\n"                     &    -- 158: line
-   " Close Menu\n";              -- 159: close
+   " Back to main menu\n"   &    -- 159: close submenu
+
+   "\n"                     &    -- 160: line
+   " About & Help\n"        &    -- 161: help
+   "\n"                     &    -- 162: line
+   " Close Menu\n";              -- 163: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -828,6 +837,8 @@ constant OPTM_G_FASTRAM    : integer := 23;  -- Fast RAM (8 MB) toggle; read and
 constant OPTM_G_HDF        : integer := 24;  -- mount an HDF hard disk image into the IDE board (manual CRT/ROM load 3)
 constant OPTM_G_KICK       : integer := 25;  -- load a Kickstart ROM into C_DEV_AMIGA_KICK and cold-boot (manual CRT/ROM load 4)
 constant OPTM_G_SPINUP     : integer := 26;  -- Drive spin-up delay toggle; read in HDL (mega65.vhd -> main.vhd)
+constant OPTM_G_Z3RAM      : integer := 27;  -- Zorro III RAM (16 MB) toggle, 68020 only; read and cold-booted in mega65.vhd
+constant OPTM_G_CPU        : integer := 28;  -- CPU radio 68000 / 68020; read and cold-booted in mega65.vhd
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -1058,15 +1069,19 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_SLOWRAM + OPTM_G_SINGLESEL
                                                             + OPTM_G_STDSEL,           -- 150: Slow RAM (A501) (single-select, default ON)
                                              OPTM_G_FASTRAM + OPTM_G_SINGLESEL,        -- 151: Fast RAM (8 MB) (single-select, default OFF)
-                                             OPTM_G_LINE,                              -- 152: Line
-                                             OPTM_G_KICK + OPTM_G_LOAD_ROM,            -- 153: Kickstart (manual CRT/ROM load 4)
-                                             OPTM_G_LINE,                              -- 154: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 155: Close submenu / back to main menu
-
+                                             OPTM_G_Z3RAM + OPTM_G_SINGLESEL,          -- 152: Zorro III RAM (16 MB) (single-select, default OFF)
+                                             OPTM_G_LINE,                              -- 153: Line
+                                             OPTM_G_CPU + OPTM_G_STDSEL,               -- 154: CPU: 68000 (default)
+                                             OPTM_G_CPU,                               -- 155: CPU: 68020
                                              OPTM_G_LINE,                              -- 156: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 157: About & Help (WHS(1))
+                                             OPTM_G_KICK + OPTM_G_LOAD_ROM,            -- 157: Kickstart (manual CRT/ROM load 4)
                                              OPTM_G_LINE,                              -- 158: Line
-                                             OPTM_G_CLOSE                              -- 159: Close Menu
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 159: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 160: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 161: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 162: Line
+                                             OPTM_G_CLOSE                              -- 163: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

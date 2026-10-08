@@ -136,9 +136,15 @@ entity main is
       -- high for the whole cycle (AS asserted, address in the autoconfig'd window),
       -- the strobes are active low, and ready drives the CPU's DTACK.
       fast_ram_i              : in  std_logic;
+      -- Megamiga: the 68020 (TG68K, '1') instead of the 68000 (fx68k, '0'), and the
+      -- 16 MB Zorro III board (68020 only). Static OSM bits; a change cold-boots.
+      cpu_020_i               : in  std_logic;
+      z3_ram_i                : in  std_logic;
       fram_sel_o              : out std_logic;
       fram_we_o               : out std_logic;                      -- '1' = write cycle
-      fram_addr_o             : out std_logic_vector(22 downto 1);  -- word address
+      -- Megamiga: the SDRAM word address of the CPU port (bank in bits 24:23):
+      -- 01 = Zorro II, 1x = Zorro III, 00 = everything else (bank 0, as the chipset)
+      fram_addr_o             : out std_logic_vector(24 downto 1);  -- word address
       fram_uds_n_o            : out std_logic;
       fram_lds_n_o            : out std_logic;
       fram_data_o             : out std_logic_vector(15 downto 0);  -- write data
@@ -410,6 +416,7 @@ architecture synthesis of main is
          ramshared      : out std_logic;
 
          ide_ena        : in  std_logic;
+         z3ena          : in  std_logic;
          ext_sel        : out std_logic;
          ext_dout       : in  std_logic_vector(15 downto 0);
          ext_ready      : in  std_logic;
@@ -460,6 +467,7 @@ architecture synthesis of main is
 
    -- CPU <-> Fast RAM (cpu_wrapper's "ram*" port)
    signal cpu_fastramcfg   : std_logic_vector(2 downto 0);
+   signal cpu_cpucfg       : std_logic_vector(1 downto 0);
    signal cpu_ramaddr      : std_logic_vector(28 downto 1);
    signal cpu_state        : std_logic_vector(1 downto 0);    -- 3 = data write
 
@@ -681,7 +689,13 @@ begin
    -- cpu_wrapper's Zorro II mapping puts the 8 MB window $200000-$9FFFFF 1:1 onto
    -- ramaddr[22:1] ($800000-$9FFFFF wraps onto the first 2 MB); bits 28:23 only
    -- steer MiSTer's SDRAM/DDR3 split and are constant for Zorro II.
-   fram_addr_o <= cpu_ramaddr(22 downto 1);
+   -- Megamiga: cpu_wrapper's ramaddr[28:27] tells the board: 11 = Zorro II -> SDRAM
+   -- bank 1, 10 = Zorro III (16 MB, [23:1]) -> banks 2/3, 00 = bank 0 (chipset layout)
+   with cpu_ramaddr(28 downto 27) select fram_addr_o <=
+      "01" & cpu_ramaddr(22 downto 1)  when "11",
+      "1"  & cpu_ramaddr(23 downto 1)  when "10",
+      "00" & cpu_ramaddr(22 downto 1)  when others;
+   cpu_cpucfg  <= "11" when cpu_020_i = '1' else "00";
    fram_we_o   <= '1' when cpu_state = "11" else '0';
    fram_state_o <= cpu_state;
    c7m_o        <= c1;
@@ -703,8 +717,7 @@ begin
          ph1             => cpu_ph1,
          ph2             => cpu_ph2,
 
-         cpucfg          => "00",                -- 68000; MUST be constant so the
-                                                 -- removed-TG68K muxes constant-fold
+         cpucfg          => cpu_cpucfg,          -- 68000 (fx68k) or 68020 (TG68K)
          fastramcfg      => cpu_fastramcfg,      -- 8 MB Zorro II Fast RAM or none
          cachecfg        => "000",               -- no caches
          bootrom         => '0',                 -- normal A500 memory map
@@ -738,6 +751,7 @@ begin
          ramshared       => open,
 
          ide_ena         => ide_ena_i,           -- IDE board in the autoconfig chain
+         z3ena           => z3_ram_i,            -- 16 MB Zorro III board (68020 only)
          ext_sel         => ide_sel_o,
          ext_dout        => ide_data_i,
          ext_ready       => ide_ready_i,
@@ -765,6 +779,7 @@ begin
          -- minus one (C_MENU_DRIVES_* in mega65.vhd); independent of what
          -- each unit IS. The standard configuration is one unit.
          floppy_drives_i  => drv_count_i,
+         cpu_020_i        => cpu_020_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,

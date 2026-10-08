@@ -327,7 +327,9 @@ constant C_HAS_SDRAM          : boolean := G_BOARD /= "MEGA65_R3";
 signal main_fastram_en        : std_logic;
 signal main_fram_sel          : std_logic;
 signal main_fram_we           : std_logic;
-signal main_fram_addr         : std_logic_vector(22 downto 1);
+signal main_fram_addr         : std_logic_vector(24 downto 1);   -- SDRAM word address
+signal main_cpu_020           : std_logic;                       -- Megamiga: 68020 (TG68K)
+signal main_z3_ram            : std_logic;                       -- Megamiga: 16 MB Zorro III board
 signal main_fram_uds_n        : std_logic;
 signal main_fram_lds_n        : std_logic;
 signal main_fram_wrdata       : std_logic_vector(15 downto 0);
@@ -863,6 +865,8 @@ constant C_MENU_SLOWRAM       : natural := 150;
 -- board at $200000 is present (autoconfig'd by Kickstart). R4/R5/R6 only, gated with
 -- C_HAS_SDRAM. Like Slow RAM a topology change: amiga_cold_boot cold-boots the Amiga.
 constant C_MENU_FASTRAM       : natural := 151;
+constant C_MENU_Z3RAM         : natural := 152;  -- Memory: Zorro III RAM (16 MB), 68020 only
+constant C_MENU_CPU_020       : natural := 155;  -- Memory: CPU radio, 68020 (154 = 68000, default)
 
 begin
 
@@ -1112,11 +1116,18 @@ begin
    -- reset: the menu, QNICE and the framework remain alive.
    main_fastram_en <= main_osm_control_i(C_MENU_FASTRAM) when C_HAS_SDRAM else '0';
 
+   -- Megamiga: the CPU (68000 fx68k / 68020 TG68K) and the 16 MB Zorro III board (68020
+   -- only) are memory topology too: a change cold-boots the Amiga like the RAM toggles
+   main_cpu_020 <= main_osm_control_i(C_MENU_CPU_020);
+   main_z3_ram  <= main_osm_control_i(C_MENU_Z3RAM) and main_cpu_020;
+
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
          clk_i             => main_clk,
          slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
          fast_ram_i        => main_fastram_en,
+         cpu_020_i         => main_cpu_020,
+         z3_ram_i          => main_z3_ram,
          drv_map_i         => main_drv_map,
          kick_hold_i       => main_kick_hold,
          amiga_reset_o     => amiga_cold_reset,
@@ -1225,6 +1236,8 @@ begin
          -- CPU reset, so it also takes effect through the cold boot above) and the CPU's
          -- Fast RAM bus, served by fastram_sdram below
          fast_ram_i           => main_fastram_en,
+         cpu_020_i            => main_cpu_020,
+         z3_ram_i             => main_z3_ram,
          fram_sel_o           => main_fram_sel,
          fram_we_o            => main_fram_we,
          fram_addr_o          => main_fram_addr,
@@ -1336,6 +1349,7 @@ begin
          fram_sel_i     => main_fram_sel,
          fram_state_i   => main_fram_state,
          fram_addr_i    => main_fram_addr,
+         cpu_020_i      => main_cpu_020,
          fram_uds_n_i   => main_fram_uds_n,
          fram_lds_n_i   => main_fram_lds_n,
          fram_data_i    => main_fram_wrdata,

@@ -1025,6 +1025,24 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/tg68k/TG68K_Pack.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/tg68k/TG68K_ALU.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/tg68k/TG68KdotC_Kernel.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cpu_wrapper.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>

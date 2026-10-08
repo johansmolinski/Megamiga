@@ -33,6 +33,8 @@ entity amiga_cold_boot is
       clk_i             : in  std_logic;
       slow_ram_i        : in  std_logic;
       fast_ram_i        : in  std_logic;                     -- 8 MB Zorro II Fast RAM present
+      cpu_020_i         : in  std_logic;                     -- Megamiga: 68020 instead of 68000
+      z3_ram_i          : in  std_logic;                     -- Megamiga: 16 MB Zorro III board
       drv_map_i         : in  std_logic_vector(7 downto 0);  -- Drive Settings: {count, mode per unit}
       kick_hold_i       : in  std_logic;                     -- Kickstart load in progress
 
@@ -54,6 +56,8 @@ architecture synthesis of amiga_cold_boot is
    signal state            : t_state := IDLE;
    signal slow_ram_applied : std_logic := '1'; -- OSM default is A501 enabled
    signal fast_ram_applied : std_logic := '0'; -- OSM default is no Fast RAM (and R3 has none)
+   signal cpu_020_applied  : std_logic := '0'; -- OSM default is the 68000
+   signal z3_ram_applied   : std_logic := '0'; -- OSM default is no Zorro III RAM
    signal drv_map_applied  : std_logic_vector(7 downto 0) := "00" & "10" & "10" & "00";
                                        -- OSM default: one drive, df0 Disk Image,
                                        -- df1 and df2 Off (see mega65.vhd C_DRV_*)
@@ -78,6 +82,7 @@ begin
          case state is
             when IDLE =>
                if slow_ram_i /= slow_ram_applied or fast_ram_i /= fast_ram_applied or
+                  cpu_020_i /= cpu_020_applied or z3_ram_i /= z3_ram_applied or
                   drv_map_i /= drv_map_applied or kick_hold_i = '1' then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
@@ -122,6 +127,8 @@ begin
                else
                   slow_ram_applied <= slow_ram_i;
                   fast_ram_applied <= fast_ram_i;
+                  cpu_020_applied  <= cpu_020_i;
+                  z3_ram_applied   <= z3_ram_i;
                   drv_map_applied  <= drv_map_i;
                   state            <= IDLE;
                end if;

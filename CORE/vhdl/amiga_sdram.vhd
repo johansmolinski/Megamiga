@@ -58,7 +58,8 @@ entity amiga_sdram is
       -- CPU Fast RAM port: cpu_wrapper.v "ram*" (core clock)
       fram_sel_i     : in    std_logic;
       fram_state_i   : in    std_logic_vector(1 downto 0);   -- cpustate (3 = write)
-      fram_addr_i    : in    std_logic_vector(22 downto 1);
+      fram_addr_i    : in    std_logic_vector(24 downto 1);   -- SDRAM word address (bank 24:23)
+      cpu_020_i      : in    std_logic;                      -- '1' = TG68K (core clock, static)
       fram_uds_n_i   : in    std_logic;
       fram_lds_n_i   : in    std_logic;
       fram_data_i    : in    std_logic_vector(15 downto 0);
@@ -167,6 +168,16 @@ architecture synthesis of amiga_sdram is
    signal f_rd_rst_busy : std_logic;
 
    signal reset_n   : std_logic;
+
+   -- CPU port chip select (clk4x): MiSTer's Minimig.sv ram_cs. For the 68020 the select
+   -- drops for one fast clock after ready at the fast clock that coincides with the core
+   -- clock edge (cyc), where TG68K takes the clock enable - so the cache sees the end of
+   -- every access although TG68K has no AS. The 68000 holds AS; cs = sel.
+   signal fram_ready : std_logic;
+   signal ram_cs     : std_logic := '0';
+   signal cyc        : std_logic := '0';
+   signal div        : unsigned(3 downto 0) := (others => '0');
+   signal c7m_d      : std_logic := '0';
 
 begin
 
@@ -294,6 +305,31 @@ begin
    end process p_maint;
 
    ---------------------------------------------------------------------------------------
+   -- CPU port chip select (see the declaration of ram_cs); Minimig.sv, clk_114 process:
+   --   div <= div + 1; if (~c1d & c1) div <= 3; cyc <= !div[1:0];
+   --   ram_cs <= ~(ram_ready & cyc & cpu_type) & ram_sel;
+   ---------------------------------------------------------------------------------------
+
+   fram_ready_o <= fram_ready;
+
+   p_ram_cs : process (clk4x_i)
+   begin
+      if rising_edge(clk4x_i) then
+         div   <= div + 1;
+         c7m_d <= c7m_i;
+         if c7m_d = '0' and c7m_i = '1' then
+            div <= to_unsigned(3, 4);
+         end if;
+         if div(1 downto 0) = "00" then
+            cyc <= '1';
+         else
+            cyc <= '0';
+         end if;
+         ram_cs <= not (fram_ready and cyc and cpu_020_i) and fram_sel_i;
+      end if;
+   end process p_ram_cs;
+
+   ---------------------------------------------------------------------------------------
    -- Chipset port mux: the maintenance writer or minimig_sram_bridge.v
    ---------------------------------------------------------------------------------------
 
@@ -331,14 +367,14 @@ begin
          chipWR         => c_data,
          chipRD         => ram_data_o,
          chip48         => open,
-         cpuAddr        => "01" & fram_addr_i,                       -- Fast RAM: bank 1
-         cpuCS          => fram_sel_i,
+         cpuAddr        => fram_addr_i,                              -- bank chosen by main.vhd
+         cpuCS          => ram_cs,
          cpustate       => fram_state_i,
          cpuL           => fram_lds_n_i,
          cpuU           => fram_uds_n_i,
          cpuWR          => fram_data_i,
          cpuRD          => fram_data_o,
-         ramready       => fram_ready_o
+         ramready       => fram_ready
       ); -- i_sdram_ctrl
 
 end architecture synthesis;
