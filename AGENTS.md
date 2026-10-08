@@ -890,7 +890,11 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   (minimig, amiga_clk cck and the static qnice2main OSM bits as sources, as in
   MiSTer's Minimig.sdc); the build_bitstream/reroll sign-off gates now check the
   native-pinned main_clk (35.242 ns) and the i_sdram_ctrl instance instead of
-  the flicker-free fast leg. Minimig's own
+  the flicker-free fast leg.
+  **HARDWARE-TESTED by the user on R6 (2026-10-08): "seems to work fine" -
+  Kickstart 3.1 (512 KB) boots, Workbench 3.1 from ADF, an HDF made with
+  `dd if=/dev/zero` (200 x 516096 bytes) partitioned with HDToolBox on
+  `lide.device` unit 0.** Minimig's own
   `rtl/sdram_ctrl.v` (+ `cpu_cache_new.v`, both SFType SVerilog) is back, as on
   MiSTer: 113.5 MHz = 4 x main_clk from the NATIVE MMCM (clk.vhd CLKOUT1), 16
   states per 7 MHz cycle re-synced to c1 (`main.vhd` exports `c7m_o`), one
