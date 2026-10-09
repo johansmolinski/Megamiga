@@ -689,7 +689,8 @@ is coupled to the power LED — is in [doc/audio.md](doc/audio.md).
 
 On R4, R5 and R6 boards Megamiga has a network card on the MEGA65's Ethernet
 port (100 Mbit/s): a Zorro II board that Kickstart configures like any other
-expansion card, so it works with every profile, with the 68000 and the 68020.
+expansion card, present in every profile. Tested with the 68020 and Kickstart
+3.1 (A1200 profile) and Roadshow 1.15.
 Its SANA-II driver `megamiga-eth.device` and the test tool `ethtest` are on
 the `Megamiga_Net.adf` disk of the release (or build them from `CORE/eth/`).
 
