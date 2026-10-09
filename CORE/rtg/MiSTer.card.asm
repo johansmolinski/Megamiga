@@ -31,7 +31,7 @@
 
 ;debug
 
-; Megamiga: the board has a fill/copy engine (CORE/vhdl/rtg_blitter.vhd)
+; Megamiga: the board has a fill/copy/template engine (CORE/vhdl/rtg_blitter.vhd)
 HasBlitter
 ;blitterhistory
 ;HasSprite
@@ -105,8 +105,26 @@ BLT_WIDTH   EQU $0c     ; word: bytes per line (1..BLT_MAXW)
 BLT_HEIGHT  EQU $0e     ; word: lines
 BLT_PAT     EQU $10     ; long: fill pattern in memory order
 BLT_BPP     EQU $14     ; word: bytes per pixel of the pattern (1, 2, 4)
-BLT_CMD     EQU $16     ; word: 1 = fill, 2 = copy; read: bit 0 = busy
+BLT_CMD     EQU $16     ; word: 1 = fill, 2 = copy, 3 = template; read: bit 0 = busy
+BLT_TBYTES  EQU $18     ; word: template bytes per line
+BLT_TCTRL   EQU $1a     ; word: template bit offset (2:0), JAM2 (3), INVERSVID (4)
+BLT_BGPAT   EQU $20     ; long: template background pattern
+BLT_MASK    EQU $24     ; word: plane mask in bits 7:0 ($FF = none)
 BLT_MAXW    EQU 8190
+
+; BlitTemplate copies the template into one of two scratch areas behind the
+; memory Picasso96 manages (MemorySpaceSize) and below the mouse save buffer,
+; so the copy of one template overlaps the engine drawing the previous one
+TMPL_OFF    EQU MEMORY_SIZE-$40000
+TMPL_HALF   EQU $10000
+
+; struct Template (Picasso96)
+T_Memory      EQU 0
+T_BytesPerRow EQU 4
+T_XOffset     EQU 6
+T_DrawMode    EQU 7
+T_FgPen       EQU 8
+T_BgPen       EQU 12
 
 ; struct RenderInfo (Picasso96)
 RI_Memory      EQU 0
@@ -490,6 +508,8 @@ InitCard:
         move.l  a1,PSSO_BoardInfo_BlitRect(a2)
         lea     WaitBlitter(pc),a1
         move.l  a1,PSSO_BoardInfo_WaitBlitter(a2)
+        lea     BlitTemplate(pc),a1
+        move.l  a1,PSSO_BoardInfo_BlitTemplate(a2)
         ENDC
 
         IFD     HasSprite
@@ -921,10 +941,11 @@ FillRect:
         beq     .default
         cmp.w   #3,d6                   ; 24 bit: no 3-byte pattern
         beq     .default
+        move.w  #$ff,d7                 ; d7: the plane mask (CLUT only)
         cmp.w   #1,d6
         bne.s   .nomask
-        cmp.b   #$ff,d5                 ; CLUT with a plane mask
-        bne     .default
+        move.b  d5,d7
+        beq     .done                   ; no plane at all: nothing changes
 .nomask:
         move.l  RI_Memory(a1),a2
         cmp.l   #MEMORY_BASE,a2
@@ -966,6 +987,7 @@ FillRect:
         move.w  d3,BLT_BASE+BLT_HEIGHT
         move.l  d4,BLT_BASE+BLT_PAT
         move.w  d6,BLT_BASE+BLT_BPP
+        move.w  d7,BLT_BASE+BLT_MASK
         move.w  #1,BLT_BASE+BLT_CMD
 .done:  movem.l (sp)+,d0-d7/a2
         rts
@@ -984,17 +1006,18 @@ BlitRect:
         movem.l d0-d7/a2-a3,-(sp)
         cmp.l   #16,d7
         bhs     .default
-        cmp.l   #1,d7                   ; CLUT with a plane mask
-        bne.s   .nomask
-        cmp.b   #$ff,d6
-        bne     .default
-.nomask:
+        and.w   #$ff,d6
+        cmp.l   #1,d7                   ; the plane mask counts in CLUT only
+        beq.s   .clut
+        move.w  #$ff,d6
+.clut:  tst.w   d6
+        beq.s   .none                   ; no plane at all: nothing changes
         move.l  a1,a2                   ; source and destination: one bitmap
         move.l  a1,a3
         bsr     CopyRect
         tst.l   d0
         bne     .default
-        movem.l (sp)+,d0-d7/a2-a3
+.none:  movem.l (sp)+,d0-d7/a2-a3
         rts
 .default:
         movem.l (sp)+,d0-d7/a2-a3
@@ -1017,6 +1040,7 @@ BlitRectNoMaskComplete:
         bhs     .default
         move.l  a2,a3                   ; a3: destination
         move.l  a1,a2                   ; a2: source
+        move.w  #$ff,d6                 ; no plane mask
         bsr     CopyRect
         tst.l   d0
         bne     .default
@@ -1029,10 +1053,12 @@ BlitRectNoMaskComplete:
 
 ;------------------------------------------------------------------------------
 ; CopyRect: a2 source RenderInfo, a3 destination RenderInfo, d0 sx, d1 sy,
-; d2 dx, d3 dy, d4 w, d5 h, d7 format. Starts the copy and returns d0 = 0, or
-; d0 = 1 if the engine cannot do it (nothing started). Changes d0-d7/a2-a3.
+; d2 dx, d3 dy, d4 w, d5 h, d6.w plane mask ($FF = none), d7 format. Starts
+; the copy and returns d0 = 0, or d0 = 1 if the engine cannot do it (nothing
+; started). Changes d0-d7/a2-a3.
 ;------------------------------------------------------------------------------
 CopyRect:
+        move.w  d6,-(sp)                ; the mask, until the registers are free
         moveq   #0,d6
         move.b  BppTable(pc,d7.l),d6    ; d6: bytes per pixel
         beq     .no
@@ -1091,11 +1117,181 @@ CopyRect:
         move.w  d2,BLT_BASE+BLT_DSTRIDE
         move.w  d4,BLT_BASE+BLT_WIDTH
         move.w  d5,BLT_BASE+BLT_HEIGHT
+        move.w  (sp),BLT_BASE+BLT_MASK
         move.w  #2,BLT_BASE+BLT_CMD
-.none:  moveq   #0,d0
+.none:  addq.l  #2,sp
+        moveq   #0,d0
         rts
-.no:    moveq   #1,d0
+.no:    addq.l  #2,sp
+        moveq   #1,d0
         rts
+
+;------------------------------------------------------------------------------
+BlitTemplate:
+;------------------------------------------------------------------------------
+;  void BlitTemplate(struct BoardInfo *bi, struct RenderInfo *ri,
+;                struct Template *template, WORD x, WORD y, WORD w, WORD h,
+;                UBYTE mask, RGBFTYPE format)
+;  a0 bi, a1 ri, a2 template, d0 x, d1 y, d2 w, d3 h, d4 mask, d7 format
+;
+;  The template (one bit per pixel, text) lives in Amiga memory: it is copied
+;  by longwords into a scratch area of the board memory while the engine may
+;  still be busy with the previous command, then the engine draws it.
+
+        movem.l d0-d7/a0-a5,-(sp)
+        cmp.l   #16,d7
+        bhs     .default
+        lea     BppTable(pc),a5
+        moveq   #0,d6
+        move.b  (a5,d7.l),d6            ; d6: bytes per pixel
+        beq     .default
+        cmp.w   #3,d6                   ; 24 bit: no 3-byte pattern
+        beq     .default
+        and.w   #$ff,d4                 ; the plane mask counts in CLUT only;
+        cmp.w   #1,d6                   ; it goes into the high word of d6
+        beq.s   .clut
+        move.w  #$ff,d4
+.clut:  tst.w   d4
+        beq     .done                   ; no plane at all: nothing changes
+        swap    d6
+        move.w  d4,d6
+        swap    d6
+        btst    #1,T_DrawMode(a2)       ; COMPLEMENT reads the destination
+        bne     .default
+        move.l  RI_Memory(a1),a4
+        cmp.l   #MEMORY_BASE,a4
+        blo     .default
+        cmp.l   #MEMORY_BASE+MEMORY_SIZE,a4
+        bhs     .default
+        ext.l   d0
+        ext.l   d1
+        ext.l   d2
+        ext.l   d3
+        tst.l   d2
+        ble     .done
+        tst.l   d3
+        ble     .done
+        move.l  d2,d5
+        mulu.w  d6,d5                   ; d5: destination bytes per line
+        cmp.l   #BLT_MAXW,d5
+        bhi     .default
+        mulu.w  d6,d0                   ; x in bytes
+        add.l   d0,a4
+        moveq   #0,d0
+        move.w  RI_BytesPerRow(a1),d0   ; d0: destination stride
+        mulu.w  d0,d1
+        add.l   d1,a4                   ; a4: first destination byte
+        moveq   #0,d1
+        move.b  T_XOffset(a2),d1
+        move.l  T_Memory(a2),a3
+        move.l  d1,d4
+        lsr.l   #3,d4
+        add.l   d4,a3                   ; a3: first template byte
+        and.w   #7,d1                   ; d1: bit of the first pixel in it
+        move.l  d1,d4
+        add.l   d2,d4
+        addq.l  #7,d4
+        lsr.l   #3,d4                   ; d4: template bytes per line
+        move.l  a3,d7
+        and.l   #3,d7                   ; d7: bytes before it in its longword
+        sub.l   d7,a3                   ; a3: longword aligned
+        move.l  d7,d2
+        add.l   d4,d2
+        addq.l  #3,d2
+        lsr.l   #2,d2                   ; d2: longwords per line
+        move.l  d3,-(sp)
+        mulu.w  d2,d3
+        cmp.l   #TMPL_HALF/4,d3         ; does it fit into a scratch area?
+        movem.l (sp)+,d3                ; (movem keeps the flags)
+        bhi     .default
+        btst    #0,T_DrawMode(a2)       ; JAM2
+        beq.s   .jam1
+        or.w    #8,d1
+.jam1:  btst    #2,T_DrawMode(a2)       ; INVERSVID
+        beq.s   .tctrl
+        or.w    #16,d1
+.tctrl:
+        ; the register values, last first; the start pops them
+        move.l  a4,-(sp)                ; DST
+        move.w  d0,-(sp)                ; DSTRIDE
+        move.w  d1,-(sp)                ; TCTRL
+        move.w  d4,-(sp)                ; TBYTES
+        move.l  T_FgPen(a2),d4
+        bsr     PenToPat
+        move.l  d4,-(sp)                ; PAT
+        move.l  T_BgPen(a2),d4
+        bsr     PenToPat
+        move.l  d4,-(sp)                ; BGPAT
+        move.w  d5,-(sp)                ; WIDTH
+        move.w  d3,-(sp)                ; HEIGHT
+        move.w  d6,-(sp)                ; BPP
+        swap    d6
+        move.w  d6,-(sp)                ; MASK
+        swap    d6
+        move.l  d2,d4
+        lsl.l   #2,d4
+        move.w  d4,-(sp)                ; SSTRIDE
+        lea     TmplHalf(pc),a0         ; alternate between the scratch areas
+        move.l  (a0),a1
+        eori.l  #TMPL_HALF,(a0)
+        add.l   #MEMORY_BASE+TMPL_OFF,a1
+        lea     (a1,d7.l),a0
+        move.l  a0,-(sp)                ; SRC
+        cmp.l   #MEMORY_BASE,a3         ; a template in the board memory:
+        blo.s   .copy                   ; the engine may still be writing it
+        cmp.l   #MEMORY_BASE+MEMORY_SIZE,a3
+        bhs.s   .copy
+.wait0: btst    #0,BLT_BASE+BLT_CMD+1
+        bne.s   .wait0
+.copy:  move.w  T_BytesPerRow(a2),d0
+        ext.l   d0
+        move.l  d0,a5                   ; a5: template stride
+        subq.l  #1,d2
+        subq.l  #1,d3
+.row:   move.l  a3,a0
+        move.w  d2,d0
+.long:  move.l  (a0)+,(a1)+
+        dbf     d0,.long
+        add.l   a5,a3
+        dbf     d3,.row
+.wait:  btst    #0,BLT_BASE+BLT_CMD+1
+        bne.s   .wait
+        move.l  (sp)+,BLT_BASE+BLT_SRC
+        move.w  (sp)+,BLT_BASE+BLT_SSTRIDE
+        move.w  (sp)+,BLT_BASE+BLT_MASK
+        move.w  (sp)+,BLT_BASE+BLT_BPP
+        move.w  (sp)+,BLT_BASE+BLT_HEIGHT
+        move.w  (sp)+,BLT_BASE+BLT_WIDTH
+        move.l  (sp)+,BLT_BASE+BLT_BGPAT
+        move.l  (sp)+,BLT_BASE+BLT_PAT
+        move.w  (sp)+,BLT_BASE+BLT_TBYTES
+        move.w  (sp)+,BLT_BASE+BLT_TCTRL
+        move.w  (sp)+,BLT_BASE+BLT_DSTRIDE
+        move.l  (sp)+,BLT_BASE+BLT_DST
+        move.w  #3,BLT_BASE+BLT_CMD
+.done:  movem.l (sp)+,d0-d7/a0-a5
+        rts
+.default:
+        movem.l (sp)+,d0-d7/a0-a5
+        move.l  PSSO_BoardInfo_BlitTemplateDefault(a0),-(sp)
+        rts
+
+; d4: a pen as Picasso96 passes it -> the pattern in memory order (d6: bpp)
+PenToPat:
+        cmp.w   #1,d6
+        bne.s   .p2
+        lsl.l   #8,d4
+        lsl.l   #8,d4
+        lsl.l   #8,d4
+        rts
+.p2:    cmp.w   #2,d6
+        bne.s   .p4
+        swap    d4
+        clr.w   d4
+.p4:    rts
+
+TmplHalf:
+        dc.l    0                       ; scratch area of the next template
         ENDC
 
 ;==============================================================================

@@ -13,13 +13,14 @@
 --     8-bit pixel pair become one word);
 --   * anything else flushes first: a write elsewhere, a full block, G_IDLE clocks without a new
 --     write (so the picture never waits long), flush_i (the blitter is about to start), and a
---     read of a gathered word (reads elsewhere pass
---     the gathered words; the CPU never has more than one access outstanding, so there is no
---     ordering to keep between a read and writes to OTHER words).
+--     read of the block the gathered words are in (reads of other blocks pass the gathered words;
+--     the CPU never has more than one access outstanding, so there is no ordering to keep between
+--     a read and writes to OTHER words).
 --
 -- The burst is sent from the local buffer at the full HyperRAM clock, so the controller never sees
 -- a gap inside a burst. Byte enables go with every beat (the controller masks with RWDS per word).
--- Reads are single words and pass through; the read data comes straight from the master port.
+-- Reads pass through with their burst count (rtg_vram's read-ahead: 16 words, aligned, so a read
+-- never spans two 16-word blocks); the read data comes straight from the master port.
 --
 -- Done in 2026 (Megamiga, fork of AExp) and licensed under GPL v3.
 ---------------------------------------------------------------------------------------------------------
@@ -36,10 +37,11 @@ entity rtg_wcomb is
       clk_i                 : in  std_logic;     -- HyperRAM clock
       rst_i                 : in  std_logic;
 
-      -- slave: single-word accesses (burstcount 1) from the clock domain FIFO
+      -- slave: from the clock domain FIFO; writes are single words, reads stay in one 16-word block
       s_avm_write_i         : in  std_logic;
       s_avm_read_i          : in  std_logic;
       s_avm_address_i       : in  std_logic_vector(31 downto 0);
+      s_avm_burstcount_i    : in  std_logic_vector( 7 downto 0) := x"01";   -- reads only
       s_avm_writedata_i     : in  std_logic_vector(15 downto 0);
       s_avm_byteenable_i    : in  std_logic_vector( 1 downto 0);
       s_avm_waitrequest_o   : out std_logic;
@@ -76,10 +78,13 @@ architecture synthesis of rtg_wcomb is
    signal fidx      : unsigned(3 downto 0) := (others => '0');   -- beat being sent
    signal idle      : natural range 0 to G_IDLE := 0;
    signal rd_addr   : std_logic_vector(31 downto 0) := (others => '0');
+   signal rd_bc     : std_logic_vector( 7 downto 0) := x"01";
+   signal rd_left   : unsigned(7 downto 0) := (others => '0');            -- beats still to come
 
    signal offs      : unsigned(31 downto 0);                     -- incoming address - base
    signal hit       : std_logic;                                 -- offs < cnt: a gathered word
    signal append    : std_logic;                                 -- offs = cnt, same block
+   signal rd_blk    : std_logic;                                 -- a read of the gathered block
    signal take_wr   : std_logic;
    signal take_rd   : std_logic;
 
@@ -87,12 +92,14 @@ begin
 
    offs    <= unsigned(s_avm_address_i) - base;
    hit     <= '1' when cnt /= 0 and offs < cnt else '0';
+   rd_blk  <= '1' when cnt /= 0 and s_avm_address_i(31 downto 4) = std_logic_vector(base(31 downto 4))
+              else '0';
    append  <= '1' when cnt = 0 or
                        (offs = cnt and cnt /= 16 and s_avm_address_i(3 downto 0) /= "0000") else '0';
 
-   -- a write is taken while gathering if it merges or appends; a read if it misses the buffer
+   -- a write is taken while gathering if it merges or appends; a read if it is not for the block
    take_wr <= '1' when state = S_GATHER and s_avm_write_i = '1' and (hit = '1' or append = '1') else '0';
-   take_rd <= '1' when state = S_GATHER and s_avm_read_i = '1' and s_avm_write_i = '0' and hit = '0'
+   take_rd <= '1' when state = S_GATHER and s_avm_read_i = '1' and s_avm_write_i = '0' and rd_blk = '0'
               else '0';
 
    s_avm_waitrequest_o   <= not (take_wr or take_rd);
@@ -106,7 +113,7 @@ begin
    m_avm_address_o    <= rd_addr when state = S_READ else std_logic_vector(base);
    m_avm_writedata_o  <= buf_d(to_integer(fidx));
    m_avm_byteenable_o <= buf_be(to_integer(fidx));
-   m_avm_burstcount_o <= x"01" when state = S_READ else std_logic_vector(resize(cnt, 8));
+   m_avm_burstcount_o <= rd_bc when state = S_READ else std_logic_vector(resize(cnt, 8));
 
    p_fsm : process (clk_i)
       variable i : natural range 0 to 15;
@@ -137,6 +144,8 @@ begin
                   end if;
                elsif take_rd = '1' then
                   rd_addr <= s_avm_address_i;
+                  rd_bc   <= s_avm_burstcount_i;
+                  rd_left <= unsigned(s_avm_burstcount_i);
                   state   <= S_READ;
                elsif cnt /= 0 and (s_avm_write_i = '1' or s_avm_read_i = '1' or cnt = 16 or
                                    idle = G_IDLE or flush_i = '1') then
@@ -156,17 +165,15 @@ begin
                   end if;
                end if;
 
-            when S_READ =>
-               if m_avm_waitrequest_i = '0' then
+            when S_READ | S_RDATA =>
+               if state = S_READ and m_avm_waitrequest_i = '0' then
                   state <= S_RDATA;
                end if;
-               if m_avm_readdatavalid_i = '1' then      -- (a response in the same clock)
-                  state <= S_GATHER;
-               end if;
-
-            when S_RDATA =>
-               if m_avm_readdatavalid_i = '1' then
-                  state <= S_GATHER;
+               if m_avm_readdatavalid_i = '1' then      -- (also a response in the same clock)
+                  rd_left <= rd_left - 1;
+                  if rd_left = 1 then
+                     state <= S_GATHER;
+                  end if;
                end if;
          end case;
 

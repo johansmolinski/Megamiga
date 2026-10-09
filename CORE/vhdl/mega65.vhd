@@ -377,6 +377,7 @@ signal hr_vram_avm_read       : std_logic;
 signal hr_vram_avm_address    : std_logic_vector(31 downto 0);
 signal hr_vram_avm_writedata  : std_logic_vector(15 downto 0);
 signal hr_vram_avm_byteenable : std_logic_vector(1 downto 0);
+signal hr_vram_avm_burstcount : std_logic_vector(7 downto 0);
 signal hr_vram_avm_readdata   : std_logic_vector(15 downto 0);
 signal hr_vram_avm_readdatavalid : std_logic;
 signal hr_vram_avm_waitrequest : std_logic;
@@ -387,6 +388,7 @@ signal main_blt_wr            : std_logic;
 signal main_blt_rs            : std_logic_vector(7 downto 1);
 signal main_blt_din           : std_logic_vector(15 downto 0);
 signal main_blt_dout          : std_logic_vector(15 downto 0);
+signal main_blt_busy          : std_logic;
 signal hr_wcomb_idle          : std_logic;
 signal hr_wcomb_flush         : std_logic;
 signal hr_vram_quiet          : std_logic;
@@ -2797,7 +2799,8 @@ begin
    -- RTG graphics card (Megamiga): the board memory in HyperRAM
    --
    -- The 68020's fram_* cycles to $02xxxxxx (main_fram_rtg) go to rtg_vram instead of the SDRAM;
-   -- rtg_vram turns them into single-word Avalon accesses at HyperRAM byte $400000.. (4 MB), which
+   -- rtg_vram turns them into Avalon accesses at HyperRAM byte $400000.. (4 MB; reads fetch whole
+   -- 16-word blocks into a read-ahead buffer, cleared while the blitter is busy), which
    -- cross to the HyperRAM clock and use the framework's hr_core_* port (free since the floppy
    -- buffers moved to the SDRAM). ascal reads the same HyperRAM in framebuffer mode: the fb_*
    -- outputs below, from MiSTer's RTG registers in main.vhd. The rebuilt Picasso96 driver
@@ -2829,6 +2832,7 @@ begin
          data_i                => main_fram_wrdata,
          data_o                => main_vram_rddata,
          ready_o               => main_vram_ready,
+         inval_i               => main_blt_busy,
          avm_write_o           => main_vram_avm_write,
          avm_read_o            => main_vram_avm_read,
          avm_address_o         => main_vram_avm_address,
@@ -2843,7 +2847,7 @@ begin
    i_avm_fifo_vram : entity work.avm_fifo
       generic map (
          G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
+         G_RD_DEPTH     => 32,                          -- a 16-word read-ahead burst, with room
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
@@ -2868,7 +2872,7 @@ begin
          m_avm_address_o       => hr_vram_avm_address,
          m_avm_writedata_o     => hr_vram_avm_writedata,
          m_avm_byteenable_o    => hr_vram_avm_byteenable,
-         m_avm_burstcount_o    => open,                 -- always 1 (rtg_vram)
+         m_avm_burstcount_o    => hr_vram_avm_burstcount,
          m_avm_readdata_i      => hr_vram_avm_readdata,
          m_avm_readdatavalid_i => hr_vram_avm_readdatavalid
       ); -- i_avm_fifo_vram
@@ -2880,6 +2884,7 @@ begin
          s_avm_write_i         => hr_vram_avm_write,
          s_avm_read_i          => hr_vram_avm_read,
          s_avm_address_i       => hr_vram_avm_address,
+         s_avm_burstcount_i    => hr_vram_avm_burstcount,
          s_avm_writedata_i     => hr_vram_avm_writedata,
          s_avm_byteenable_i    => hr_vram_avm_byteenable,
          s_avm_waitrequest_o   => hr_vram_avm_waitrequest,
@@ -2909,6 +2914,7 @@ begin
          m_rs_i                => main_blt_rs,
          m_data_i              => main_blt_din,
          m_data_o              => main_blt_dout,
+         m_busy_o              => main_blt_busy,
          h_clk_i               => hr_clk_i,
          h_rst_i               => hr_rst_i,
          h_quiet_i             => hr_vram_quiet,

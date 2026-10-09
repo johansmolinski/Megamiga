@@ -1,8 +1,9 @@
 ---------------------------------------------------------------------------------------------------------
 -- Megamiga (Amiga for MEGA65, fork of AExp)
 --
--- rtg_blitter: a fill and copy engine for the RTG board memory, used by the Picasso96 driver
--- (CORE/rtg/MiSTer.card.asm: FillRect, BlitRect, BlitRectNoMaskComplete, WaitBlitter).
+-- rtg_blitter: a fill, copy and template engine for the RTG board memory, used by the Picasso96
+-- driver (CORE/rtg/MiSTer.card.asm: FillRect, BlitRect, BlitRectNoMaskComplete, BlitTemplate,
+-- WaitBlitter).
 --
 -- Registers (68020, cpu_wrapper's fastchip port at $B80800, 16 bit, core clock):
 --
@@ -14,8 +15,14 @@
 --   $0E      HEIGHT  lines, 1..65535 (0 = nothing)
 --   $10/$12  PAT     fill pattern, in memory order: byte 0 = bits 31:24 (what a move.l writes)
 --   $14      BPP     bytes per pixel of the fill pattern: 1, 2 or 4
---   $16      CMD     write 1 = fill, 2 = copy (starts); read: bit 0 = busy
+--   $16      CMD     write 1 = fill, 2 = copy, 3 = template (starts); read: bit 0 = busy
+--   $18      TBYTES  template: source bytes per line, 1..8190
+--   $1A      TCTRL   template: bits 2:0 = bit offset of the first pixel in the first source byte,
+--                    bit 3 = JAM2 (clear bits get the background pattern; else they are not
+--                    written), bit 4 = INVERSVID (the template bits are inverted first)
 --   $1E      ID      read: $B11B
+--   $20/$22  BGPAT   template: background pattern, like PAT
+--   $24      MASK    bits 7:0: plane mask for every byte written (CLUT screens); $FF = none
 --
 -- The driver sets the parameters, then CMD, and waits for busy = 0 before it touches any of them
 -- again and before the CPU accesses the board memory (Picasso96 calls WaitBlitter for that).
@@ -25,6 +32,16 @@
 -- an overlap WITHIN a line needs no care; for an overlap between lines the driver starts at the
 -- last line with negative strides when the destination lies behind the source in memory.
 -- Source and destination may have different byte alignment (odd x in 8-bit modes).
+--
+-- Template: a 1-bit-per-pixel bitmap (text; Picasso96's struct Template), most significant bit
+-- first, that the driver has copied into the board memory, SRC/SSTRIDE/TBYTES. Each source line is
+-- read into the line buffer like a copy source; a set bit becomes a pixel of PAT, a clear one a
+-- pixel of BGPAT (JAM2) or stays untouched (byte enables off). WIDTH, DST, DSTRIDE and BPP as in a
+-- fill.
+--
+-- Plane mask: with MASK /= $FF each destination block is read before it is written, and only the
+-- bits set in MASK change: written byte = (old and not MASK) or (new and MASK). The AmigaOS console
+-- draws with a mask on 256-colour screens.
 --
 -- Ordering with the CPU's own writes: they travel rtg_vram -> avm_fifo -> rtg_wcomb. A start waits
 -- until that path has been quiet (quiet_i: FIFO output empty and the combiner holding nothing) for
@@ -54,6 +71,7 @@ entity rtg_blitter is
       m_rs_i                : in  std_logic_vector(7 downto 1);
       m_data_i              : in  std_logic_vector(15 downto 0);
       m_data_o              : out std_logic_vector(15 downto 0);   -- valid the clock after m_sel_i
+      m_busy_o              : out std_logic;     -- a command is pending or running (core clock)
 
       -- engine (HyperRAM clock)
       h_clk_i               : in  std_logic;
@@ -86,7 +104,11 @@ architecture synthesis of rtg_blitter is
    signal m_par_height : std_logic_vector(15 downto 0) := (others => '0');
    signal m_par_pat    : std_logic_vector(31 downto 0) := (others => '0');
    signal m_par_bpp    : std_logic_vector( 2 downto 0) := "001";
-   signal m_par_copy   : std_logic := '0';
+   signal m_par_cmd    : std_logic_vector( 1 downto 0) := "01";
+   signal m_par_tbytes : std_logic_vector(12 downto 0) := (others => '0');
+   signal m_par_tctrl  : std_logic_vector( 4 downto 0) := (others => '0');
+   signal m_par_bgpat  : std_logic_vector(31 downto 0) := (others => '0');
+   signal m_par_mask   : std_logic_vector( 7 downto 0) := (others => '1');
    signal m_req        : std_logic := '0';  -- toggles on every command
    signal m_ack_meta   : std_logic := '0';
    signal m_ack        : std_logic := '0';
@@ -96,8 +118,8 @@ architecture synthesis of rtg_blitter is
    attribute ASYNC_REG of m_ack_meta, m_ack : signal is "TRUE";
 
    -- engine (HyperRAM clock)
-   type t_state is (E_IDLE, E_QUIET, E_LINE, E_RD_REQ, E_RD_DATA, E_WR_CHUNK, E_STAGE, E_WR_BURST,
-                    E_NEXT, E_DONE);
+   type t_state is (E_IDLE, E_QUIET, E_LINE, E_RD_REQ, E_RD_DATA, E_TPRE, E_WR_CHUNK, E_DRD_REQ,
+                    E_DRD_DATA, E_STAGE, E_WR_BURST, E_NEXT, E_DONE);
    signal state        : t_state := E_IDLE;
    signal h_req_meta   : std_logic := '0';
    signal h_req        : std_logic := '0';
@@ -107,6 +129,7 @@ architecture synthesis of rtg_blitter is
 
    -- latched parameters
    signal copy         : std_logic := '0';
+   signal expd         : std_logic := '0';                          -- template
    signal sline        : unsigned(21 downto 0) := (others => '0');  -- byte address of this line
    signal dline        : unsigned(21 downto 0) := (others => '0');
    signal sstr         : signed(15 downto 0) := (others => '0');
@@ -115,6 +138,20 @@ architecture synthesis of rtg_blitter is
    signal lines        : unsigned(15 downto 0) := (others => '0');
    signal pat          : std_logic_vector(31 downto 0) := (others => '0');
    signal bpp          : unsigned(2 downto 0) := "001";
+   signal tbytes       : unsigned(12 downto 0) := (others => '0');
+   signal xoff         : unsigned(2 downto 0) := (others => '0');
+   signal jam2         : std_logic := '0';
+   signal inv          : std_logic := '0';
+   signal bgpat        : std_logic_vector(31 downto 0) := (others => '0');
+   signal mask         : std_logic_vector(7 downto 0) := (others => '1');
+   signal masked       : std_logic := '0';
+
+   -- template: a 32-bit window over the source line in the line buffer: tcur = buffer word tw,
+   -- the next word is buf_rdata (buf_raddr = tw + 1); tofs = template bit of the lane 0 pixel of
+   -- the next staging word, counted from the first bit of tcur (-1: before it, masked)
+   signal tcur         : std_logic_vector(15 downto 0) := (others => '0');
+   signal tw           : unsigned(11 downto 0) := (others => '0');
+   signal tofs         : integer range -1 to 15 := 0;
 
    -- per line
    signal rd_word      : unsigned(20 downto 0) := (others => '0');  -- next source word to read
@@ -140,6 +177,8 @@ architecture synthesis of rtg_blitter is
    signal st_t         : unsigned(4 downto 0) := (others => '0');   -- staging step
    signal st_k         : unsigned(11 downto 0) := (others => '0');  -- next buffer word to read
    signal st_prev      : std_logic_vector(15 downto 0) := (others => '0');
+   signal st_dd        : t_data;                                    -- masked: the old block
+   signal dd_got       : unsigned(4 downto 0) := (others => '0');
    signal fidx         : unsigned(3 downto 0) := (others => '0');
 
    -- line buffer (one source line, up to 4096 words)
@@ -159,6 +198,23 @@ architecture synthesis of rtg_blitter is
    end function;
 
    -- (i + n) mod bpp for bpp 1, 2, 4
+   -- template bit i of the window cur & nxt (byte order as in memory, bit 7 first)
+   function tbit(cur, nxt : std_logic_vector(15 downto 0); i : integer) return std_logic is
+      variable w : std_logic_vector(15 downto 0);
+      variable j : natural range 0 to 15;
+   begin
+      if i < 0 then
+         return '0';
+      end if;
+      if i < 16 then
+         w := cur;
+      else
+         w := nxt;
+      end if;
+      j := i mod 16;
+      return w((j / 8) * 8 + 7 - (j mod 8));
+   end function;
+
    function pnext(i : unsigned(1 downto 0); n : natural; b : unsigned(2 downto 0)) return unsigned is
       variable r : unsigned(1 downto 0);
    begin
@@ -177,6 +233,7 @@ begin
    ---------------------------------------------------------------------------------------------
 
    m_data_o <= m_dout;
+   m_busy_o <= m_req xor m_ack;
 
    p_regs : process (m_clk_i)
    begin
@@ -198,10 +255,15 @@ begin
                when 9  => m_par_pat(15 downto 0)   <= m_data_i;
                when 10 => m_par_bpp                <= m_data_i(2 downto 0);
                when 11 =>
-                  if m_req = m_ack and (m_data_i(1 downto 0) = "01" or m_data_i(1 downto 0) = "10") then
-                     m_par_copy <= m_data_i(1);
-                     m_req      <= not m_req;
+                  if m_req = m_ack and m_data_i(1 downto 0) /= "00" then
+                     m_par_cmd <= m_data_i(1 downto 0);
+                     m_req     <= not m_req;
                   end if;
+               when 12 => m_par_tbytes             <= m_data_i(12 downto 0);
+               when 13 => m_par_tctrl              <= m_data_i(4 downto 0);
+               when 16 => m_par_bgpat(31 downto 16) <= m_data_i;
+               when 17 => m_par_bgpat(15 downto 0)  <= m_data_i;
+               when 18 => m_par_mask               <= m_data_i(7 downto 0);
                when others => null;
             end case;
          end if;
@@ -223,12 +285,12 @@ begin
    h_flush_o <= '1' when state = E_QUIET else '0';
 
    avm_write_o      <= '1' when state = E_WR_BURST else '0';
-   avm_read_o       <= '1' when state = E_RD_REQ else '0';
+   avm_read_o       <= '1' when state = E_RD_REQ or state = E_DRD_REQ else '0';
    avm_address_o    <= std_logic_vector(to_unsigned(G_BASE_WORD, 32) + resize(rd_word, 32))
                        when state = E_RD_REQ else
                        std_logic_vector(to_unsigned(G_BASE_WORD, 32) + resize(wr_word, 32));
    avm_burstcount_o <= std_logic_vector(resize(rd_n, 8)) when state = E_RD_REQ else
-                       std_logic_vector(resize(st_n, 8));
+                       std_logic_vector(resize(st_n, 8));   -- E_DRD_REQ and E_WR_BURST
    avm_writedata_o  <= st_d(to_integer(fidx));
    avm_byteenable_o <= st_be(to_integer(fidx));
 
@@ -251,6 +313,11 @@ begin
       variable v_w     : std_logic_vector(15 downto 0);
       variable v_be    : std_logic_vector(1 downto 0);
       variable v_wa    : unsigned(20 downto 0);
+      variable v_p1    : unsigned(1 downto 0);
+      variable v_p2    : unsigned(1 downto 0);
+      variable v_o     : integer range -1 to 17;
+      variable v_b0    : std_logic;
+      variable v_b1    : std_logic;
    begin
       if rising_edge(h_clk_i) then
          h_req_meta <= m_req;
@@ -267,7 +334,19 @@ begin
                if h_quiet_i = '0' then
                   quiet_cnt <= 0;
                elsif quiet_cnt = C_QUIET then
-                  copy  <= m_par_copy;
+                  copy  <= m_par_cmd(1) and not m_par_cmd(0);
+                  expd  <= m_par_cmd(1) and m_par_cmd(0);
+                  tbytes <= unsigned(m_par_tbytes);
+                  xoff  <= unsigned(m_par_tctrl(2 downto 0));
+                  jam2  <= m_par_tctrl(3);
+                  inv   <= m_par_tctrl(4);
+                  bgpat <= m_par_bgpat;
+                  mask  <= m_par_mask;
+                  if m_par_mask = x"FF" then
+                     masked <= '0';
+                  else
+                     masked <= '1';
+                  end if;
                   sline <= unsigned(m_par_src);
                   dline <= unsigned(m_par_dst);
                   sstr  <= signed(m_par_sstr);
@@ -301,11 +380,15 @@ begin
                   else
                      pidx <= "11";
                   end if;
-                  v_send      := sline + resize(width, 22) - 1;
+                  if expd = '1' then
+                     v_send   := sline + resize(tbytes, 22) - 1;
+                  else
+                     v_send   := sline + resize(width, 22) - 1;
+                  end if;
                   rd_word     <= sline(21 downto 1);
                   rd_left     <= resize(v_send(21 downto 1) - sline(21 downto 1) + 1, 13);
                   buf_widx    <= (others => '0');
-                  if copy = '1' then
+                  if copy = '1' or expd = '1' then
                      state <= E_RD_REQ;
                      v_left := resize(v_send(21 downto 1) - sline(21 downto 1) + 1, 22);
                      v_n    := to_unsigned(16 - to_integer(sline(4 downto 1)), 5);
@@ -332,7 +415,12 @@ begin
                      rd_word <= rd_word + rd_n;
                      rd_left <= rd_left - rd_n;
                      if rd_left = rd_n then
-                        state <= E_WR_CHUNK;
+                        st_t <= (others => '0');
+                        if expd = '1' then
+                           state <= E_TPRE;
+                        else
+                           state <= E_WR_CHUNK;
+                        end if;
                      else
                         v_n := to_unsigned(16 - to_integer(rd_word(3 downto 0) + rd_n(3 downto 0)), 5);
                         if v_n = 0 then
@@ -347,6 +435,19 @@ begin
                   end if;
                end if;
 
+            when E_TPRE =>                               -- template: load the bit window
+               st_t <= st_t + 1;
+               if st_t = 0 then
+                  buf_raddr <= (others => '0');
+               elsif st_t = 1 then
+                  buf_raddr <= to_unsigned(1, 12);
+               else                                      -- word 0 is in buf_rdata now
+                  tcur  <= buf_rdata;
+                  tw    <= (others => '0');
+                  tofs  <= to_integer(sline(0) & xoff) - to_integer(dline(0 downto 0));
+                  state <= E_WR_CHUNK;
+               end if;
+
             when E_WR_CHUNK =>                           -- the next aligned destination block
                v_n := to_unsigned(16 - to_integer(wr_word(3 downto 0)), 5);
                if resize(wr_last - wr_word + 1, 21) < v_n then
@@ -354,15 +455,40 @@ begin
                end if;
                st_n <= v_n;
                st_t <= (others => '0');
+               dd_got <= (others => '0');
                -- buffer word of the first output word of this chunk, minus one (the "previous")
-               st_k      <= resize(wr_word - wr_first, 12) + ("00000000000" & d1) - 1;
-               buf_raddr <= resize(wr_word - wr_first, 12) + ("00000000000" & d1) - 1;
-               state     <= E_STAGE;
+               if copy = '1' then
+                  st_k      <= resize(wr_word - wr_first, 12) + ("00000000000" & d1) - 1;
+                  buf_raddr <= resize(wr_word - wr_first, 12) + ("00000000000" & d1) - 1;
+               end if;
+               if masked = '1' then
+                  state  <= E_DRD_REQ;                   -- first the old contents of the block
+               else
+                  state  <= E_STAGE;
+               end if;
+
+            -- masked: read the destination block that the next burst writes (the line buffer
+            -- read address stays put meanwhile, so the copy staging works unchanged)
+            when E_DRD_REQ =>
+               if avm_waitrequest_i = '0' then
+                  state <= E_DRD_DATA;
+               end if;
+
+            when E_DRD_DATA =>
+               if avm_readdatavalid_i = '1' then
+                  st_dd(to_integer(dd_got(3 downto 0))) <= avm_readdata_i;
+                  dd_got <= dd_got + 1;
+                  if dd_got = st_n - 1 then
+                     state <= E_STAGE;
+                  end if;
+               end if;
 
             when E_STAGE =>                              -- one staging word per clock
                -- copy: buf_rdata is buffer word st_k-1+... (read issued the clock before)
-               st_k      <= st_k + 1;
-               buf_raddr <= st_k + 1;
+               if copy = '1' then
+                  st_k      <= st_k + 1;
+                  buf_raddr <= st_k + 1;
+               end if;
                st_t      <= st_t + 1;
                if copy = '1' then
                   st_prev <= buf_rdata;
@@ -378,10 +504,44 @@ begin
                      else
                         v_w := buf_rdata;
                      end if;
-                  else
+                  elsif expd = '0' then
                      v_i := to_integer(st_t);
                      v_w := pbyte(pat, pnext(pidx, 1, bpp)) & pbyte(pat, pidx);
                      pidx <= pnext(pidx, 2, bpp);
+                  else
+                     -- template: the bit of the pixel in each lane; lane 1 is the next pixel if
+                     -- its byte starts one
+                     v_i  := to_integer(st_t);
+                     v_p1 := pnext(pidx, 1, bpp);
+                     v_p2 := pnext(pidx, 2, bpp);
+                     v_o  := tofs;
+                     v_b0 := tbit(tcur, buf_rdata, v_o) xor inv;
+                     if v_p1 = "00" then
+                        v_o := v_o + 1;
+                     end if;
+                     v_b1 := tbit(tcur, buf_rdata, v_o) xor inv;
+                     if v_p2 = "00" then
+                        v_o := v_o + 1;
+                     end if;
+                     if v_b0 = '1' then
+                        v_w(7 downto 0)  := pbyte(pat, pidx);
+                     else
+                        v_w(7 downto 0)  := pbyte(bgpat, pidx);
+                     end if;
+                     if v_b1 = '1' then
+                        v_w(15 downto 8) := pbyte(pat, v_p1);
+                     else
+                        v_w(15 downto 8) := pbyte(bgpat, v_p1);
+                     end if;
+                     pidx <= v_p2;
+                     if v_o >= 16 then                   -- on to the next buffer word
+                        tcur      <= buf_rdata;
+                        tw        <= tw + 1;
+                        buf_raddr <= tw + 2;
+                        tofs      <= v_o - 16;
+                     else
+                        tofs      <= v_o;
+                     end if;
                   end if;
                   v_wa := wr_word + v_i;
                   v_be := "11";
@@ -390,6 +550,12 @@ begin
                   end if;
                   if v_wa = wr_last and last_lane1 = '0' then
                      v_be(1) := '0';
+                  end if;
+                  if expd = '1' and jam2 = '0' then      -- JAM1: clear bits are not written
+                     v_be := v_be and (v_b1 & v_b0);
+                  end if;
+                  if masked = '1' then                   -- plane mask: keep the other bits
+                     v_w := (st_dd(v_i) and not (mask & mask)) or (v_w and (mask & mask));
                   end if;
                   st_d(v_i)  <= v_w;
                   st_be(v_i) <= v_be;

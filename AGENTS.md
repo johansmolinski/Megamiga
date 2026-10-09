@@ -1339,6 +1339,46 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   survivor (no heap check in the replay) is equivalent, PROF_NAME defers
   again. ROM 28650/28672. HARDWARE-CONFIRMED by the user (build -d,
   2026-10-09): the names show on the first menu open.
+  TEXT, PLANE MASKS, READ-AHEAD (0.4.2-dev, 2026-10-09, build tmpl-b WNS
+  +0.054; HARDWARE-CONFIRMED by the user: "Scrolling is much faster now"). Field report on 0.4.1: Shell scrolling slow, slower in 8
+  bit than in 16 - the AmigaOS console draws with a PLANE MASK on CLUT
+  screens, and the 0.4.1 driver gave every masked call back to the CPU.
+  (1) TEMPLATE command (CMD 3, `BlitTemplate` = text): registers TBYTES $18,
+  TCTRL $1A (bit offset, JAM2, INVERSVID), BGPAT $20/$22. The driver copies
+  the 1-bit template by longwords into one of two 64 KB scratch areas at
+  board offset $3C0000 (behind MemorySpaceSize, below the mouse save buffer;
+  alternating, so the copy overlaps the engine drawing the previous one -
+  the driver waits for busy only before it writes the registers); the engine
+  reads each template line into the line buffer and expands it through a
+  32-bit bit window (`tcur` + the BRAM output = the next word), lane 1 is the
+  next pixel when its byte starts one. JAM1 = byte enables off (empty beats
+  are legal: the HyperRAM errata path sends them too). COMPLEMENT, 24 bit and
+  templates over 64 KB go to the default routine. (2) PLANE MASK, register
+  $24 (bits 7:0, $FF = none, driver writes $FF outside CLUT; mask 0 = the
+  driver does nothing): the engine reads each 16-word destination block
+  before writing it (E_DRD_*) and merges (old and not m) or (new and m) -
+  fills, copies and templates. (3) READ-AHEAD in rtg_vram: a miss fetches
+  the aligned 16-word block (one burst) into one of two lines (LRU), the CPU
+  gets its word as it arrives, hits answer in one clock; CPU writes update a
+  line that holds their word; `inval_i` = the blitter's new `m_busy_o`
+  clears the lines and spoils a running fill. rtg_wcomb passes read bursts
+  (burstcount from avm_fifo, reads of the gathered block flush first);
+  avm_fifo read depth 16 -> 32. Lesson: ghdl --synth drops initial values
+  and a 2-write-site array came out as X - the lines are now one write port
+  per byte lane and `victim` has a reset (the e2e caught both; the plain
+  VHDL TB did not). NOT fixed: the mouse pointer blinks during Shell
+  scrolling - Picasso96's software pointer is taken off around every blit
+  touching it; a hardware pointer would need an overlay after ascal.
+  TESTS: `~/aexp-work/rtg/vram` (NEW: rtg_vram + FIFO + combiner, TG68K-like
+  CPU model without gaps, read-modify-read, fake blitter busy + memory
+  changes; 9/9 mutants killed), `rtg/wcomb` (16-word read bursts with beat
+  gaps, timeouts on every wait; 12/13 killed, `no_full_limit` equivalent),
+  `rtg/blit` (templates with random xoff/JAM/INV/alignment, random masks;
+  new template + mask mutants killed, `t_tbytes_width` (reads more) is
+  equivalent), `rtg/e2e` prog.S (read-ahead coherence incl. misaligned longs
+  over 3 blocks, lines cached before a copy/fill), `rtg/drvtest` tests 10-18
+  (templates 8/16/32 bit, registers kept, defaults, three templates back to
+  back with a 400-line one, masked template/fill/copy over a background).
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
