@@ -68,6 +68,8 @@ Features
   screens in 4 MB of board memory
 * Two IDE hard disks (master and slave): `*.hdf` images on the SD card, read
   and write, that Kickstart boots from (needs the free lide.device boot ROM)
+* A network card on the MEGA65's Ethernet port (R4/R5/R6, 100 Mbit/s) with a
+  SANA-II driver: Roadshow, AmiTCP, Miami and the like
 * The Amiga serial port on the MEGA65's PMOD header (R4/R5/R6, off by
   default): a terminal, a null-modem link or MIDI
 * Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), one per profile, and
@@ -682,6 +684,30 @@ software-switchable "LED filter" are both emulated, and the options menu adds
 a loudness-true master volume plus a stereo mix that makes hard-panned Amiga
 music pleasant on headphones. The full story — including why a sound filter
 is coupled to the power LED — is in [doc/audio.md](doc/audio.md).
+
+### Network (Ethernet)
+
+On R4, R5 and R6 boards Megamiga has a network card on the MEGA65's Ethernet
+port (100 Mbit/s): a Zorro II board that Kickstart configures like any other
+expansion card, so it works with every profile, with the 68000 and the 68020.
+Its SANA-II driver `megamiga-eth.device` and the test tool `ethtest` are on
+the `Megamiga_Net.adf` disk of the release (or build them from `CORE/eth/`).
+
+1. Mount the disk, open a Shell and run `ethtest` (Kickstart 2.04 or newer):
+   it shows the card's station address, the link (it should say "up, 100
+   Mbit/s") and its counters. `ethtest 192.168.1.1` (your router's address)
+   sends an ARP probe and shows the reply - then the card sends and receives.
+2. Copy `Devs/Networks/megamiga-eth.device` to `DEVS:Networks/` and set up
+   your TCP/IP stack with that device, unit 0. For Roadshow copy
+   `Roadshow/MegamigaEth` to `DEVS:NetInterfaces/`: it asks the network's
+   DHCP server for an address; for a fixed address edit it and
+   `DEVS:Internet/routes` and `name_resolution` (examples on the disk).
+
+Each MEGA65 has its own station address (`02:...`), derived from the FPGA's
+unique device ID. The card needs a 100 Mbit/s port: it does not do 10 Mbit/s
+and has no collision handling for old hubs. The driver is based on Niklas
+Ekström's a314eth.device; the design is described in
+[doc/developers/ethernet.md](doc/developers/ethernet.md).
 
 ### Serial port (PMOD)
 
