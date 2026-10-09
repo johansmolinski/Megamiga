@@ -68,6 +68,8 @@ Features
   screens in 4 MB of board memory
 * Two IDE hard disks (master and slave): `*.hdf` images on the SD card, read
   and write, that Kickstart boots from (needs the free lide.device boot ROM)
+* The Amiga serial port on the MEGA65's PMOD header (R4/R5/R6, off by
+  default): a terminal, a null-modem link or MIDI
 * Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), one per profile, and
   switchable in the menu
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
@@ -680,6 +682,36 @@ software-switchable "LED filter" are both emulated, and the options menu adds
 a loudness-true master volume plus a stereo mix that makes hard-panned Amiga
 music pleasant on headphones. The full story — including why a sound filter
 is coupled to the power LED — is in [doc/audio.md](doc/audio.md).
+
+### Serial port (PMOD)
+
+On R4, R5 and R6 boards, Megamiga can put the Amiga's serial port on the
+MEGA65's PMOD header. The port is Paula's UART with the /CTS and /RTS lines
+of CIA-B, so `serial.device`, terminal programs, null-modem games and MIDI
+software that drive the serial port all use it. Switch it on in **Settings >
+Ports > Serial port on PMOD**. It is off by default: both PMOD headers then
+stay unpowered and all of their pins stay inputs.
+
+The pins are 3.3 V TTL and use the same layout as the MegaST (Atari ST) core,
+so one adapter works with both:
+
+| PMOD1 pin | Signal          | PMOD1 pin | Signal          |
+|-----------|-----------------|-----------|-----------------|
+| lo[0]     | CTS (in)        | hi[0]     | MIDI OUT (out)  |
+| lo[1]     | TXD (out)       | hi[1]     | MIDI IN (in)    |
+| lo[2]     | RXD (in)        | hi[2]     | -               |
+| lo[3]     | RTS (out)       | hi[3]     | -               |
+
+PMOD1 lo matches the Digilent PmodUSBUART pinout and MAX3232 RS-232
+modules. Never connect real RS-232 levels (±12 V) directly to the header:
+use a 3.3 V USB serial adapter or a MAX3232 module. The input pins have
+pull-ups, so a pin with nothing connected reads as idle.
+
+The Amiga sends MIDI through its serial port, so MIDI OUT carries the same
+data as TXD, and MIDI IN is merged with RXD. Connect only one of the two
+inputs at a time. MIDI needs the usual opto-coupler (IN) and driver (OUT)
+circuit; an MT32-pi can take MIDI OUT directly on its RXD pin (GPIO 15). DTR,
+DSR, CD and RI are not connected: the Amiga reads them as inactive.
 
 ### Real-time clock
 

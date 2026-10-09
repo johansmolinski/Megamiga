@@ -156,3 +156,9 @@ set_multicycle_path -hold 1 -from [get_cells -hierarchical -filter {IS_PRIMITIVE
 set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/m_par_*}] -to [get_clocks hr_clk] 20.000
 set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/m_req_reg*}] -to [get_cells -hierarchical -filter {NAME =~ CORE/i_rtg_blitter/h_req_meta_reg*}] 10.000
 set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/h_ack_reg*}] -to [get_cells -hierarchical -filter {NAME =~ CORE/i_rtg_blitter/m_ack_meta_reg*}] 10.000
+
+## Megamiga serial port on PMOD1 (mega65.vhd): pull-ups on the three input pins (CTS, RXD,
+## MIDI IN), so a pin with nothing connected reads idle ('1') instead of floating. The inputs
+## are asynchronous and go through a 2-FF ASYNC_REG synchronizer; the outputs are slow
+## (<= 31250 Bd for MIDI, a few 100 kBd at most), so no I/O delay constraints are needed.
+set_property -dict {PULLUP TRUE} [get_ports {p1lo_io[0] p1lo_io[2] p1hi_io[1]}]

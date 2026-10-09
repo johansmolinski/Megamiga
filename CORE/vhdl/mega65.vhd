@@ -250,6 +250,17 @@ port (
    sdram_dqmh_o            : out   std_logic;
    sdram_dq_io             : inout std_logic_vector(15 downto 0);
 
+   -- PMOD headers (R4/R5/R6 only): the Amiga serial port on PMOD1, threaded as
+   -- plain wires from the board tops (M2M-UPSTREAM pmod-pins, the floppy-pins
+   -- pattern). All pins stay high-Z and both headers unpowered unless the
+   -- "Serial port on PMOD" menu item is on. The R3 top leaves these unconnected.
+   p1lo_io                 : inout std_logic_vector(3 downto 0);
+   p1hi_io                 : inout std_logic_vector(3 downto 0);
+   p2lo_io                 : inout std_logic_vector(3 downto 0);
+   p2hi_io                 : inout std_logic_vector(3 downto 0);
+   pmod1_en_o              : out   std_logic;
+   pmod2_en_o              : out   std_logic;
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -945,6 +956,7 @@ constant C_MENU_OSMKEY_F13    : natural := 197;
 constant C_MENU_OSMKEY_COMBO  : natural := 198;
 
 constant C_MENU_DRV_SPINUP    : natural := 89;   -- Drive Settings: spin-up delay of the simulated drives
+constant C_MENU_SERIAL        : natural := 204;  -- Settings: Amiga serial port on PMOD1 (default OFF)
 
 -- Megamiga 0.3 machine profiles. The main page carries the profile radio (A500 / A600 /
 -- A1200); Profile Settings holds one block of radios and toggles per profile, and only
@@ -968,6 +980,18 @@ constant C_PROF_CHIP_2M       : natural := 9;
 constant C_PROF_SLOW          : natural := 11;   -- Slow RAM (512 KB) toggle
 constant C_PROF_FAST          : natural := 12;   -- Zorro II Fast RAM (8 MB) toggle, R4+ only
 constant C_PROF_Z3            : natural := 13;   -- Zorro III RAM (16 MB) toggle, 68020 only
+
+-- Amiga serial port on PMOD1 (main_clk domain)
+signal main_serial_en         : std_logic := '0';
+signal main_serial_meta       : std_logic_vector(2 downto 0) := (others => '1');  -- {RXD, MIDI IN, CTS}
+signal main_serial_sync       : std_logic_vector(2 downto 0) := (others => '1');
+signal main_uart_rxd          : std_logic;
+signal main_uart_txd          : std_logic;
+signal main_uart_cts_n        : std_logic;
+signal main_uart_rts_n        : std_logic;
+
+attribute async_reg of main_serial_meta : signal is "true";   -- attribute declared above
+attribute async_reg of main_serial_sync : signal is "true";
 
 begin
 
@@ -1476,8 +1500,55 @@ begin
          pot1_y_i             => main_pot1_y_i,
          pot2_x_i             => main_pot2_x_i,
          pot2_y_i             => main_pot2_y_i,
-         rtc_i                => main_rtc_i
+         rtc_i                => main_rtc_i,
+
+         -- Amiga serial port (PMOD1, see the pin driver below)
+         uart_rxd_i           => main_uart_rxd,
+         uart_txd_o           => main_uart_txd,
+         uart_cts_n_i         => main_uart_cts_n,
+         uart_rts_n_o         => main_uart_rts_n
       ); -- i_main
+
+   ---------------------------------------------------------------------------------------------
+   -- Amiga serial port on PMOD1 (R4/R5/R6), main_clk domain
+   --
+   -- Pin layout = the MegaST (Atari ST core) layout, so the same adapters work: PMOD1 lo
+   -- matches the Digilent PmodUSBUART / a MAX3232 module, PMOD1 hi carries MIDI OUT/IN.
+   --   p1lo(0) CTS in    p1lo(1) TXD out    p1lo(2) RXD in    p1lo(3) RTS out
+   --   p1hi(0) MIDI OUT  p1hi(1) MIDI IN    p1hi(2..3) unused (printer in MegaST)
+   -- The Amiga does MIDI through its one serial port (31250 Bd via SERPER), so MIDI OUT
+   -- repeats TXD and MIDI IN is ANDed with RXD (both idle high; CORE.xdc pulls the input
+   -- pins up, so an empty pin is idle). All signals are 3.3 V TTL at the CIA/Paula pin
+   -- level: an RS-232 level shifter (MAX3232) does the inversion a real Amiga's 1488/1489
+   -- do. PMOD2 stays unused and unpowered. With the menu item off every pin is high-Z, both
+   -- headers are unpowered and Minimig sees the idle levels it saw before (rxd = cts_n = 1).
+   ---------------------------------------------------------------------------------------------
+
+   pmod1_en_o <= main_serial_en;
+   pmod2_en_o <= '0';
+
+   p1lo_io(0) <= 'Z';
+   p1lo_io(1) <= main_uart_txd   when main_serial_en = '1' else 'Z';
+   p1lo_io(2) <= 'Z';
+   p1lo_io(3) <= main_uart_rts_n when main_serial_en = '1' else 'Z';
+   p1hi_io(0) <= main_uart_txd   when main_serial_en = '1' else 'Z';
+   p1hi_io(1) <= 'Z';
+   p1hi_io(2) <= 'Z';
+   p1hi_io(3) <= 'Z';
+   p2lo_io    <= (others => 'Z');
+   p2hi_io    <= (others => 'Z');
+
+   p_serial_sync : process (main_clk)
+   begin
+      if rising_edge(main_clk) then
+         main_serial_meta <= p1lo_io(2) & p1hi_io(1) & p1lo_io(0);
+         main_serial_sync <= main_serial_meta;
+         main_serial_en   <= main_osm_control_i(C_MENU_SERIAL);
+      end if;
+   end process p_serial_sync;
+
+   main_uart_rxd   <= (main_serial_sync(2) and main_serial_sync(1)) when main_serial_en = '1' else '1';
+   main_uart_cts_n <= main_serial_sync(0)                           when main_serial_en = '1' else '1';
 
    ---------------------------------------------------------------------------------------------
    -- 8 MB Zorro II Fast RAM in the board SDRAM (R4/R5/R6), main_clk domain

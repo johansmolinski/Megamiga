@@ -4623,7 +4623,9 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; demand 3403, MENU_HEAP_SIZE 3424, headroom 21, both HEAP_SIZE -704.
 ; Megamiga 0.3.1 master + slave HDF: 207 items, 6 manual ROMs, demand 3445,
 ; MENU_HEAP_SIZE 3456, headroom 11, both HEAP_SIZE -32.
-MENU_HEAP_SIZE  .EQU 3456
+; Megamiga serial port on PMOD (Settings > Ports): 211 items, demand 3495,
+; MENU_HEAP_SIZE 3520, headroom 25, both HEAP_SIZE -64.
+MENU_HEAP_SIZE  .EQU 3520
 
 #ifndef RELEASE
 
@@ -4646,13 +4648,13 @@ MENU_HEAP_SIZE  .EQU 3456
 ; read-only data device) - both totals down by 256 (release 29440, debug 6784).
 ; Megamiga 0.3.1: the slave HDF state (HDF_SAVE, 278 words of variables) - both
 ; totals down by 288 (release 29152, debug 6496).
-HEAP_SIZE       .EQU 3040                       ; 6496 - 3456 = 3040
+HEAP_SIZE       .EQU 2976                       ; 6496 - 3520 = 2976
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 26.97k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 25696                      ; 29152 - 3456 = 25696
+HEAP_SIZE       .EQU 25632                      ; 29152 - 3520 = 25632
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

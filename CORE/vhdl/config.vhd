@@ -501,7 +501,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 207; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 211; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -586,6 +586,9 @@ constant OPTM_DY           : natural := 34;
 --            PREP_LOAD_IMAGE checks the size (256 or 512 KB) and loads the ROM, the
 --            kick device holds the Amiga in reset meanwhile and cold-boots it after.
 --            Not saved: at power-on the core loads /amiga/kick.rom again.
+--   line 204: Serial port on PMOD toggle (C_MENU_SERIAL), default OFF; Settings > Ports.
+--            On = PMOD1 powered, Paula's UART and CIA-B /CTS /RTS on its pins (R4/R5/R6;
+--            pin layout in mega65.vhd). Off = every PMOD pin high-Z, headers unpowered.
 --   The memory toggles and the Kickstart selector live in the Memory submenu (lines
 --   147..163), because the main menu has no room for another line (see the CEILING
 --   note above).
@@ -817,11 +820,15 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 199: Line
    " Back to Settings\n"    &    -- 200: Close submenu / back to Settings
    "\n"                     &    -- 201: Line
-   " Back to main menu\n"   &    -- 202: Close Settings
+   " Ports\n"               &    -- 202: Headline "Ports"
    "\n"                     &    -- 203: Line
-   " About & Help\n"        &    -- 204: About & Help (WHS(1))
+   " Serial port on PMOD\n" &    -- 204: Serial port on PMOD1 (single-select, default OFF)
    "\n"                     &    -- 205: Line
-   " Close Menu\n"         ;    -- 206: Close Menu
+   " Back to main menu\n"   &    -- 206: Close Settings
+   "\n"                     &    -- 207: Line
+   " About & Help\n"        &    -- 208: About & Help (WHS(1))
+   "\n"                     &    -- 209: Line
+   " Close Menu\n"         ;    -- 210: Close Menu
 -- also make sure that your group numbers are monotonic increasing (e.g. 1, 2, 3, 4, ...)
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_ADF0       : integer := 1;   -- mount ADF for df0 (manual CRT/ROM load 0)
@@ -875,6 +882,7 @@ constant OPTM_G_P3SLOW     : integer := 46;  -- A1200 profile: Slow RAM toggle
 constant OPTM_G_P3FAST     : integer := 47;  -- A1200 profile: Zorro II Fast RAM toggle
 constant OPTM_G_P3Z3       : integer := 48;  -- A1200 profile: Zorro III RAM toggle
 constant OPTM_G_HDF1       : integer := 49;  -- HDF slave (unit 1) into the IDE board (manual CRT/ROM load 4)
+constant OPTM_G_SERIAL     : integer := 50;  -- Serial port on PMOD toggle; read in HDL (mega65.vhd drives the PMOD1 pins)
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -1122,11 +1130,15 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                               OPTM_G_LINE,                                              -- 199: Line
                                               OPTM_G_CLOSE + OPTM_G_SUBMENU,                            -- 200: Close submenu / back to Settings
                                               OPTM_G_LINE,                                              -- 201: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                            -- 202: Close Settings
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                            -- 202: Headline "Ports"
                                               OPTM_G_LINE,                                              -- 203: Line
-                                              OPTM_G_About + OPTM_G_HELP,                               -- 204: About & Help (WHS(1))
+                                              OPTM_G_SERIAL + OPTM_G_SINGLESEL,                         -- 204: Serial port on PMOD1 (single-select, default OFF)
                                               OPTM_G_LINE,                                              -- 205: Line
-                                              OPTM_G_CLOSE                                              -- 206: Close Menu
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                            -- 206: Close Settings
+                                              OPTM_G_LINE,                                              -- 207: Line
+                                              OPTM_G_About + OPTM_G_HELP,                               -- 208: About & Help (WHS(1))
+                                              OPTM_G_LINE,                                              -- 209: Line
+                                              OPTM_G_CLOSE                                              -- 210: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

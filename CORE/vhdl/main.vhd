@@ -284,7 +284,15 @@ entity main is
       -- MiSTer 65-bit format (see minimig.v / rtc_controller.vhd): bits 63-0 =
       -- MSM6242B BCD nibbles, bit 64 = "new value" toggle. Already CDC'd to
       -- clk_main_i by the framework, so it needs no further synchronisation.
-      rtc_i                   : in  std_logic_vector(64 downto 0)
+      rtc_i                   : in  std_logic_vector(64 downto 0);
+
+      -- Amiga serial port (Paula UART + CIA-B modem lines), TTL levels at the
+      -- Amiga pins, synchronized to clk_main_i in mega65.vhd (PMOD1 driver there).
+      -- Idle = '1'. DTR/DSR/CD/RI have no PMOD pin and keep Minimig's idle ties.
+      uart_rxd_i              : in  std_logic;
+      uart_txd_o              : out std_logic;
+      uart_cts_n_i            : in  std_logic;
+      uart_rts_n_o            : out std_logic
    );
 end entity main;
 
@@ -354,6 +362,10 @@ architecture synthesis of main is
          pwr_led        : out std_logic;
          fdd_led        : out std_logic;
          hdd_led        : out std_logic;
+         rxd            : in  std_logic;   -- Megamiga: serial port (Paula UART, CIA-B /CTS /RTS)
+         txd            : out std_logic;
+         cts_n          : in  std_logic;
+         rts_n          : out std_logic;
 
          -- physical-drive support (see minimig_m65.v / paula_floppy.v)
          fdd_ctrl          : out std_logic_vector(7 downto 0);
@@ -1287,6 +1299,11 @@ begin
          pwr_led        => pwr_led,
          fdd_led        => fdd_led_o,
          hdd_led        => open,
+
+         rxd            => uart_rxd_i,
+         txd            => uart_txd_o,
+         cts_n          => uart_cts_n_i,
+         rts_n          => uart_rts_n_o,
 
          -- Hardware Floppy: CIA-B taps out, real drive status in (the
          -- one-hot mask keeps every mux bit-identical when the feature is

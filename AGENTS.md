@@ -1380,6 +1380,19 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   (templates 8/16/32 bit, registers kept, defaults, three templates back to
   back with a 400-line one, masked template/fill/copy over a background).
 
+- **Megamiga 0.4.2, SERIAL PORT ON PMOD1 (2026-10-09, R4/R5/R6). Built, NOT
+  hardware-tested (the user has no PMOD module; released for outside
+  testers).** Paula's UART (Minimig `rxd/txd`) and CIA-B /CTS /RTS reach the
+  PMOD1 header through the new M2M exception 13 `pmod-pins`; MegaST pin
+  layout (lo: CTS in, TXD out, RXD in, RTS out; hi: MIDI OUT = TXD, MIDI IN
+  ANDed into RXD), inputs through a 2-FF ASYNC_REG synchronizer, pull-ups in
+  CORE.xdc. `Settings > Ports > Serial port on PMOD` (`C_MENU_SERIAL` 204,
+  `OPTM_G_SERIAL` 50, default OFF = every PMOD pin high-Z and both headers
+  unpowered); OPTM_SIZE 207 -> 211, MENU_HEAP_SIZE 3520 (both HEAP_SIZE
+  -64). DTR/DSR/CD/RI stay tied inactive. Settings file 211 bytes. Built in a
+  separate session (worktree `.claude/worktrees/serial-pmod`) and merged as
+  a patch; the menu walk (`~/aexp-work/menu-nest/real`, 211 lines) passes.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
@@ -1674,7 +1687,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with TWELVE sanctioned
+- `M2M/` — the framework. **NEVER modify**, with THIRTEEN sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -1766,6 +1779,14 @@ the deep material lives in `doc/` (see "Key documents").
   top_mega65-r4/5/6 -> framework -> av_pipeline -> digital_pipeline, and
   `PALETTE2 => true`. Defaults keep every other core unchanged. Added in the
   JS fork 2026-10-09 for the RTG card, NOT maintainer-approved yet.
+  (13) `pmod-pins` — the R4/R5/R6 board tops route the PMOD headers
+  (`p1lo/p1hi/p2lo/p2hi_io`, `pmod1_en_o`/`pmod2_en_o`) into `MEGA65_Core`
+  for the Amiga serial port (floppy-pins pattern, original tie-offs kept as
+  comments). mega65.vhd keeps every pin high-Z and both headers unpowered
+  unless `Settings > Ports > Serial port on PMOD` (`C_MENU_SERIAL` 204) is on;
+  pin layout = MegaST's (PMOD1 lo CTS/TXD/RXD/RTS, hi MIDI OUT/IN mirroring
+  the same Paula UART). Pull-ups on the three inputs in CORE.xdc. Added in
+  the JS fork 2026-10-09, NOT maintainer-approved yet.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

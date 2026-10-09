@@ -519,12 +519,17 @@ begin
    led_g_n_o             <= '1'; -- Off
    led_r_n_o             <= '1'; -- Off
    led_o                 <= '0'; -- Off
-   p1lo_io               <= (others => 'Z');
-   p1hi_io               <= (others => 'Z');
-   p2lo_io               <= (others => 'Z');
-   p2hi_io               <= (others => 'Z');
-   pmod1_en_o            <= '0';
-   pmod2_en_o            <= '0';
+   -- M2M-UPSTREAM pmod-pins (Megamiga 2026-10-09): the PMOD headers are routed
+   -- into MEGA65_Core (Amiga serial port on PMOD1), the floppy-pins pattern:
+   -- board top -> core direct, framework.vhd untouched. The core keeps every
+   -- pin high-Z and both headers unpowered while the serial port is off.
+   -- Original tie-offs kept for reference:
+   -- p1lo_io               <= (others => 'Z');
+   -- p1hi_io               <= (others => 'Z');
+   -- p2lo_io               <= (others => 'Z');
+   -- p2hi_io               <= (others => 'Z');
+   -- pmod1_en_o            <= '0';
+   -- pmod2_en_o            <= '0';
    qspidb_io             <= (others => 'Z');
    qspicsn_o             <= '1';
    -- M2M-UPSTREAM sdram-pins (AExp fork 2026-10-06): the SDRAM pins are routed
@@ -949,6 +954,14 @@ begin
          sdram_dqml_o      => sdram_dqml_o,
          sdram_dqmh_o      => sdram_dqmh_o,
          sdram_dq_io       => sdram_dq_io,
+
+         -- M2M-UPSTREAM pmod-pins (Megamiga 2026-10-09): Amiga serial port on PMOD1
+         p1lo_io           => p1lo_io,
+         p1hi_io           => p1hi_io,
+         p2lo_io           => p2lo_io,
+         p2hi_io           => p2hi_io,
+         pmod1_en_o        => pmod1_en_o,
+         pmod2_en_o        => pmod2_en_o,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_en_o         => cart_en, -- Enable port, active high
