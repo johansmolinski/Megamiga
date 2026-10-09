@@ -261,6 +261,20 @@ port (
    pmod1_en_o              : out   std_logic;
    pmod2_en_o              : out   std_logic;
 
+   -- Ethernet PHY KSZ8081 (R4/R5/R6 only): the network card (eth_card.vhd), threaded as plain
+   -- wires from the board tops (M2M-UPSTREAM eth-pins, the floppy-pins pattern). The R3 top
+   -- leaves these unconnected.
+   eth_clock_o             : out   std_logic;
+   eth_led2_o              : out   std_logic;
+   eth_mdc_o               : out   std_logic;
+   eth_mdio_io             : inout std_logic;
+   eth_reset_o             : out   std_logic;
+   eth_rxd_i               : in    std_logic_vector(1 downto 0) := "00";
+   eth_rxdv_i              : in    std_logic := '0';
+   eth_rxer_i              : in    std_logic := '0';
+   eth_txd_o               : out   std_logic_vector(1 downto 0);
+   eth_txen_o              : out   std_logic;
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -981,6 +995,19 @@ constant C_PROF_SLOW          : natural := 11;   -- Slow RAM (512 KB) toggle
 constant C_PROF_FAST          : natural := 12;   -- Zorro II Fast RAM (8 MB) toggle, R4+ only
 constant C_PROF_Z3            : natural := 13;   -- Zorro III RAM (16 MB) toggle, 68020 only
 
+-- Network card (eth_card.vhd): CPU side on main_clk, MAC side on eth_clk50
+signal main_eth_sel           : std_logic;
+signal main_eth_rddata        : std_logic_vector(15 downto 0);
+signal main_eth_ready         : std_logic;
+signal main_eth_irq           : std_logic;
+signal main_eth_mac           : std_logic_vector(47 downto 0);
+signal main_eth_mac_vld       : std_logic;
+signal eth_clk50              : std_logic;
+signal eth_clk200             : std_logic;
+signal eth_rst50              : std_logic;
+signal eth_mdio_out           : std_logic;
+signal eth_mdio_oe            : std_logic;
+
 -- Amiga serial port on PMOD1 (main_clk domain)
 signal main_serial_en         : std_logic := '0';
 signal main_serial_meta       : std_logic_vector(2 downto 0) := (others => '1');  -- {RXD, MIDI IN, CTS}
@@ -1435,6 +1462,11 @@ begin
          ide_data_i           => main_ide_rddata,
          ide_ready_i          => main_ide_ready,
          ide_rst_o            => main_ide_rst,
+         eth_ena_i            => '1',              -- the network card is always there
+         eth_sel_o            => main_eth_sel,
+         eth_data_i           => main_eth_rddata,
+         eth_ready_i          => main_eth_ready,
+         eth_irq_i            => main_eth_irq,
 
          -- Floppy configuration, plus the Hardware Floppy CIA-B taps,
          -- conditioned real drive status and reconstructed word stream
@@ -1508,6 +1540,61 @@ begin
          uart_cts_n_i         => main_uart_cts_n,
          uart_rts_n_o         => main_uart_rts_n
       ); -- i_main
+
+   ---------------------------------------------------------------------------------------------
+   -- Network card (R4/R5/R6): a Zorro II board with the MEGA65's Ethernet port, see
+   -- doc/developers/ethernet.md. The CPU side shares cpu_wrapper's ext_* port with the IDE board
+   -- (main.vhd splits it); the MAC runs on the RMII clock from eth_clk, which also goes to the
+   -- PHY. The station address comes from the FPGA's device DNA.
+   ---------------------------------------------------------------------------------------------
+
+   i_eth_clk : entity work.eth_clk
+      port map (
+         sys_clk_i => clk_i,
+         clk50_o   => eth_clk50,
+         clk200_o  => eth_clk200,
+         rst50_o   => eth_rst50
+      ); -- i_eth_clk
+
+   i_eth_dna : entity work.eth_dna
+      port map (
+         clk_i   => main_clk,
+         mac_o   => main_eth_mac,
+         valid_o => main_eth_mac_vld
+      ); -- i_eth_dna
+
+   i_eth_card : entity work.eth_card
+      port map (
+         clk_i          => main_clk,
+         rst_i          => main_ide_rst,               -- Amiga reset or RESET instruction
+         sel_i          => main_eth_sel,
+         rw_i           => not main_fram_we,
+         uds_n_i        => main_fram_uds_n,
+         lds_n_i        => main_fram_lds_n,
+         addr_i         => main_fram_addr(15 downto 1),
+         data_i         => main_fram_wrdata,
+         data_o         => main_eth_rddata,
+         ready_o        => main_eth_ready,
+         irq_o          => main_eth_irq,
+         mac_init_i     => main_eth_mac,
+         mac_init_vld_i => main_eth_mac_vld,
+         clk50_i        => eth_clk50,
+         clk200_i       => eth_clk200,
+         rst50_i        => eth_rst50,
+         phy_rxd_i      => eth_rxd_i,
+         phy_crsdv_i    => eth_rxdv_i,
+         phy_txd_o      => eth_txd_o,
+         phy_txen_o     => eth_txen_o,
+         phy_mdc_o      => eth_mdc_o,
+         phy_mdio_i     => eth_mdio_io,
+         phy_mdio_o     => eth_mdio_out,
+         phy_mdio_oe_o  => eth_mdio_oe,
+         phy_reset_n_o  => eth_reset_o
+      ); -- i_eth_card
+
+   eth_clock_o <= eth_clk50;
+   eth_mdio_io <= eth_mdio_out when eth_mdio_oe = '1' else 'Z';
+   eth_led2_o  <= '0';
 
    ---------------------------------------------------------------------------------------------
    -- Amiga serial port on PMOD1 (R4/R5/R6), main_clk domain

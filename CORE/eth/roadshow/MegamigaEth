@@ -1,0 +1,7 @@
+# Roadshow interface for the Megamiga network card (copy to DEVS:NetInterfaces/)
+device=DEVS:Networks/megamiga-eth.device
+# address from the network's DHCP server:
+configure=dhcp
+# or a fixed address (then also edit DEVS:Internet/routes and name_resolution):
+#address=192.168.1.131
+#netmask=255.255.255.0

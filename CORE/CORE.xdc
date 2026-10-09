@@ -162,3 +162,17 @@ set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTI
 ## are asynchronous and go through a 2-FF ASYNC_REG synchronizer; the outputs are slow
 ## (<= 31250 Bd for MIDI, a few 100 kBd at most), so no I/O delay constraints are needed.
 set_property -dict {PULLUP TRUE} [get_ports {p1lo_io[0] p1lo_io[2] p1hi_io[1]}]
+
+## Megamiga network card (eth_card.vhd, eth_mac.vhd, eth_clk.vhd): the RMII clocks from their own
+## MMCM (100 MHz -> 50 MHz reference, also driven to the PHY, and 200 MHz, phase aligned).
+create_generated_clock -name eth_clk50  [get_pins CORE/i_eth_clk/i_mmcm/CLKOUT0]
+create_generated_clock -name eth_clk200 [get_pins CORE/i_eth_clk/i_mmcm/CLKOUT1]
+## CPU side (core clock) <-> MAC side (50 MHz): only the card crosses, through Gray-coded indices,
+## toggles and quasi-static registers with two-FF synchronizers; the buffers are dual-clock block RAM.
+set_max_delay -datapath_only -from [get_clocks main_clk]  -to [get_clocks eth_clk50] 10.000
+set_max_delay -datapath_only -from [get_clocks eth_clk50] -to [get_clocks main_clk]  10.000
+## RMII: RX is oversampled at 200 MHz at a selectable phase and TX leaves through a 200 MHz delay
+## line (tuned by the PHASE register, as in the MEGA65 core), so the pins have no fixed timing to
+## check; MDC/MDIO and the PHY reset are slow (about 1.5 MHz) and static.
+set_false_path -from [get_ports {eth_rxd_i[*] eth_rxdv_i eth_rxer_i eth_mdio_io}]
+set_false_path -to   [get_ports {eth_txd_o[*] eth_txen_o eth_mdc_o eth_mdio_io eth_reset_o eth_led2_o}]

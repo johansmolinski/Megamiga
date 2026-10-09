@@ -1,0 +1,2 @@
+# name server (only needed with a fixed address)
+#nameserver 192.168.1.1

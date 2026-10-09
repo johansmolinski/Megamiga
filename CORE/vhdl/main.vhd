@@ -195,6 +195,16 @@ entity main is
       ide_ready_i             : in  std_logic;
       ide_rst_o               : out std_logic;
 
+      -- Network card (eth_card.vhd in mega65.vhd), the second board on cpu_wrapper's ext_*
+      -- port: in the autoconfig chain after the IDE board while eth_ena_i is high (latched at
+      -- every CPU reset); eth_sel_o like ide_sel_o (fram_addr_o(15 downto 1) = offset);
+      -- eth_irq_i goes to INT2.
+      eth_ena_i               : in  std_logic;
+      eth_sel_o               : out std_logic;
+      eth_data_i              : in  std_logic_vector(15 downto 0);
+      eth_ready_i             : in  std_logic;
+      eth_irq_i               : in  std_logic;
+
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
       -- Drive map from the OSM "Drive Settings" submenu (static in clk_main;
       -- changes trigger the amiga_cold_boot reset in mega65.vhd):
@@ -366,6 +376,7 @@ architecture synthesis of main is
          txd            : out std_logic;
          cts_n          : in  std_logic;
          rts_n          : out std_logic;
+         eth_irq        : in  std_logic;   -- Megamiga: the network card (INT2)
 
          -- physical-drive support (see minimig_m65.v / paula_floppy.v)
          fdd_ctrl          : out std_logic_vector(7 downto 0);
@@ -491,6 +502,8 @@ architecture synthesis of main is
 
          ide_ena        : in  std_logic;
          z3ena          : in  std_logic;
+         eth_ena        : in  std_logic;
+         ext_eth        : out std_logic;
          ext_sel        : out std_logic;
          ext_dout       : in  std_logic_vector(15 downto 0);
          ext_ready      : in  std_logic;
@@ -709,6 +722,12 @@ architecture synthesis of main is
    signal pot_rmb          : std_logic;
    signal pot_mmb          : std_logic;
 
+   -- cpu_wrapper's ext_* port, split between the IDE board and the network card
+   signal cpu_ext_sel      : std_logic;
+   signal cpu_ext_eth      : std_logic;
+   signal cpu_ext_dout     : std_logic_vector(15 downto 0);
+   signal cpu_ext_ready    : std_logic;
+
 begin
 
    ---------------------------------------------------------------------------
@@ -789,6 +808,12 @@ begin
    c7m_o        <= c1;
 
    -- IDE board reset: the same condition that resets cpu_wrapper's autoconfig chain
+   -- cpu_wrapper's ext_* port serves two boards: the IDE board and the network card
+   ide_sel_o     <= cpu_ext_sel and not cpu_ext_eth;
+   eth_sel_o     <= cpu_ext_sel and cpu_ext_eth;
+   cpu_ext_dout  <= eth_data_i  when cpu_ext_eth = '1' else ide_data_i;
+   cpu_ext_ready <= eth_ready_i when cpu_ext_eth = '1' else ide_ready_i;
+
    ide_rst_proc : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then
@@ -841,9 +866,11 @@ begin
 
          ide_ena         => ide_ena_i,           -- IDE board in the autoconfig chain
          z3ena           => z3_ram_i,            -- 16 MB Zorro III board (68020 only)
-         ext_sel         => ide_sel_o,
-         ext_dout        => ide_data_i,
-         ext_ready       => ide_ready_i,
+         eth_ena         => eth_ena_i,           -- network card in the autoconfig chain
+         ext_eth         => cpu_ext_eth,
+         ext_sel         => cpu_ext_sel,
+         ext_dout        => cpu_ext_dout,
+         ext_ready       => cpu_ext_ready,
 
          toccata_ena     => open,
          toccata_base    => open,
@@ -1304,6 +1331,7 @@ begin
          txd            => uart_txd_o,
          cts_n          => uart_cts_n_i,
          rts_n          => uart_rts_n_o,
+         eth_irq        => eth_irq_i,
 
          -- Hardware Floppy: CIA-B taps out, real drive status in (the
          -- one-hot mask keeps every mux bit-identical when the feature is

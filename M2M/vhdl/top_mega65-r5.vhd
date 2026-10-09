@@ -538,13 +538,16 @@ begin
    hdmi_ls_oe_n_o        <= '0'; -- Enable HDMI output
    dbg_io_11             <= 'Z';
 
-   eth_clock_o           <= '0';
-   eth_led2_o            <= '0';
-   eth_mdc_o             <= '0';
-   eth_mdio_io           <= 'Z';
-   eth_reset_o           <= '1';
-   eth_txd_o             <= (others => '0');
-   eth_txen_o            <= '0';
+   -- M2M-UPSTREAM eth-pins (Megamiga 2026-10-09): the Ethernet PHY pins are routed
+   -- into MEGA65_Core (the network card), the floppy-pins pattern: board top ->
+   -- core direct, framework.vhd untouched. Original tie-offs kept for reference:
+   -- eth_clock_o           <= '0';
+   -- eth_led2_o            <= '0';
+   -- eth_mdc_o             <= '0';
+   -- eth_mdio_io           <= 'Z';
+   -- eth_reset_o           <= '1';
+   -- eth_txd_o             <= (others => '0');
+   -- eth_txen_o            <= '0';
    -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): the read-path floppy pins
    -- (f_density/f_motora/f_selecta/f_side1/f_stepdir/f_step + the five
    -- inputs) are routed into MEGA65_Core (Hardware Floppy feature).
@@ -1001,6 +1004,18 @@ begin
          p2hi_io                 => p2hi_io,
          pmod1_en_o              => pmod1_en_o,
          pmod2_en_o              => pmod2_en_o,
+
+         -- M2M-UPSTREAM eth-pins (Megamiga 2026-10-09): the network card
+         eth_clock_o             => eth_clock_o,
+         eth_led2_o              => eth_led2_o,
+         eth_mdc_o               => eth_mdc_o,
+         eth_mdio_io             => eth_mdio_io,
+         eth_reset_o             => eth_reset_o,
+         eth_rxd_i               => eth_rxd_i,
+         eth_rxdv_i              => eth_rxdv_i,
+         eth_rxer_i              => eth_rxer_i,
+         eth_txd_o               => eth_txd_o,
+         eth_txen_o              => eth_txen_o,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_en_o               => cart_en,      -- Enable port, active high

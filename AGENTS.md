@@ -1393,6 +1393,35 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   separate session (worktree `.claude/worktrees/serial-pmod`) and merged as
   a patch; the menu walk (`~/aexp-work/menu-nest/real`, 211 lines) passes.
 
+- **Megamiga 0.5.0-dev, NETWORK CARD (2026-10-09, R4/R5/R6). R6 build eth-b
+  (WNS +0.125, `~/aexp-builds/Megamiga-0.5.0-dev-eth-b`), HARDWARE-CONFIRMED by
+  the user: `ethtest` ARP probe answered, Roadshow 1.15 pings the gateway.**
+  Design and register map: `doc/developers/ethernet.md`. A Zorro II board of our
+  own (manufacturer 2011, product 101, 64 KB, INT2), not an emulated card:
+  `CORE/vhdl/eth_card.vhd` (registers, 16-slot RX ring and TX buffer in
+  dual-clock BRAM, Gray/toggle CDC, MDIO: advertise 100BASE-TX only, poll link
+  + $1E mode; PHY reset 10 ms), `eth_mac.vhd` (RMII 100 Mbit/s: RX latched at
+  200 MHz at a selectable phase and TX through a 200 MHz delay line, the
+  MEGA65 core's scheme; default PHASE $05 = the MEGA65 etherload values, which
+  worked first time; CRC-32, end of frame after 3 low CRS_DV samples),
+  `eth_clk.vhd` (own MMCM: 50 MHz to the PHY + 200 MHz), `eth_dna.vhd` (MAC =
+  02 + DNA folded to 40 bits). cpu_wrapper: `ac_eth` after the IDE board,
+  `ext_eth` selects which board `ext_*` serves (main.vhd splits); minimig.v:
+  `eth_irq` ORed into int2. New M2M exception 14 `eth-pins` (R4/R5/R6 tops
+  route the PHY pins). CORE.xdc: eth clocks, main<->eth50 max_delay, false
+  paths on the RMII/MDIO pins. Driver `CORE/eth/` (`megamiga-eth.device`,
+  from a314eth.device, CC0; asm INT2 server masks the level RX interrupt until
+  the device process drained the ring) + `ethtest` (no stack: card, link,
+  ARP probe, `PHASES` sweep) + `Megamiga_Net.adf` (make_adf.sh, Roadshow
+  templates, DHCP by default); built with vbcc 0.9h + NDK 3.2
+  (`~/aexp-work/eth/tc`, build.sh needs VBCC and NDK). TESTS:
+  `~/aexp-work/eth/card` (tb_eth: PHY model with CRS_DV toggling, filters,
+  runts/giants/partial bytes with good FCS, overflow, TX decode, MDIO;
+  19/19 mutants killed), `~/aexp-work/rtg/e2e` (eth_chain = card + looped
+  PHY: autoconfig nibbles, registers, a frame out and back, MOVEM/byte reads),
+  `~/aexp-work/ide/e2e` (68000 IDE with the changed cpu_wrapper; needs
+  tg68_stub.v now). Lesson: in the e2e TBs `cw.wr` is HIGH for a read.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
@@ -1687,7 +1716,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with THIRTEEN sanctioned
+- `M2M/` — the framework. **NEVER modify**, with FOURTEEN sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -1787,6 +1816,12 @@ the deep material lives in `doc/` (see "Key documents").
   pin layout = MegaST's (PMOD1 lo CTS/TXD/RXD/RTS, hi MIDI OUT/IN mirroring
   the same Paula UART). Pull-ups on the three inputs in CORE.xdc. Added in
   the JS fork 2026-10-09, NOT maintainer-approved yet.
+  (14) `eth-pins` — the R4/R5/R6 board tops route the Ethernet PHY pins
+  (`eth_clock_o`, `eth_led2_o`, `eth_mdc_o`, `eth_mdio_io`, `eth_reset_o`,
+  `eth_rxd_i`, `eth_rxdv_i`, `eth_rxer_i`, `eth_txd_o`, `eth_txen_o`) into
+  `MEGA65_Core` for the network card (floppy-pins pattern, original tie-offs
+  kept as comments). Added in the JS fork 2026-10-09, NOT maintainer-approved
+  yet.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
