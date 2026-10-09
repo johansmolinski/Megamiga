@@ -1260,9 +1260,25 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   reaches the controller through amiga_sdram's ram_cs register, which stays
   single-cycle). The TG68K register file -> sd_ba path had fallen to +0.001;
   with the constraint the build closes at +0.288 (path slack 6.7 ns).
-  BANDWIDTH (open): in framebuffer mode ascal keeps writing the Amiga picture
-  into its own buffer, so HyperRAM carries input writes + framebuffer reads +
-  CPU; if 32-bit modes glitch, gate ascal's i_ce with fb_ena (same clock).
+  SPEED-UP (build -e, 2026-10-09, simulated, NOT hardware-tested): (a)
+  digital_pipeline gates ascal's `i_ce` with `fb_ena_i` (exception 12; needs
+  fb_ena synchronous to video_clk - here both are the core clock), so ascal no
+  longer writes the Amiga picture into HyperRAM while it shows the
+  framebuffer; (b) NEW `CORE/vhdl/rtg_wcomb.vhd` on hr_clk between the
+  avm_fifo and hr_core_*: gathers consecutive words of one aligned 16-word
+  block (and merges byte writes into gathered words) and sends them as ONE
+  burst from its own buffer, so the controller never sees a gap; flushes on a
+  write elsewhere, a full block, 128 idle clocks, or a read of a gathered word
+  (other reads pass, one access is ever outstanding). Before it, every word
+  was one HyperRAM transaction (~15-20 clocks overhead) - the avm_fifo already
+  posted writes 16 deep, so queueing was never the limit. Tests:
+  `~/aexp-work/rtg/wcomb` (random runs/bytes/merges/reads against a burst
+  HyperRAM model with 0/30/80 % waits, reference memory, burst protocol
+  checks; 5 seeds PASS; `mut.py` 9 mutants, 8 killed, `no_full_limit` is
+  equivalent - the aligned-block check already stops at 16) and the e2e TB
+  with the combiner and a burst model (PASS). The first TB run found a real
+  bug: a read issued while words were gathered carried burstcount = the
+  gathered count.
   Process lesson: after a build, `git checkout CORE-R6.xpr` also throws away
   uncommitted INTENDED .xpr edits (build -b first failed with "no such design
   unit rtg_vram") - restore a saved copy instead.
@@ -1278,7 +1294,8 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   harness's 0xDEAD case caught exactly that). Test `~/aexp-work/fw-prof2`
   (boot with no menu, then the replay): PASS; 15 of 16 mutants killed, the
   survivor (no heap check in the replay) is equivalent, PROF_NAME defers
-  again. ROM 28650/28672.
+  again. ROM 28650/28672. HARDWARE-CONFIRMED by the user (build -d,
+  2026-10-09): the names show on the first menu open.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

@@ -428,7 +428,11 @@ begin
          i_vs              => video_vs_i,                   -- input
          i_fl              => video_fl_i,                   -- input -- M2M-UPSTREAM interlace (AExp 2026-07-04), original: '0'
          i_de              => not (video_hblank_i or video_vblank_i), -- input
-         i_ce              => video_ce_i,                   -- input
+         -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): no input pixels while ascal shows the
+         -- framebuffer, so it does not keep writing the core picture into HyperRAM (bandwidth the
+         -- framebuffer reads and the core's own HyperRAM accesses need). fb_ena_i must be synchronous
+         -- to video_clk_i. Original: i_ce => video_ce_i
+         i_ce              => video_ce_i and not fb_ena_i,  -- input
          i_clk             => video_clk_i,                  -- input
 
          -- Output video
