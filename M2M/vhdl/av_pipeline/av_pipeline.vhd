@@ -44,6 +44,22 @@ entity av_pipeline is
       video_vblank_i          : in  std_logic;
       -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag for ascal
       video_fl_i              : in  std_logic := '0';
+      -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): ascal's framebuffer mode, driven
+      -- by the core (an RTG graphics card: the scaler shows a framebuffer in HyperRAM instead
+      -- of the core's video). Slowly changing values from the core clock domain - ascal
+      -- samples them asynchronously - plus the 8bpp palette (ascal pal2, written in the
+      -- clock domain of fb_pal_clk_i). The defaults keep every other core unchanged.
+      fb_ena_i                : in  std_logic := '0';
+      fb_hsize_i              : in  std_logic_vector(11 downto 0) := (others => '0');
+      fb_vsize_i              : in  std_logic_vector(11 downto 0) := (others => '0');
+      fb_format_i             : in  std_logic_vector( 5 downto 0) := "000101";
+      fb_base_i               : in  std_logic_vector(31 downto 0) := (others => '0');  -- byte address
+      fb_stride_i             : in  std_logic_vector(13 downto 0) := (others => '0');  -- bytes per line
+      fb_pal_clk_i            : in  std_logic := '0';
+      fb_pal_a_i              : in  std_logic_vector( 7 downto 0) := (others => '0');
+      fb_pal_dw_i             : in  std_logic_vector(23 downto 0) := (others => '0');  -- R G B
+      fb_pal_wr_i             : in  std_logic := '0';
+      fb_pal_dr_o             : out std_logic_vector(23 downto 0);
       audio_clk_i             : in  std_logic; -- 12.288 MHz
       audio_rst_i             : in  std_logic;
       audio_left_i            : in  std_logic_vector(15 downto 0);
@@ -819,6 +835,18 @@ begin
          -- i_crop on purpose (ascal evaluates i_fl only at frame granularity, so the
          -- one-clock pixel-path delay of crop is irrelevant)
          video_fl_i               => video_fl_i,
+         -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09)
+         fb_ena_i                => fb_ena_i,
+         fb_hsize_i              => fb_hsize_i,
+         fb_vsize_i              => fb_vsize_i,
+         fb_format_i             => fb_format_i,
+         fb_base_i               => fb_base_i,
+         fb_stride_i             => fb_stride_i,
+         fb_pal_clk_i            => fb_pal_clk_i,
+         fb_pal_a_i              => fb_pal_a_i,
+         fb_pal_dw_i             => fb_pal_dw_i,
+         fb_pal_wr_i             => fb_pal_wr_i,
+         fb_pal_dr_o             => fb_pal_dr_o,
          video_hdmax_o            => video_hdmax,
          video_vdmax_o            => video_vdmax,
          video_interlaced_o       => video_interlaced,   -- M2M-UPSTREAM screen-center

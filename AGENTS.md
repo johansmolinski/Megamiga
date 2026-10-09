@@ -1209,6 +1209,77 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   reaches it; 12/12 HDL mutants killed), `~/aexp-work/menu-nest/real` (207-line
   walk) PASS.
 
+- **Megamiga 0.4.0-dev, RTG GRAPHICS CARD (branch `rtg`, 2026-10-09, Minimig
+  `rtg`). Simulated, R6-built (build -c, WNS +0.288,
+  `~/aexp-builds/Megamiga-0.4.0-dev-rtg-c`, CORE_VERSION still "0.3.1" so the
+  207-byte settings file on the card fits). HARDWARE-CONFIRMED by the user
+  (2026-10-09, Picasso96 2.0 on WB 3.1, A1200 profile): "RTG works", 8 bit
+  snappy, 16/24/32 bit progressively slower, the PAL picture comes back.** MiSTer's Minimig RTG
+  card: Picasso96 with MiSTer's driver, the picture shown by ascal's
+  framebuffer mode on HDMI. Pieces:
+  (1) `cpu_wrapper.v`: `sel_rtg` ($02xxxxxx, 68020 only) back in `ramsel`,
+  tagged `ramaddr[26]` (the MiSTer byte swap of RTG accesses was still in
+  place). (2) `main.vhd`: MiSTer's `rtl/rtg.v` on cpu_wrapper's fastchip
+  port (as `fastchip.v` wires it: $B80xxx, registers at $B80100, CLUT at
+  $B80400; 68020 path only), reset by CPU reset / RESET instruction
+  (= Amiga picture back); outputs `rtg_*`, plus `fram_rtg_o`. (3) NEW
+  `CORE/vhdl/rtg_vram.vhd`: the 68020's RTG fram cycles -> single-word
+  Avalon at HyperRAM word $200000 (= byte $400000, 4 MB - the space the
+  floppy buffers left); ready is ONE core clock per access and the next
+  clock is skipped (TG68K has no AS gap; MOVEM), writes posted, reads
+  waited, 8192-clock watchdog returns $FFFF. mega65.vhd: `amiga_sdram`
+  only gets non-RTG fram cycles, read data/ready muxed, `avm_fifo` main ->
+  hr_clk onto `hr_core_*` (reset `main_reset_core_i or main_rst` /
+  `hr_rst_i`). (4) **M2M exception 12 `rtg-framebuffer`**:
+  `fb_ena/hsize/vsize/format/base/stride` + the 8bpp palette (ascal `pal2`,
+  `PALETTE2 => true`) threaded core -> top_mega65-r4/5/6 -> framework ->
+  av_pipeline -> digital_pipeline -> ascal o_fb_* (all defaults keep other
+  cores unchanged; R3 top untouched). ascal builds the core palette only with
+  BOTH generics: `GenPal2 = PALETTE and PALETTE2` (build -a had PALETTE2 alone
+  = no 8bpp palette, caught in the netlist); so `PALETTE => true` (the unused
+  pal1 memory is trimmed) and `pal_n => '1'` (= use pal2). Byte layout = MiSTer's DDR3: the even
+  Amiga byte in Avalon lane 0. CORE.xdc: false path from `CORE/i_main/i_rtg`
+  to hr_clk/hdmi_clk (ascal samples them asynchronously; the palette RAM is
+  written on the core clock and stays timed). (5) DRIVER: `CORE/rtg/`
+  (MiSTer.card.asm + includes, LGPL) with MEMORY_SIZE $400000 and FB_BASE
+  $00400000 (the HyperRAM byte address goes into the base register, as on
+  MiSTer with its DDR3 address); `build.sh` uses vasm (`-Fhunkexe -nosym`
+  reproduces MiSTer's shipped MiSTer.card BYTE FOR BYTE with the original
+  constants); `make_adf.sh` (amitools xdftool) makes `Megamiga_RTG.adf` with
+  the card and MiSTer's monitor + Picasso96Settings (from MiSTer_RTG.lha,
+  extracted to `CORE/rtg/mister/`). Test: `~/aexp-work/rtg/e2e` (TG68K + real
+  cpu_wrapper + amiga_sdram + rtg.v + rtg_vram + avm_fifo -> HyperRAM model at
+  100 MHz with random waits; 68020 program: version reg $5001, register and
+  palette round trips, long/word/byte + MOVEM to VRAM, patterns at both ends
+  of the 4 MB, Chip/Z2/Z3 untouched; TB checks the HyperRAM byte layout and
+  the register outputs) PASS; mutants (no skipped clock, byte lanes swapped,
+  base 0, early read ready, unposted write, no cpu_wrapper swap) all killed.
+  Not covered by simulation: ascal's framebuffer mode itself (MiSTer code).
+  TIMING: CORE.xdc now also carries the CPU half of MiSTer's Minimig.sdc -
+  `cpu_inst_p`/`cpu_inst_o` -> `i_sdram_ctrl` setup 2 / hold 1 (the select
+  reaches the controller through amiga_sdram's ram_cs register, which stays
+  single-cycle). The TG68K register file -> sd_ba path had fallen to +0.001;
+  with the constraint the build closes at +0.288 (path slack 6.7 ns).
+  BANDWIDTH (open): in framebuffer mode ascal keeps writing the Amiga picture
+  into its own buffer, so HyperRAM carries input writes + framebuffer reads +
+  CPU; if 32-bit modes glitch, gate ascal's i_ce with fb_ena (same clock).
+  Process lesson: after a build, `git checkout CORE-R6.xpr` also throws away
+  uncommitted INTENDED .xpr edits (build -b first failed with "no such design
+  unit rtg_vram") - restore a saved copy instead.
+  ALSO IN THIS COMMIT - PROFILE NAMES AT CORE START: the first menu open
+  showed `HDF 0:%s` / `HDF 1:%s` / `Kickstart:%s`, because PROFILE_APPLY runs
+  from PREP_START before the menu exists (`OPTM_HEAP` = 0 until the first
+  HELP_MENU) and PROF_NAME set CRTROM_MAN_LDF without a name in its buffer.
+  Now PROF_NAME keeps the path label in `PROF_PEND` (+ flag `PROF_PENDF`) while
+  `OPTM_HEAP` is 0 and leaves the loaded flag alone; `PROF_PEND_APPLY` (in
+  HANDLE_CORE_IO, which the menu key loop runs BEFORE CRTROM_MLST_GET) shows
+  the names and sets the flags once the menu exists. PROFILE_APPLY clears flag
+  + table first (uninitialised RAM would otherwise be taken as labels - the
+  harness's 0xDEAD case caught exactly that). Test `~/aexp-work/fw-prof2`
+  (boot with no menu, then the replay): PASS; 15 of 16 mutants killed, the
+  survivor (no heap check in the replay) is equivalent, PROF_NAME defers
+  again. ROM 28650/28672.
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
@@ -1503,7 +1574,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with ELEVEN sanctioned
+- `M2M/` — the framework. **NEVER modify**, with TWELVE sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -1590,6 +1661,11 @@ the deep material lives in `doc/` (see "Key documents").
   closers return to the parent level). Flat menus are unchanged. Added in the
   JS fork 2026-10-08 for the Megamiga 0.3 Settings page, NOT
   maintainer-approved yet.
+  (12) `rtg-framebuffer` — ascal's framebuffer mode driven by the core:
+  `fb_*` ports (enable, size, format, base, stride, 8bpp palette) through
+  top_mega65-r4/5/6 -> framework -> av_pipeline -> digital_pipeline, and
+  `PALETTE2 => true`. Defaults keep every other core unchanged. Added in the
+  JS fork 2026-10-09 for the RTG card, NOT maintainer-approved yet.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

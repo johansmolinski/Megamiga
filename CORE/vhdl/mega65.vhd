@@ -116,6 +116,21 @@ port (
    video_vblank_o          : out std_logic;
    video_fl_o              : out std_logic;  -- interlace field flag for ascal weave deinterlacing
 
+   -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): the RTG graphics card - ascal shows
+   -- the framebuffer in HyperRAM instead of the Amiga picture while fb_ena_o = '1' (HDMI only:
+   -- the analog output keeps the Amiga picture). Core clock domain, slowly changing.
+   fb_ena_o                : out std_logic;
+   fb_hsize_o              : out std_logic_vector(11 downto 0);
+   fb_vsize_o              : out std_logic_vector(11 downto 0);
+   fb_format_o             : out std_logic_vector( 5 downto 0);
+   fb_base_o               : out std_logic_vector(31 downto 0);  -- HyperRAM byte address
+   fb_stride_o             : out std_logic_vector(13 downto 0);
+   fb_pal_clk_o            : out std_logic;
+   fb_pal_a_o              : out std_logic_vector( 7 downto 0);
+   fb_pal_dw_o             : out std_logic_vector(23 downto 0);
+   fb_pal_wr_o             : out std_logic;
+   fb_pal_dr_i             : in  std_logic_vector(23 downto 0) := (others => '0');
+
    --------------------------------------------------------------------------------------------------------
    -- Core Clock Domain
    --------------------------------------------------------------------------------------------------------
@@ -339,6 +354,26 @@ signal main_fram_lds_n        : std_logic;
 signal main_fram_wrdata       : std_logic_vector(15 downto 0);
 signal main_fram_rddata       : std_logic_vector(15 downto 0);
 signal main_fram_ready        : std_logic;
+-- Megamiga: the RTG board memory ($02xxxxxx, 68020) is a fram_* cycle that goes to HyperRAM
+-- (rtg_vram) instead of the SDRAM; the SDRAM port only sees the others
+signal main_fram_rtg          : std_logic;
+signal main_sdram_fram_sel    : std_logic;
+signal main_sdram_rddata      : std_logic_vector(15 downto 0);
+signal main_sdram_ready       : std_logic;
+signal main_vram_rddata       : std_logic_vector(15 downto 0);
+signal main_vram_ready        : std_logic;
+signal main_vram_rst          : std_logic;
+signal main_vram_avm_write    : std_logic;
+signal main_vram_avm_read     : std_logic;
+signal main_vram_avm_address  : std_logic_vector(31 downto 0);
+signal main_vram_avm_writedata : std_logic_vector(15 downto 0);
+signal main_vram_avm_byteenable : std_logic_vector(1 downto 0);
+signal main_vram_avm_burstcount : std_logic_vector(7 downto 0);
+signal main_vram_avm_readdata : std_logic_vector(15 downto 0);
+signal main_vram_avm_readdatavalid : std_logic;
+signal main_vram_avm_waitrequest : std_logic;
+-- the RTG registers (MiSTer's rtg.v in main.vhd)
+signal main_rtg_format        : std_logic_vector(4 downto 0);
 
 -- IDE board (ide_board.vhd): cpu_wrapper's ext_* port. Address, direction, strobes and
 -- write data are shared with the Fast RAM port above (main_fram_*).
@@ -1318,6 +1353,17 @@ begin
          fram_ready_i         => main_fram_ready,
          fram_state_o         => main_fram_state,
          cpu_cacr_o           => main_cpu_cacr,
+         fram_rtg_o           => main_fram_rtg,
+         rtg_ena_o            => fb_ena_o,
+         rtg_hsize_o          => fb_hsize_o,
+         rtg_vsize_o          => fb_vsize_o,
+         rtg_format_o         => main_rtg_format,
+         rtg_base_o           => fb_base_o,
+         rtg_stride_o         => fb_stride_o,
+         rtg_pal_a_o          => fb_pal_a_o,
+         rtg_pal_dw_o         => fb_pal_dw_o,
+         rtg_pal_wr_o         => fb_pal_wr_o,
+         rtg_pal_dr_i         => fb_pal_dr_i,
          c7m_o                => main_c7m,
          ide_ena_i            => main_ide_ena,
          ide_sel_o            => main_ide_sel,
@@ -1417,15 +1463,15 @@ begin
          ram_ble_n_i    => main_ram_ble_n,
          ram_we_n_i     => main_ram_we_n,
          ram_oe_n_i     => main_ram_oe_n,
-         fram_sel_i     => main_fram_sel,
+         fram_sel_i     => main_sdram_fram_sel,           -- (not the RTG board memory)
          fram_state_i   => main_fram_state,
          fram_addr_i    => main_fram_addr,
          cpu_020_i      => main_cpu_020,
          fram_uds_n_i   => main_fram_uds_n,
          fram_lds_n_i   => main_fram_lds_n,
          fram_data_i    => main_fram_wrdata,
-         fram_data_o    => main_fram_rddata,
-         fram_ready_o   => main_fram_ready,
+         fram_data_o    => main_sdram_rddata,
+         fram_ready_o   => main_sdram_ready,
          cpu_reset_n_i  => not main_ide_rst,
          cpu_cacr_i     => main_cpu_cacr,
          scrub_i        => amiga_chip_scrub,
@@ -2708,14 +2754,84 @@ begin
          m_avm_waitrequest_i    => mem_s3_avm_waitrequest
       ); -- i_avm_arbit_s3
 
-   -- The core does not use the framework's HyperRAM port any more (the floppy buffers moved
-   -- to the SDRAM floppy port); it is free for an RTG framebuffer.
-   hr_core_write_o      <= '0';
-   hr_core_read_o       <= '0';
-   hr_core_address_o    <= (others => '0');
-   hr_core_writedata_o  <= (others => '0');
-   hr_core_byteenable_o <= (others => '0');
-   hr_core_burstcount_o <= x"01";
+   ---------------------------------------------------------------------------------------------
+   -- RTG graphics card (Megamiga): the board memory in HyperRAM
+   --
+   -- The 68020's fram_* cycles to $02xxxxxx (main_fram_rtg) go to rtg_vram instead of the SDRAM;
+   -- rtg_vram turns them into single-word Avalon accesses at HyperRAM byte $400000.. (4 MB), which
+   -- cross to the HyperRAM clock and use the framework's hr_core_* port (free since the floppy
+   -- buffers moved to the SDRAM). ascal reads the same HyperRAM in framebuffer mode: the fb_*
+   -- outputs below, from MiSTer's RTG registers in main.vhd. The rebuilt Picasso96 driver
+   -- (CORE/rtg/MiSTer.card.asm) writes the HyperRAM byte address into the base register, so
+   -- fb_base_o is the register as it is - exactly what MiSTer's driver does with its DDR3.
+   ---------------------------------------------------------------------------------------------
+
+   main_sdram_fram_sel <= main_fram_sel and not main_fram_rtg;
+   main_fram_rddata    <= main_vram_rddata when main_fram_rtg = '1' else main_sdram_rddata;
+   main_fram_ready     <= main_vram_ready  when main_fram_rtg = '1' else main_sdram_ready;
+
+   -- the core reset (button, or the Shell holding the core) and the clock-generator reset; the
+   -- framework resets the HyperRAM side together with the core (reset_core_n)
+   main_vram_rst <= main_reset_core_i or main_rst;
+
+   i_rtg_vram : entity work.rtg_vram
+      port map (
+         clk_i                 => main_clk,
+         rst_i                 => main_vram_rst,
+         sel_i                 => main_fram_sel and main_fram_rtg,
+         we_i                  => main_fram_we,
+         addr_i                => main_fram_addr(21 downto 1),
+         lds_n_i               => main_fram_lds_n,
+         uds_n_i               => main_fram_uds_n,
+         data_i                => main_fram_wrdata,
+         data_o                => main_vram_rddata,
+         ready_o               => main_vram_ready,
+         avm_write_o           => main_vram_avm_write,
+         avm_read_o            => main_vram_avm_read,
+         avm_address_o         => main_vram_avm_address,
+         avm_writedata_o       => main_vram_avm_writedata,
+         avm_byteenable_o      => main_vram_avm_byteenable,
+         avm_burstcount_o      => main_vram_avm_burstcount,
+         avm_readdata_i        => main_vram_avm_readdata,
+         avm_readdatavalid_i   => main_vram_avm_readdatavalid,
+         avm_waitrequest_i     => main_vram_avm_waitrequest
+      ); -- i_rtg_vram
+
+   i_avm_fifo_vram : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => main_clk,
+         s_rst_i               => main_vram_rst,
+         s_avm_waitrequest_o   => main_vram_avm_waitrequest,
+         s_avm_write_i         => main_vram_avm_write,
+         s_avm_read_i          => main_vram_avm_read,
+         s_avm_address_i       => main_vram_avm_address,
+         s_avm_writedata_i     => main_vram_avm_writedata,
+         s_avm_byteenable_i    => main_vram_avm_byteenable,
+         s_avm_burstcount_i    => main_vram_avm_burstcount,
+         s_avm_readdata_o      => main_vram_avm_readdata,
+         s_avm_readdatavalid_o => main_vram_avm_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => hr_core_waitrequest_i,
+         m_avm_write_o         => hr_core_write_o,
+         m_avm_read_o          => hr_core_read_o,
+         m_avm_address_o       => hr_core_address_o,
+         m_avm_writedata_o     => hr_core_writedata_o,
+         m_avm_byteenable_o    => hr_core_byteenable_o,
+         m_avm_burstcount_o    => hr_core_burstcount_o,
+         m_avm_readdata_i      => hr_core_readdata_i,
+         m_avm_readdatavalid_i => hr_core_readdatavalid_i
+      ); -- i_avm_fifo_vram
+
+   fb_format_o  <= '0' & main_rtg_format;
+   fb_pal_clk_o <= main_clk;
 
    -- round-robin per whole transaction; the masters never compete in practice
    -- (a mount streams while the engine is idle and vice versa). Keep this at

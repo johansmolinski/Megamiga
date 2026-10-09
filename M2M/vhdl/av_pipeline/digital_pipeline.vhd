@@ -42,6 +42,22 @@ entity digital_pipeline is
       video_vblank_i           : in  std_logic;
       -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag for ascal
       video_fl_i               : in  std_logic := '0';
+      -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): ascal's framebuffer mode, driven
+      -- by the core (an RTG graphics card: the scaler shows a framebuffer in HyperRAM instead
+      -- of the core's video). Slowly changing values from the core clock domain - ascal
+      -- samples them asynchronously - plus the 8bpp palette (ascal pal2, written in the
+      -- clock domain of fb_pal_clk_i). The defaults keep every other core unchanged.
+      fb_ena_i                : in  std_logic := '0';
+      fb_hsize_i              : in  std_logic_vector(11 downto 0) := (others => '0');
+      fb_vsize_i              : in  std_logic_vector(11 downto 0) := (others => '0');
+      fb_format_i             : in  std_logic_vector( 5 downto 0) := "000101";
+      fb_base_i               : in  std_logic_vector(31 downto 0) := (others => '0');  -- byte address
+      fb_stride_i             : in  std_logic_vector(13 downto 0) := (others => '0');  -- bytes per line
+      fb_pal_clk_i            : in  std_logic := '0';
+      fb_pal_a_i              : in  std_logic_vector( 7 downto 0) := (others => '0');
+      fb_pal_dw_i             : in  std_logic_vector(23 downto 0) := (others => '0');  -- R G B
+      fb_pal_wr_i             : in  std_logic := '0';
+      fb_pal_dr_o             : out std_logic_vector(23 downto 0);
       audio_clk_i              : in  std_logic;  -- 12.288 MHz
       audio_rst_i              : in  std_logic;
       audio_left_i             : in  signed(15 downto 0); -- Signed PCM format
@@ -388,8 +404,14 @@ begin
          DOWNSCALE_NN => true,      -- Not needed: true = remove logic
          BYTESWAP  => true,
          ADAPTIVE  => true,         -- Needed for advanced scanlines emulation in polyphase mode
-         PALETTE   => false,        -- Not needed: Only useful for the framebuffer mode, where the scaler is used to upscale a framebuffer in RAM, without using the scaler input.
-         PALETTE2  => false,        -- Not needed: Same, for framebuffer 256 colours mode.
+         -- M2M-UPSTREAM rtg-framebuffer: ascal builds the core palette (pal2) only with PALETTE
+         -- as well (GenPal2 = PALETTE and PALETTE2; the palette index logic is in GenPal1). The
+         -- pal1 memory is never written and is trimmed. Original:
+         -- PALETTE   => false,     -- Not needed: Only useful for the framebuffer mode, where the scaler is used to upscale a framebuffer in RAM, without using the scaler input.
+         PALETTE   => true,
+         -- M2M-UPSTREAM rtg-framebuffer: the core supplies the 8bpp palette. Original:
+         -- PALETTE2  => false,     -- Not needed: Same, for framebuffer 256 colours mode.
+         PALETTE2  => true,
          FRAC      => 6,            -- 2^value subpixels; MiSTer starts to settle on FRAC => 8, but this older version of ascal does not seem to support 8 (at C64 still at 6)
          OHRES     => 2048,         -- Maximum horizontal output resolution. (There is no parameter for vertical resolution.)
          IHRES     => 1024,         -- Maximum horizontal input resolution. (Also here no parameter for vertical.)
@@ -424,12 +446,14 @@ begin
          o_border          => X"000000",                    -- input
 
          -- Framebuffer mode
-         o_fb_ena          => '0',                          -- input: do not use framebuffer mode
-         o_fb_hsize        => 0,                            -- input
-         o_fb_vsize        => 0,                            -- input
-         o_fb_format       => "000101",                     -- input: 101=24bpp: 8-bit for R, G and B
-         o_fb_base         => x"0000_0000",                 -- input
-         o_fb_stride       => (others => '0'),              -- input
+         -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09), originally tied off:
+         -- '0' / 0 / 0 / "000101" / x"0000_0000" / (others => '0')
+         o_fb_ena          => fb_ena_i,                     -- input
+         o_fb_hsize        => to_integer(unsigned(fb_hsize_i)), -- input
+         o_fb_vsize        => to_integer(unsigned(fb_vsize_i)), -- input
+         o_fb_format       => unsigned(fb_format_i),        -- input
+         o_fb_base         => unsigned(fb_base_i),          -- input
+         o_fb_stride       => unsigned(fb_stride_i),        -- input
 
          -- Framebuffer palette in 8bpp mode
          pal1_clk          => '0',                          -- input
@@ -437,13 +461,14 @@ begin
          pal1_dr           => open,                         -- output
          pal1_a            => "0000000",                    -- input
          pal1_wr           => '0',                          -- input
-         pal_n             => '0',                          -- input
+         pal_n             => '1',                          -- input: M2M-UPSTREAM rtg-framebuffer: the core's palette (pal2), originally '0'
 
-         pal2_clk          => '0',                          -- input
-         pal2_dw           => x"000000",                    -- input
-         pal2_dr           => open,                         -- output
-         pal2_a            => "00000000",                   -- input
-         pal2_wr           => '0',                          -- input
+         -- M2M-UPSTREAM rtg-framebuffer: the core's 8bpp palette (originally tied off)
+         pal2_clk          => fb_pal_clk_i,                 -- input
+         pal2_dw           => unsigned(fb_pal_dw_i),        -- input
+         std_logic_vector(pal2_dr) => fb_pal_dr_o,          -- output
+         pal2_a            => unsigned(fb_pal_a_i),         -- input
+         pal2_wr           => fb_pal_wr_i,                  -- input
 
          -- Low lag PLL tuning
          o_lltune          => open,                         -- output

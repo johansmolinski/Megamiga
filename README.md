@@ -64,6 +64,8 @@ Features
   disk images via the on-screen-menu, read and write — and hand one of the
   drives to the MEGA65's own internal 3.5" drive to read and write genuine
   Amiga disks, copy-protected originals included
+* A Picasso96 graphics card (RTG) for the 68020, on HDMI: 8/16/24/32-bit
+  screens in 4 MB of board memory
 * Two IDE hard disks (master and slave): `*.hdf` images on the SD card, read
   and write, that Kickstart boots from (needs the free lide.device boot ROM)
 * Kickstart 1.3 (256 KB) or 2.04 / 3.x (512 KB), one per profile, and
@@ -337,6 +339,33 @@ mounted until you eject it, mount another image on its line, select a machine
 profile or swap the SD card; mounting an
 image always restarts the Amiga, because Kickstart only looks for hard disks
 when it starts.
+
+### Graphics card (RTG, Picasso96)
+
+Profiles with the 68020 (the A1200 profile, or any profile switched to the
+68020 in **Profile Settings**) have a graphics card for Picasso96: Workbench
+and RTG programs can open screens in 256 colours, 16 bit (65536 colours) or
+24/32 bit, which the MEGA65 shows on its **HDMI** output. The 4 MB of board
+memory hold for example 1024 x 768 in 32 bit or 1280 x 1024 in 16 bit.
+It is MiSTer's Minimig RTG card: the same registers at `$B80100` and the same
+Picasso96 driver, rebuilt for the 4 MB of board memory the MEGA65 has for it
+(`$02000000`-`$023FFFFF`, in the HyperRAM).
+
+You need Kickstart 3.x, Workbench 3.x and
+[Picasso96 2.0](https://aminet.net/package/driver/video/Picasso96) from
+Aminet. Install Picasso96 first, then copy the driver from the
+`Megamiga_RTG.adf` disk of the release (or from `CORE/rtg/` of the source):
+
+    Libs/Picasso96/MiSTer.card   to LIBS:Picasso96/
+    Devs/Monitors/MiSTer         to DEVS:Monitors/  (with MiSTer.info)
+    Devs/Picasso96Settings       to DEVS:           (the screen modes)
+
+Reboot and pick one of the `MiSTer:` modes in Prefs/ScreenMode. The driver
+keeps MiSTer's name, so MiSTer's settings files work unchanged.
+
+While an RTG screen is shown, the HDMI picture comes from the graphics card
+and the analog VGA output keeps showing the normal Amiga picture. A reset
+switches back to the Amiga picture. RTG needs the HDMI output.
 
 ### Mouse and joystick
 

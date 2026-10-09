@@ -310,6 +310,15 @@ architecture synthesis of mega65_r6 is
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
    signal video_fl               : std_logic;   -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+   -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): core -> ascal framebuffer mode
+   signal fb_ena                 : std_logic;
+   signal fb_hsize, fb_vsize     : std_logic_vector(11 downto 0);
+   signal fb_format              : std_logic_vector( 5 downto 0);
+   signal fb_base                : std_logic_vector(31 downto 0);
+   signal fb_stride              : std_logic_vector(13 downto 0);
+   signal fb_pal_clk, fb_pal_wr  : std_logic;
+   signal fb_pal_a               : std_logic_vector( 7 downto 0);
+   signal fb_pal_dw, fb_pal_dr   : std_logic_vector(23 downto 0);
    signal osm_key_a              : integer range 0 to 79;  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
    signal osm_key_b              : integer range 0 to 79;  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
    signal osm_combo              : std_logic;              -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
@@ -672,6 +681,18 @@ begin
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
       video_fl_i              => video_fl,     -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+      -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09)
+      fb_ena_i                => fb_ena,
+      fb_hsize_i              => fb_hsize,
+      fb_vsize_i              => fb_vsize,
+      fb_format_i             => fb_format,
+      fb_base_i               => fb_base,
+      fb_stride_i             => fb_stride,
+      fb_pal_clk_i            => fb_pal_clk,
+      fb_pal_a_i              => fb_pal_a,
+      fb_pal_dw_i             => fb_pal_dw,
+      fb_pal_wr_i             => fb_pal_wr,
+      fb_pal_dr_o             => fb_pal_dr,
       osm_key_a_i             => osm_key_a,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
       osm_key_b_i             => osm_key_b,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
       osm_combo_i             => osm_combo,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
@@ -846,6 +867,18 @@ begin
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
          video_fl_o              => video_fl,  -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+         -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09)
+         fb_ena_o                => fb_ena,
+         fb_hsize_o              => fb_hsize,
+         fb_vsize_o              => fb_vsize,
+         fb_format_o             => fb_format,
+         fb_base_o               => fb_base,
+         fb_stride_o             => fb_stride,
+         fb_pal_clk_o            => fb_pal_clk,
+         fb_pal_a_o              => fb_pal_a,
+         fb_pal_dw_o             => fb_pal_dw,
+         fb_pal_wr_o             => fb_pal_wr,
+         fb_pal_dr_i             => fb_pal_dr,
          osm_key_a_o             => osm_key_a,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
          osm_key_b_o             => osm_key_b,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
          osm_combo_o             => osm_combo,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)

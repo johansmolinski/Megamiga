@@ -122,11 +122,29 @@ set_property IOB TRUE [get_ports {sdram_a_o[*] sdram_ba_o[*] sdram_ras_n_o sdram
 ## only changes on the core clock edge that starts a 7 MHz cycle (c1 rising); sdram_ctrl
 ## detects that edge one fast clock later (old_7m) and samples the chipset address, data and
 ## strobes in state 0, at the SECOND fast clock edge after the launch. The cache snoop uses
-## them even later. The maintenance writer (amiga_sdram.vhd) and the CPU port are NOT
-## covered: they stay single-cycle timed, so the controller can never sample a half-settled
-## address from them. Two more sources feed the same chipset nets: the cck register of
+## them even later. The maintenance writer (amiga_sdram.vhd) is NOT covered: it stays
+## single-cycle timed, so the controller can never sample a half-settled address from it. Two more sources feed the same chipset nets: the cck register of
 ## amiga_clk (like MiSTer's sdc) and the framework's qnice2main OSM bits, which reach the
 ## chip write data through Paula's floppy muxes (Hardware Floppy unit mapping) - menu
 ## settings that are static while the Amiga runs.
 set_multicycle_path -setup 2 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_minimig/minimig_inst/* || NAME =~ CORE/i_main/i_amiga_clk/cck* || NAME =~ i_framework/i_qnice2main/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
 set_multicycle_path -hold 1 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_minimig/minimig_inst/* || NAME =~ CORE/i_main/i_amiga_clk/cck* || NAME =~ i_framework/i_qnice2main/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
+
+## Megamiga RTG (M2M-UPSTREAM rtg-framebuffer): MiSTer's RTG registers (CORE/i_main/i_rtg, core
+## clock) drive ascal's framebuffer-mode inputs (o_fb_ena/hsize/vsize/format/base/stride), which
+## ascal samples asynchronously in its Avalon (hr_clk) and output (hdmi_clk) domains. They only
+## change when the Picasso96 driver switches a mode; a torn value lasts one frame at most. The
+## palette writes stay timed: ascal's pal2 RAM is written on the core clock (fb_pal_clk).
+set_false_path -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_main/i_rtg/*}] -to [get_clocks {hr_clk hdmi_clk}]
+
+## Megamiga: CPU -> SDRAM controller, 2 cycles of the 113.5 MHz clock - the other half of MiSTer's
+## Minimig.sdc ("-from cpu_wrapper|cpu_inst* -to ram* -setup 2 / -hold 1"; MiSTer runs the CPU at
+## 28 MHz and the controller at 114 MHz too). The CPU's address, data and strobes change on a
+## core clock edge; the controller only acts on them through cpuCS = amiga_sdram's ram_cs, a
+## 113.5 MHz register that samples the select at the FIRST fast edge after the core edge (that
+## path stays single-cycle timed: amiga_sdram is not in the -to list), so the write buffer, the
+## cache and the slot logic use them from the SECOND fast edge on. Until 0.4.0 this path was left
+## single-cycle; with the 68020 address adder (TG68K register file -> sd_ba) it had shrunk to
+## +0.001 ns.
+set_multicycle_path -setup 2 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_p/* || NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_o/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
+set_multicycle_path -hold 1 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_p/* || NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_o/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]

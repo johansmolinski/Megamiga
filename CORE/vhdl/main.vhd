@@ -157,6 +157,22 @@ entity main is
       fram_ready_i            : in  std_logic;
       fram_state_o            : out std_logic_vector(1 downto 0);   -- cpustate (sdram cache)
       cpu_cacr_o              : out std_logic_vector(3 downto 0);   -- 68k cache control
+      -- Megamiga: '1' while the fram_* cycle is for the RTG board memory ($02xxxxxx, 68020
+      -- only); fram_addr_o(22 downto 1) is then the offset. The parent serves it from HyperRAM.
+      fram_rtg_o              : out std_logic;
+
+      -- Megamiga: the RTG graphics card registers (MiSTer's rtg.v at $B80100, 68020 only):
+      -- core clock, slowly changing; the palette RAM is written on the core clock
+      rtg_ena_o               : out std_logic;
+      rtg_hsize_o             : out std_logic_vector(11 downto 0);
+      rtg_vsize_o             : out std_logic_vector(11 downto 0);
+      rtg_format_o            : out std_logic_vector( 4 downto 0);
+      rtg_base_o              : out std_logic_vector(31 downto 0);
+      rtg_stride_o            : out std_logic_vector(13 downto 0);
+      rtg_pal_a_o             : out std_logic_vector( 7 downto 0);
+      rtg_pal_dw_o            : out std_logic_vector(23 downto 0);
+      rtg_pal_wr_o            : out std_logic;
+      rtg_pal_dr_i            : in  std_logic_vector(23 downto 0);
       c7m_o                   : out std_logic;                      -- amiga_clk c1 (SDRAM phase)
 
       -- IDE board (ide_board.vhd in mega65.vhd, RIPPLE-compatible, autoconfig'd by
@@ -378,6 +394,37 @@ architecture synthesis of main is
          rdata          : out std_logic_vector(14 downto 0)
       );
    end component minimig_m65;
+
+   -- MiSTer's RTG register block (rtl/rtg.v), as fastchip.v instantiates it
+   component rtg is
+      port (
+         clk      : in  std_logic;
+         aen      : in  std_logic;
+         rd       : in  std_logic;
+         wr       : in  std_logic;
+         reset    : in  std_logic;
+         rs       : in  std_logic_vector(11 downto 1);
+         ready    : out std_logic;
+         data_in  : in  std_logic_vector(15 downto 0);
+         data_out : out std_logic_vector(15 downto 0);
+         ena      : out std_logic;
+         hsize    : out std_logic_vector(11 downto 0);
+         vsize    : out std_logic_vector(11 downto 0);
+         format   : out std_logic_vector( 4 downto 0);
+         base     : out std_logic_vector(31 downto 0);
+         stride   : out std_logic_vector(13 downto 0);
+         pal_clk  : out std_logic;
+         pal_dw   : out std_logic_vector(23 downto 0);
+         pal_dr   : in  std_logic_vector(23 downto 0);
+         pal_a    : out std_logic_vector( 7 downto 0);
+         pal_wr   : out std_logic
+      );
+   end component rtg;
+
+   -- the fastchip port of cpu_wrapper (68020 only): the RTG registers live there
+   signal fc_sel, fc_lds_n, fc_uds_n, fc_rnw : std_logic;
+   signal rtg_aen, rtg_ready, rtg_wr, rtg_rst : std_logic;
+   signal rtg_dout         : std_logic_vector(15 downto 0);
 
    component cpu_wrapper is
       port (
@@ -715,6 +762,7 @@ begin
       "1"  & cpu_ramaddr(23 downto 1)  when "10",
       "00" & cpu_ramaddr(22 downto 1)  when others;
    cpu_cpucfg  <= "11" when cpu_020_i = '1' else "00";
+   fram_rtg_o  <= cpu_ramaddr(26);
    fram_we_o   <= '1' when cpu_state = "11" else '0';
    fram_state_o <= cpu_state;
    c7m_o        <= c1;
@@ -751,14 +799,15 @@ begin
          chip_dtack      => cpu_dtack_n,
          chip_ipl        => cpu_ipl_n,
 
-         fastchip_dout   => x"0000",
-         fastchip_sel    => open,
-         fastchip_lds    => open,
-         fastchip_uds    => open,
-         fastchip_rnw    => open,
+         -- Megamiga: the RTG registers on the fastchip port (was tied off)
+         fastchip_dout   => rtg_dout,
+         fastchip_sel    => fc_sel,
+         fastchip_lds    => fc_lds_n,
+         fastchip_uds    => fc_uds_n,
+         fastchip_rnw    => fc_rnw,
          fastchip_lw     => open,
-         fastchip_selack => '0',
-         fastchip_ready  => '0',
+         fastchip_selack => rtg_aen,
+         fastchip_ready  => rtg_ready,
 
          ramsel          => fram_sel_o,
          ramaddr         => cpu_ramaddr,
@@ -782,6 +831,40 @@ begin
          cacr            => cpu_cacr_o,
          nmi_addr        => cpu_nmi_addr
       ); -- i_cpu_wrapper
+
+   ---------------------------------------------------------------------------
+   -- RTG graphics card registers ($B80100, MiSTer's rtg.v wired like fastchip.v):
+   -- the 68020 reaches them through cpu_wrapper's fastchip port (the 68000 cannot:
+   -- the RTG board memory at $02000000 needs a 32-bit address anyway). A reset
+   -- (CPU or RESET instruction) switches the card off: the Amiga screen is back.
+   ---------------------------------------------------------------------------
+   rtg_aen <= '1' when fc_sel = '1' and cpu_addr(23 downto 12) = x"B80" else '0';
+   rtg_wr  <= (not fc_rnw) and ((not fc_lds_n) or (not fc_uds_n));
+   rtg_rst <= not (cpu_reset_n and cpu_reset_out_n);
+
+   i_rtg : rtg
+      port map (
+         clk      => clk_main_i,
+         aen      => rtg_aen,
+         rd       => fc_rnw,
+         wr       => rtg_wr,
+         reset    => rtg_rst,
+         rs       => cpu_addr(11 downto 1),
+         ready    => rtg_ready,
+         data_in  => cpu_din,
+         data_out => rtg_dout,
+         ena      => rtg_ena_o,
+         hsize    => rtg_hsize_o,
+         vsize    => rtg_vsize_o,
+         format   => rtg_format_o,
+         base     => rtg_base_o,
+         stride   => rtg_stride_o,
+         pal_clk  => open,
+         pal_dw   => rtg_pal_dw_o,
+         pal_dr   => rtg_pal_dr_i,
+         pal_a    => rtg_pal_a_o,
+         pal_wr   => rtg_pal_wr_o
+      ); -- i_rtg
 
    ---------------------------------------------------------------------------
    -- Host configuration FSM: replays MiSTer's HPS startup configuration

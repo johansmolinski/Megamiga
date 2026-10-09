@@ -135,6 +135,22 @@ port (
    -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag from the core,
    -- feeds ascal's weave deinterlacer; the default keeps progressive-only cores unchanged
    video_fl_i              : in    std_logic := '0';
+   -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09): ascal's framebuffer mode, driven
+   -- by the core (an RTG graphics card: the scaler shows a framebuffer in HyperRAM instead
+   -- of the core's video). Slowly changing values from the core clock domain - ascal
+   -- samples them asynchronously - plus the 8bpp palette (ascal pal2, written in the
+   -- clock domain of fb_pal_clk_i). The defaults keep every other core unchanged.
+   fb_ena_i                : in    std_logic := '0';
+   fb_hsize_i              : in    std_logic_vector(11 downto 0) := (others => '0');
+   fb_vsize_i              : in    std_logic_vector(11 downto 0) := (others => '0');
+   fb_format_i             : in    std_logic_vector( 5 downto 0) := "000101";
+   fb_base_i               : in    std_logic_vector(31 downto 0) := (others => '0');  -- byte address
+   fb_stride_i             : in    std_logic_vector(13 downto 0) := (others => '0');  -- bytes per line
+   fb_pal_clk_i            : in    std_logic := '0';
+   fb_pal_a_i              : in    std_logic_vector( 7 downto 0) := (others => '0');
+   fb_pal_dw_i             : in    std_logic_vector(23 downto 0) := (others => '0');  -- R G B
+   fb_pal_wr_i             : in    std_logic := '0';
+   fb_pal_dr_o             : out   std_logic_vector(23 downto 0);
    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): the core picks which key(s) drive the
    -- framework's menu-open bit (qnice_keys bit 7), so the user can open the OSM with a
    -- key other than Help. Passed straight into i_m2m_keyb; the defaults reproduce the
@@ -903,6 +919,18 @@ begin
          video_hblank_i          => video_hblank_i,
          video_vblank_i          => video_vblank_i,
          video_fl_i              => video_fl_i,  -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+         -- M2M-UPSTREAM rtg-framebuffer (Megamiga 2026-10-09)
+         fb_ena_i                => fb_ena_i,
+         fb_hsize_i              => fb_hsize_i,
+         fb_vsize_i              => fb_vsize_i,
+         fb_format_i             => fb_format_i,
+         fb_base_i               => fb_base_i,
+         fb_stride_i             => fb_stride_i,
+         fb_pal_clk_i            => fb_pal_clk_i,
+         fb_pal_a_i              => fb_pal_a_i,
+         fb_pal_dw_i             => fb_pal_dw_i,
+         fb_pal_wr_i             => fb_pal_wr_i,
+         fb_pal_dr_o             => fb_pal_dr_o,
          audio_clk_i             => audio_clk,
          audio_rst_i             => audio_rst,
          audio_left_i            => audio_left,

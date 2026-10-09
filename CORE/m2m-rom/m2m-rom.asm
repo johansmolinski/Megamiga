@@ -634,6 +634,11 @@ _KP_RET         MOVE    R4, R10
 PROFILE_APPLY   SYSCALL(enter, 1)
                 MOVE    R8, R0                  ; R0: profile
                 MOVE    R9, R1                  ; R1: 1 = switch, 0 = boot
+                MOVE    PROF_PENDF, R8          ; no menu names waiting yet
+                MOVE    0, @R8++                ; (PROF_PEND follows)
+                MOVE    0, @R8++
+                MOVE    0, @R8++
+                MOVE    0, @R8
 
                 MOVE    SD_CHANGED, R2          ; the device handle of the
                 MOVE    HANDLE_DEV, R8          ; Shell: (re-)mount it like
@@ -655,14 +660,16 @@ _PA_KICK        MOVE    FL_NOBAR, R2            ; no progress bar: the menu
                 MOVE    PROF_KICK_TAB, R8
                 ADD     R0, R8
                 MOVE    @R8, R8
-                RSUB    PROF_OPEN, 1            ; C=1: open, R8 = the name
+                MOVE    R8, R3                  ; R3: the label of the path
+                RSUB    PROF_OPEN, 1            ; C=1: open
                 RBRA    _PA_KLD, C
                 CMP     0, R1                   ; boot: kick.rom is loaded
                 RBRA    _PA_HDF, Z
                 MOVE    PN_KICK, R8
+                MOVE    R8, R3
                 RSUB    PROF_OPEN, 1
                 RBRA    _PA_HDF, !C
-_PA_KLD         MOVE    R8, R3                  ; R3: the name
+_PA_KLD
                 MOVE    AEXP_DEV_KICK, R8       ; LOADING holds the Amiga
                 MOVE    CRTROM_CSR_STATUS, R9   ; in reset
                 MOVE    CRTROM_CSR_ST_LDNG, R10
@@ -687,9 +694,9 @@ _PA_HL          MOVE    PROF_HDF_TAB, R8        ; masters, then slaves
                 RBRA    _PA_HU, Z
                 ADD     3, R8
 _PA_HU          MOVE    @R8, R8
+                MOVE    R8, R3                  ; R3: the label of the path
                 RSUB    PROF_OPEN, 1
                 RBRA    _PA_HNO, !C
-                MOVE    R8, R3
                 MOVE    PROF_FDH, R8
                 MOVE    R4, R9
                 RSUB    HDF_PREP, 1             ; mounts, restarts the Amiga
@@ -713,6 +720,9 @@ _PA_HNO         CMP     0, R1                   ; switch without this HDF in
                 RSUB    HDF_DROP, 1
                 MOVE    CRTROM_MAN_LDF, R8      ; the menu shows <Load>
                 ADD     PROF_HDF_ID, R8
+                ADD     R4, R8
+                MOVE    0, @R8
+                MOVE    PROF_PEND, R8           ; and no name is waiting for it
                 ADD     R4, R8
                 MOVE    0, @R8
 _PA_HNX         ADD     1, R4
@@ -761,9 +771,29 @@ _PO_NO          AND     0xFFFB, SR              ; C=0
                 DECRB
                 RET
 
-; PROF_NAME: show the file name R8 on the menu line of manual ROM R9, like the
-; Shell does after a load from the file browser. All registers preserved.
+; PROF_NAME: show the file loaded from path R8 (a read-only data label) on the
+; menu line of manual ROM R9 (PROF_HDF_ID..PROF_KICK_ID), like the Shell does
+; after a load from the file browser. All registers preserved.
+;
+; The name buffers of the menu (OPTM_HEAP) only exist once the menu has been
+; opened. At core start they do not, so the label is kept in PROF_PEND and
+; PROF_PEND_APPLY (HANDLE_CORE_IO) shows it when the menu opens. That runs in
+; the key loop of the menu BEFORE the Shell polls the loaded flags, and the
+; flag is set only together with the name: a line never shows a name that is
+; not there.
 PROF_NAME       SYSCALL(enter, 1)
+                MOVE    OPTM_HEAP, R0
+                CMP     0, @R0
+                RBRA    _PN_SHOW, !Z            ; the menu exists: show it now
+                MOVE    PROF_PEND, R0           ; not yet: remember the label
+                ADD     R9, R0
+                SUB     PROF_HDF_ID, R0
+                MOVE    R8, @R0
+                MOVE    PROF_PENDF, R0
+                MOVE    1, @R0
+                RBRA    _PN_RET, 1
+_PN_SHOW        RSUB    RODATA_STR, 1           ; the path in RAM
+                ADD     PROF_DIR_LEN, R8        ; skip "/amiga/"
                 MOVE    R8, R2                  ; R2: the name
                 MOVE    CRTROM_MAN_LDF, R0      ; "loaded"
                 ADD     R9, R0
@@ -778,7 +808,6 @@ PROF_NAME       SYSCALL(enter, 1)
                 SYSCALL(mulu, 1)
                 MOVE    OPTM_HEAP, R0
                 MOVE    @R0, R0
-                RBRA    _PN_RET, Z              ; menu not set up yet
                 ADD     R10, R0
                 MOVE    R2, R8                  ; (the names are short)
                 MOVE    R0, R9
@@ -789,6 +818,30 @@ PROF_NAME       SYSCALL(enter, 1)
                 ADD     R0, R8
                 MOVE    0, @R8
 _PN_RET         SYSCALL(leave, 1)
+                RET
+
+; PROF_PEND_APPLY: once the menu exists, show the names PROF_NAME had to keep
+; back (see there). Cheap while nothing waits. All registers preserved.
+PROF_PEND_APPLY SYSCALL(enter, 1)
+                MOVE    PROF_PENDF, R0
+                CMP     0, @R0
+                RBRA    _PPA_RET, Z             ; nothing waiting
+                MOVE    OPTM_HEAP, R1
+                CMP     0, @R1
+                RBRA    _PPA_RET, Z             ; no menu yet
+                MOVE    0, @R0
+                MOVE    PROF_PEND, R0
+                MOVE    PROF_HDF_ID, R9         ; R9: ROM id
+                MOVE    PROF_PEND_NUM, R2       ; R2: lines left
+_PPA_LOOP       MOVE    @R0, R8
+                MOVE    0, @R0++
+                CMP     0, R8
+                RBRA    _PPA_NEXT, Z
+                RSUB    PROF_NAME, 1
+_PPA_NEXT       ADD     1, R9
+                SUB     1, R2
+                RBRA    _PPA_LOOP, !Z
+_PPA_RET        SYSCALL(leave, 1)
                 RET
 
 PROF_KICK_TAB   .DW     PN_K500, PN_K600, PN_K1200
@@ -1375,6 +1428,9 @@ HANDLE_CORE_IO  SYSCALL(enter, 1)
                 ; highlighted ' ADF:' line, eject the disk. Cheap in the common
                 ; path (OSM closed) and RAMROM-transparent.
                 RSUB    HANDLE_UNMOUNT_KEY, 1
+
+                ; profile file names that were loaded before the menu existed
+                RSUB    PROF_PEND_APPLY, 1
 
                 ; screen centering (issue #5): throttle the mode detector. A mode
                 ; change only needs to be reacted to within a few ms, so run
@@ -4286,6 +4342,7 @@ PROF_KICK_ID    .EQU    5                       ; manual ROM ids (order of the
 PROF_HDF_ID     .EQU    3                       ; OPTM_G_LOAD_ROM lines); the
                                                 ; slave HDF is PROF_HDF_ID + 1
 PROF_DIR_LEN    .EQU    7                       ; strlen("/amiga/")
+PROF_PEND_NUM   .EQU    3                       ; PROF_HDF_ID..PROF_KICK_ID
 KICK_256K_HI    .EQU    0x0004
 KICK_512K_HI    .EQU    0x0008
 
@@ -4447,6 +4504,8 @@ ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
 RODATA_BUF      .BLOCK RODATA_BUF_SIZE          ; RAM copy of one read-only text
 FL_NOBAR        .BLOCK 1                        ; PROFILE_APPLY: FAST_LOAD without bar
 PROF_FDH        .BLOCK FAT32$FDH_STRUCT_SIZE    ; PROFILE_APPLY: the Kickstart / HDF file
+PROF_PENDF      .BLOCK 1                        ; PROF_NAME: a name waits for the menu
+PROF_PEND       .BLOCK PROF_PEND_NUM            ; its path labels (0 = none), by ROM id
 FL_BAR_TOTAL    .BLOCK 1                        ; FAST_LOAD progress bar: sectors
 FL_BAR_WIDTH    .BLOCK 1                        ; bar width in characters
 FL_BAR_ACC      .BLOCK 1                        ; Bresenham accumulator
