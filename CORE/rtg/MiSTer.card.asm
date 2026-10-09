@@ -31,7 +31,8 @@
 
 ;debug
 
-;HasBlitter
+; Megamiga: the board has a fill/copy engine (CORE/vhdl/rtg_blitter.vhd)
+HasBlitter
 ;blitterhistory
 ;HasSprite
 
@@ -93,6 +94,24 @@ REGISTER_BASE EQU $b80100
 
 ;FB_BASE EQU $27000000 ; MiSTer physical memory address
 FB_BASE EQU $00400000 ; Megamiga: HyperRAM byte address of the board memory
+
+; Megamiga: the blitter registers (rtg_blitter.vhd)
+BLT_BASE    EQU $b80800
+BLT_SRC     EQU $00     ; long: source byte address of the first line to do
+BLT_DST     EQU $04     ; long: destination byte address of the first line
+BLT_SSTRIDE EQU $08     ; word: signed source line distance
+BLT_DSTRIDE EQU $0a     ; word: signed destination line distance
+BLT_WIDTH   EQU $0c     ; word: bytes per line (1..BLT_MAXW)
+BLT_HEIGHT  EQU $0e     ; word: lines
+BLT_PAT     EQU $10     ; long: fill pattern in memory order
+BLT_BPP     EQU $14     ; word: bytes per pixel of the pattern (1, 2, 4)
+BLT_CMD     EQU $16     ; word: 1 = fill, 2 = copy; read: bit 0 = busy
+BLT_MAXW    EQU 8190
+
+; struct RenderInfo (Picasso96)
+RI_Memory      EQU 0
+RI_BytesPerRow EQU 4
+RI_RGBFormat   EQU 8
 
 ; B80100:B80101 :  8:0 : ADDR[24:16]
 ; B80102:B80103 : 15:0 : ADDR[15:0]
@@ -463,6 +482,8 @@ InitCard:
 
         IFD     HasBlitter
         ori.l   #(1<<15),PSSO_BoardInfo_Flags(a2)       ; BIF_BLITTER
+        lea     FillRect(pc),a1
+        move.l  a1,PSSO_BoardInfo_FillRect(a2)
         lea     BlitRectNoMaskComplete(pc),a1
         move.l  a1,PSSO_BoardInfo_BlitRectNoMaskComplete(a2)
         lea     BlitRect(pc),a1
@@ -860,6 +881,222 @@ GetCompatibleFormats:
 
         moveq   #-1,d0
         rts
+
+        IFD     HasBlitter
+;------------------------------------------------------------------------------
+; Megamiga: the blitter. Every routine first waits until the previous command
+; is done (the registers are only free then), sets the registers and starts
+; the command without waiting for its end: Picasso96 calls WaitBlitter before
+; the CPU touches the board memory. Whatever the engine cannot do goes to the
+; routine Picasso96 put into the matching ...Default field, with all
+; registers as they came in.
+;------------------------------------------------------------------------------
+
+;------------------------------------------------------------------------------
+WaitBlitter:
+;------------------------------------------------------------------------------
+;  void WaitBlitter(struct BoardInfo *bi)
+
+.wait:  btst    #0,BLT_BASE+BLT_CMD+1
+        bne.s   .wait
+        rts
+
+; bytes per pixel by RGBFTYPE (0 = not handled here)
+BppTable:
+        dc.b    0,1,3,3,2,2,4,4,4,4,2,2,2,2,0,0
+        even
+
+;------------------------------------------------------------------------------
+FillRect:
+;------------------------------------------------------------------------------
+;  void FillRect(struct BoardInfo *bi, struct RenderInfo *ri, WORD x, WORD y,
+;                WORD w, WORD h, ULONG pen, UBYTE mask, RGBFTYPE format)
+;  a0 bi, a1 ri, d0 x, d1 y, d2 w, d3 h, d4 pen, d5 mask, d7 format
+
+        movem.l d0-d7/a2,-(sp)
+        cmp.l   #16,d7
+        bhs     .default
+        moveq   #0,d6
+        move.b  BppTable(pc,d7.l),d6    ; d6: bytes per pixel
+        beq     .default
+        cmp.w   #3,d6                   ; 24 bit: no 3-byte pattern
+        beq     .default
+        cmp.w   #1,d6
+        bne.s   .nomask
+        cmp.b   #$ff,d5                 ; CLUT with a plane mask
+        bne     .default
+.nomask:
+        move.l  RI_Memory(a1),a2
+        cmp.l   #MEMORY_BASE,a2
+        blo     .default
+        cmp.l   #MEMORY_BASE+MEMORY_SIZE,a2
+        bhs     .default
+        ext.l   d0
+        ext.l   d1
+        ext.l   d2
+        ext.l   d3
+        tst.l   d2
+        ble     .done
+        tst.l   d3
+        ble     .done
+        mulu.w  d6,d2                   ; d2: bytes per line
+        cmp.l   #BLT_MAXW,d2
+        bhi     .default
+        mulu.w  d6,d0                   ; x in bytes
+        add.l   d0,a2
+        move.w  RI_BytesPerRow(a1),d5   ; (the mask is not needed any more)
+        mulu.w  d5,d1
+        add.l   d1,a2                   ; a2: first byte
+        cmp.w   #1,d6                   ; the pen into the first pattern bytes
+        bne.s   .p2
+        lsl.l   #8,d4
+        lsl.l   #8,d4
+        lsl.l   #8,d4
+        bra.s   .p4
+.p2:    cmp.w   #2,d6
+        bne.s   .p4
+        swap    d4
+        clr.w   d4
+.p4:
+.wait:  btst    #0,BLT_BASE+BLT_CMD+1
+        bne.s   .wait
+        move.l  a2,BLT_BASE+BLT_DST
+        move.w  d5,BLT_BASE+BLT_DSTRIDE
+        move.w  d2,BLT_BASE+BLT_WIDTH
+        move.w  d3,BLT_BASE+BLT_HEIGHT
+        move.l  d4,BLT_BASE+BLT_PAT
+        move.w  d6,BLT_BASE+BLT_BPP
+        move.w  #1,BLT_BASE+BLT_CMD
+.done:  movem.l (sp)+,d0-d7/a2
+        rts
+.default:
+        movem.l (sp)+,d0-d7/a2
+        move.l  PSSO_BoardInfo_FillRectDefault(a0),-(sp)
+        rts
+
+;------------------------------------------------------------------------------
+BlitRect:
+;------------------------------------------------------------------------------
+;  void BlitRect(struct BoardInfo *bi, struct RenderInfo *ri, WORD sx, WORD sy,
+;                WORD dx, WORD dy, WORD w, WORD h, UBYTE mask, RGBFTYPE format)
+;  a0 bi, a1 ri, d0 sx, d1 sy, d2 dx, d3 dy, d4 w, d5 h, d6 mask, d7 format
+
+        movem.l d0-d7/a2-a3,-(sp)
+        cmp.l   #16,d7
+        bhs     .default
+        cmp.l   #1,d7                   ; CLUT with a plane mask
+        bne.s   .nomask
+        cmp.b   #$ff,d6
+        bne     .default
+.nomask:
+        move.l  a1,a2                   ; source and destination: one bitmap
+        move.l  a1,a3
+        bsr     CopyRect
+        tst.l   d0
+        bne     .default
+        movem.l (sp)+,d0-d7/a2-a3
+        rts
+.default:
+        movem.l (sp)+,d0-d7/a2-a3
+        move.l  PSSO_BoardInfo_BlitRectDefault(a0),-(sp)
+        rts
+
+;------------------------------------------------------------------------------
+BlitRectNoMaskComplete:
+;------------------------------------------------------------------------------
+;  void BlitRectNoMaskComplete(struct BoardInfo *bi, struct RenderInfo *sri,
+;                struct RenderInfo *dri, WORD sx, WORD sy, WORD dx, WORD dy,
+;                WORD w, WORD h, UBYTE opcode, RGBFTYPE format)
+;  a0 bi, a1 sri, a2 dri, d0 sx, d1 sy, d2 dx, d3 dy, d4 w, d5 h, d6 opcode,
+;  d7 format
+
+        movem.l d0-d7/a2-a3,-(sp)
+        cmp.b   #$0c,d6                 ; only the plain copy (minterm SRC)
+        bne     .default
+        cmp.l   #16,d7
+        bhs     .default
+        move.l  a2,a3                   ; a3: destination
+        move.l  a1,a2                   ; a2: source
+        bsr     CopyRect
+        tst.l   d0
+        bne     .default
+        movem.l (sp)+,d0-d7/a2-a3
+        rts
+.default:
+        movem.l (sp)+,d0-d7/a2-a3
+        move.l  PSSO_BoardInfo_BlitRectNoMaskCompleteDefault(a0),-(sp)
+        rts
+
+;------------------------------------------------------------------------------
+; CopyRect: a2 source RenderInfo, a3 destination RenderInfo, d0 sx, d1 sy,
+; d2 dx, d3 dy, d4 w, d5 h, d7 format. Starts the copy and returns d0 = 0, or
+; d0 = 1 if the engine cannot do it (nothing started). Changes d0-d7/a2-a3.
+;------------------------------------------------------------------------------
+CopyRect:
+        moveq   #0,d6
+        move.b  BppTable(pc,d7.l),d6    ; d6: bytes per pixel
+        beq     .no
+        ext.l   d0
+        ext.l   d1
+        ext.l   d2
+        ext.l   d3
+        ext.l   d4
+        ext.l   d5
+        tst.l   d4
+        ble     .none
+        tst.l   d5
+        ble     .none
+        mulu.w  d6,d4                   ; d4: bytes per line
+        cmp.l   #BLT_MAXW,d4
+        bhi     .no
+        mulu.w  d6,d0
+        mulu.w  d6,d2
+        move.l  RI_Memory(a2),d6        ; source: Memory + sy * bpr + sx
+        cmp.l   #MEMORY_BASE,d6
+        blo     .no
+        cmp.l   #MEMORY_BASE+MEMORY_SIZE,d6
+        bhs     .no
+        add.l   d0,d6
+        move.w  RI_BytesPerRow(a2),d0
+        mulu.w  d0,d1
+        add.l   d1,d6                   ; d6: source, d0.w: source stride
+        move.l  RI_Memory(a3),d7        ; destination
+        cmp.l   #MEMORY_BASE,d7
+        blo     .no
+        cmp.l   #MEMORY_BASE+MEMORY_SIZE,d7
+        bhs     .no
+        add.l   d2,d7
+        move.w  RI_BytesPerRow(a3),d2
+        mulu.w  d2,d3
+        add.l   d3,d7                   ; d7: destination, d2.w: destination stride
+        ext.l   d0
+        ext.l   d2
+        cmp.l   d6,d7                   ; destination behind the source:
+        bls.s   .fwd                    ; bottom-up, so no line is overwritten
+        move.l  d5,d1                   ; before it is read
+        subq.l  #1,d1
+        move.l  d1,d3
+        mulu.w  d0,d1
+        add.l   d1,d6
+        mulu.w  d2,d3
+        add.l   d3,d7
+        neg.l   d0
+        neg.l   d2
+.fwd:
+.wait:  btst    #0,BLT_BASE+BLT_CMD+1
+        bne.s   .wait
+        move.l  d6,BLT_BASE+BLT_SRC
+        move.l  d7,BLT_BASE+BLT_DST
+        move.w  d0,BLT_BASE+BLT_SSTRIDE
+        move.w  d2,BLT_BASE+BLT_DSTRIDE
+        move.w  d4,BLT_BASE+BLT_WIDTH
+        move.w  d5,BLT_BASE+BLT_HEIGHT
+        move.w  #2,BLT_BASE+BLT_CMD
+.none:  moveq   #0,d0
+        rts
+.no:    moveq   #1,d0
+        rts
+        ENDC
 
 ;==============================================================================
 

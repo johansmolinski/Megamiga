@@ -1282,6 +1282,49 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   Process lesson: after a build, `git checkout CORE-R6.xpr` also throws away
   uncommitted INTENDED .xpr edits (build -b first failed with "no such design
   unit rtg_vram") - restore a saved copy instead.
+  HARDWARE BLITTER (2026-10-09, 0.4.1-dev, build blit-a WNS +0.143; HARDWARE-
+  CONFIRMED by the user: "The blitter works ... much faster now"):
+  NEW `CORE/vhdl/rtg_blitter.vhd` - registers at `$B80800` (68020 fastchip
+  port; rtg.v decodes nothing there and completes the cycle, main.vhd only
+  muxes the read data: `blt_*` ports), engine on hr_clk sharing hr_core_*
+  with rtg_wcomb through an `avm_arbit`. FILL (pattern of 1/2/4 bytes in
+  memory order) and COPY (byte-generic, any source/destination alignment):
+  each source line is read whole into a 4096-word BRAM line buffer, so
+  overlap within a line needs no care; for overlap between lines the DRIVER
+  passes the last line and negative strides when dst > src. Writes go out as
+  aligned <=16-word bursts with edge byte enables. ORDERING with the CPU's
+  own writes (rtg_vram -> avm_fifo -> rtg_wcomb): a start waits until the
+  FIFO output is empty and the combiner holds nothing for 16 clocks
+  (`h_quiet_i`), and meanwhile asks the combiner to send what it holds
+  (`h_flush_o` -> rtg_wcomb `flush_i`); the driver waits for busy before it
+  rewrites the registers, and Picasso96 calls WaitBlitter before CPU access.
+  CORE.xdc: max_delay for the m_par_* registers and the two toggles.
+  DRIVER (`CORE/rtg/MiSTer.card.asm`, `HasBlitter` now defined): FillRect,
+  BlitRect, BlitRectNoMaskComplete (minterm $0C only), WaitBlitter, flag
+  BIF_BLITTER (1<<15); anything else (plane mask /= $FF in CLUT, 24-bit fill,
+  other minterms, a bitmap outside the board memory, lines > 8190 bytes)
+  goes to the ...Default routine with all registers as they came in (push the
+  address, rts). The pen goes into the pattern as a move.w/move.l would write
+  it (8 bit: <<24, 16 bit: <<16) - UNVERIFIED for the PC (little-endian)
+  16-bit format: if 16-bit fills have swapped colours, swap there.
+  TESTS: `~/aexp-work/rtg/blit` (engine vs a burst HyperRAM model and a
+  byte-exact reference, whole-memory compare after each command, 6 seeds x 0/
+  30/85 % waits; 16 mutants all killed), `~/aexp-work/rtg/wcomb` (flush_i
+  regression), `~/aexp-work/rtg/e2e` (68020 program: CPU writes the source
+  last-line-first so the newest word is still in the combiner, then starts the
+  copy at once; odd->even copy, overlapping copy, odd-address 32-bit fill;
+  the combiner's idle timeout is 60000 there so ordering cannot lean on it -
+  the start-without-wait mutant is caught; lesson: the TG68K model needs
+  ~4.6 us per byte write, so with the real G_IDLE 128 the window never opened
+  and three ordering mutants survived until the test was rebuilt), and
+  `~/aexp-work/rtg/drvtest` (the driver's routines extracted VERBATIM from
+  MiSTer.card.asm, called like Picasso96 with a fake BoardInfo whose Default
+  stubs count calls, on the 68020 + hardware model via `e2e/tbdrv.sv`:
+  fills 8/16/32 bit, default paths, overlapping BlitRect, two-bitmap copy,
+  register preservation, a 24000-byte fill read back after WaitBlitter -
+  PASS; 9 driver mutants killed). Lesson: the e2e HyperRAM model must start
+  ZEROED - 68k CLR reads before it writes, an unwritten word returns x, and x
+  in TG68K turned two mutant runs into timeouts that looked like hangs.
   ALSO IN THIS COMMIT - PROFILE NAMES AT CORE START: the first menu open
   showed `HDF 0:%s` / `HDF 1:%s` / `Kickstart:%s`, because PROFILE_APPLY runs
   from PREP_START before the menu exists (`OPTM_HEAP` = 0 until the first

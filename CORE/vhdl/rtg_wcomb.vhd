@@ -12,7 +12,8 @@
 --   * a write to a word that is already gathered merges its bytes into it (two byte writes of an
 --     8-bit pixel pair become one word);
 --   * anything else flushes first: a write elsewhere, a full block, G_IDLE clocks without a new
---     write (so the picture never waits long), and a read of a gathered word (reads elsewhere pass
+--     write (so the picture never waits long), flush_i (the blitter is about to start), and a
+--     read of a gathered word (reads elsewhere pass
 --     the gathered words; the CPU never has more than one access outstanding, so there is no
 --     ordering to keep between a read and writes to OTHER words).
 --
@@ -54,7 +55,10 @@ entity rtg_wcomb is
       m_avm_burstcount_o    : out std_logic_vector( 7 downto 0);
       m_avm_readdata_i      : in  std_logic_vector(15 downto 0);
       m_avm_readdatavalid_i : in  std_logic;
-      m_avm_waitrequest_i   : in  std_logic
+      m_avm_waitrequest_i   : in  std_logic;
+
+      flush_i               : in  std_logic := '0';  -- send what is gathered now (the blitter waits)
+      idle_o                : out std_logic      -- nothing gathered, no access of its own running
    );
 end entity rtg_wcomb;
 
@@ -95,6 +99,8 @@ begin
    s_avm_readdata_o      <= m_avm_readdata_i;
    s_avm_readdatavalid_o <= m_avm_readdatavalid_i;
 
+   idle_o             <= '1' when state = S_GATHER and cnt = 0 else '0';
+
    m_avm_write_o      <= '1' when state = S_FLUSH else '0';
    m_avm_read_o       <= '1' when state = S_READ else '0';
    m_avm_address_o    <= rd_addr when state = S_READ else std_logic_vector(base);
@@ -133,7 +139,7 @@ begin
                   rd_addr <= s_avm_address_i;
                   state   <= S_READ;
                elsif cnt /= 0 and (s_avm_write_i = '1' or s_avm_read_i = '1' or cnt = 16 or
-                                   idle = G_IDLE) then
+                                   idle = G_IDLE or flush_i = '1') then
                   fidx  <= (others => '0');              -- the request waits for the flush
                   state <= S_FLUSH;
                elsif cnt /= 0 then

@@ -148,3 +148,11 @@ set_false_path -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ 
 ## +0.001 ns.
 set_multicycle_path -setup 2 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_p/* || NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_o/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
 set_multicycle_path -hold 1 -from [get_cells -hierarchical -filter {IS_PRIMITIVE && (NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_p/* || NAME =~ CORE/i_main/i_cpu_wrapper/cpu_inst_o/*)}] -to [get_cells -hierarchical -filter {IS_PRIMITIVE && NAME =~ CORE/i_amiga_sdram/i_sdram_ctrl/*}]
+
+## Megamiga RTG blitter (rtg_blitter.vhd): the registers are written on the core clock and read by
+## the engine on hr_clk only while a command runs (the driver does not touch them until busy is
+## clear), so their paths only need a sane bound. The start/done toggles are 2-FF synchronised
+## (ASYNC_REG) and get one hr_clk period.
+set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/m_par_*}] -to [get_clocks hr_clk] 20.000
+set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/m_req_reg*}] -to [get_cells -hierarchical -filter {NAME =~ CORE/i_rtg_blitter/h_req_meta_reg*}] 10.000
+set_max_delay -datapath_only -from [get_cells -hierarchical -filter {IS_SEQUENTIAL && NAME =~ CORE/i_rtg_blitter/h_ack_reg*}] -to [get_cells -hierarchical -filter {NAME =~ CORE/i_rtg_blitter/m_ack_meta_reg*}] 10.000

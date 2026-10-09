@@ -173,6 +173,13 @@ entity main is
       rtg_pal_dw_o            : out std_logic_vector(23 downto 0);
       rtg_pal_wr_o            : out std_logic;
       rtg_pal_dr_i            : in  std_logic_vector(23 downto 0);
+      -- Megamiga: the RTG blitter registers at $B80800 (rtg_blitter.vhd in the parent): one
+      -- access while blt_sel_o = '1', write data blt_din_o; blt_dout_i is read the clock after
+      blt_sel_o               : out std_logic;
+      blt_wr_o                : out std_logic;
+      blt_rs_o                : out std_logic_vector( 7 downto 1);
+      blt_din_o               : out std_logic_vector(15 downto 0);
+      blt_dout_i              : in  std_logic_vector(15 downto 0);
       c7m_o                   : out std_logic;                      -- amiga_clk c1 (SDRAM phase)
 
       -- IDE board (ide_board.vhd in mega65.vhd, RIPPLE-compatible, autoconfig'd by
@@ -425,6 +432,8 @@ architecture synthesis of main is
    signal fc_sel, fc_lds_n, fc_uds_n, fc_rnw : std_logic;
    signal rtg_aen, rtg_ready, rtg_wr, rtg_rst : std_logic;
    signal rtg_dout         : std_logic_vector(15 downto 0);
+   signal fc_dout          : std_logic_vector(15 downto 0);
+   signal blt_sel          : std_logic;
 
    component cpu_wrapper is
       port (
@@ -800,7 +809,7 @@ begin
          chip_ipl        => cpu_ipl_n,
 
          -- Megamiga: the RTG registers on the fastchip port (was tied off)
-         fastchip_dout   => rtg_dout,
+         fastchip_dout   => fc_dout,
          fastchip_sel    => fc_sel,
          fastchip_lds    => fc_lds_n,
          fastchip_uds    => fc_uds_n,
@@ -841,6 +850,16 @@ begin
    rtg_aen <= '1' when fc_sel = '1' and cpu_addr(23 downto 12) = x"B80" else '0';
    rtg_wr  <= (not fc_rnw) and ((not fc_lds_n) or (not fc_uds_n));
    rtg_rst <= not (cpu_reset_n and cpu_reset_out_n);
+
+   -- the blitter registers at $B80800..$B808FF: rtg.v decodes neither its registers ($B801xx)
+   -- nor its palette ($B804xx..$B807xx) there and completes the cycle with the same timing
+   -- (writes at once, reads one clock later), so only the read data is switched
+   blt_sel   <= '1' when rtg_aen = '1' and cpu_addr(11 downto 8) = "1000" else '0';
+   blt_sel_o <= blt_sel;
+   blt_wr_o  <= rtg_wr;
+   blt_rs_o  <= cpu_addr(7 downto 1);
+   blt_din_o <= cpu_din;
+   fc_dout   <= blt_dout_i when blt_sel = '1' else rtg_dout;
 
    i_rtg : rtg
       port map (

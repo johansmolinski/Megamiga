@@ -382,6 +382,32 @@ signal hr_vram_avm_readdatavalid : std_logic;
 signal hr_vram_avm_waitrequest : std_logic;
 -- the RTG registers (MiSTer's rtg.v in main.vhd)
 signal main_rtg_format        : std_logic_vector(4 downto 0);
+signal main_blt_sel           : std_logic;
+signal main_blt_wr            : std_logic;
+signal main_blt_rs            : std_logic_vector(7 downto 1);
+signal main_blt_din           : std_logic_vector(15 downto 0);
+signal main_blt_dout          : std_logic_vector(15 downto 0);
+signal hr_wcomb_idle          : std_logic;
+signal hr_wcomb_flush         : std_logic;
+signal hr_vram_quiet          : std_logic;
+signal hr_wc_avm_write        : std_logic;
+signal hr_wc_avm_read         : std_logic;
+signal hr_wc_avm_address      : std_logic_vector(31 downto 0);
+signal hr_wc_avm_writedata    : std_logic_vector(15 downto 0);
+signal hr_wc_avm_byteenable   : std_logic_vector(1 downto 0);
+signal hr_wc_avm_burstcount   : std_logic_vector(7 downto 0);
+signal hr_wc_avm_readdata     : std_logic_vector(15 downto 0);
+signal hr_wc_avm_readdatavalid : std_logic;
+signal hr_wc_avm_waitrequest  : std_logic;
+signal hr_blt_avm_write       : std_logic;
+signal hr_blt_avm_read        : std_logic;
+signal hr_blt_avm_address     : std_logic_vector(31 downto 0);
+signal hr_blt_avm_writedata   : std_logic_vector(15 downto 0);
+signal hr_blt_avm_byteenable  : std_logic_vector(1 downto 0);
+signal hr_blt_avm_burstcount  : std_logic_vector(7 downto 0);
+signal hr_blt_avm_readdata    : std_logic_vector(15 downto 0);
+signal hr_blt_avm_readdatavalid : std_logic;
+signal hr_blt_avm_waitrequest : std_logic;
 
 -- IDE board (ide_board.vhd): cpu_wrapper's ext_* port. Address, direction, strobes and
 -- write data are shared with the Fast RAM port above (main_fram_*).
@@ -1372,6 +1398,11 @@ begin
          rtg_pal_dw_o         => fb_pal_dw_o,
          rtg_pal_wr_o         => fb_pal_wr_o,
          rtg_pal_dr_i         => fb_pal_dr_i,
+         blt_sel_o            => main_blt_sel,
+         blt_wr_o             => main_blt_wr,
+         blt_rs_o             => main_blt_rs,
+         blt_din_o            => main_blt_din,
+         blt_dout_i           => main_blt_dout,
          c7m_o                => main_c7m,
          ide_ena_i            => main_ide_ena,
          ide_sel_o            => main_ide_sel,
@@ -2773,7 +2804,9 @@ begin
    -- (CORE/rtg/MiSTer.card.asm) writes the HyperRAM byte address into the base register, so
    -- fb_base_o is the register as it is - exactly what MiSTer's driver does with its DDR3.
    -- On the HyperRAM side, rtg_wcomb gathers consecutive words into bursts of up to 16: one
-   -- HyperRAM transaction per word would cost ~15-20 HyperRAM clocks of overhead each.
+   -- HyperRAM transaction per word would cost ~15-20 HyperRAM clocks of overhead each. The
+   -- blitter (rtg_blitter, registers at $B80800) shares the hr_core port with it through an
+   -- avm_arbit; it starts a command only once the CPU path (FIFO output + combiner) is quiet.
    ---------------------------------------------------------------------------------------------
 
    main_sdram_fram_sel <= main_fram_sel and not main_fram_rtg;
@@ -2852,16 +2885,84 @@ begin
          s_avm_waitrequest_o   => hr_vram_avm_waitrequest,
          s_avm_readdata_o      => hr_vram_avm_readdata,
          s_avm_readdatavalid_o => hr_vram_avm_readdatavalid,
-         m_avm_write_o         => hr_core_write_o,
-         m_avm_read_o          => hr_core_read_o,
-         m_avm_address_o       => hr_core_address_o,
-         m_avm_writedata_o     => hr_core_writedata_o,
-         m_avm_byteenable_o    => hr_core_byteenable_o,
-         m_avm_burstcount_o    => hr_core_burstcount_o,
-         m_avm_readdata_i      => hr_core_readdata_i,
-         m_avm_readdatavalid_i => hr_core_readdatavalid_i,
-         m_avm_waitrequest_i   => hr_core_waitrequest_i
+         m_avm_write_o         => hr_wc_avm_write,
+         m_avm_read_o          => hr_wc_avm_read,
+         m_avm_address_o       => hr_wc_avm_address,
+         m_avm_writedata_o     => hr_wc_avm_writedata,
+         m_avm_byteenable_o    => hr_wc_avm_byteenable,
+         m_avm_burstcount_o    => hr_wc_avm_burstcount,
+         m_avm_readdata_i      => hr_wc_avm_readdata,
+         m_avm_readdatavalid_i => hr_wc_avm_readdatavalid,
+         m_avm_waitrequest_i   => hr_wc_avm_waitrequest,
+         flush_i               => hr_wcomb_flush,
+         idle_o                => hr_wcomb_idle
       ); -- i_rtg_wcomb
+
+   -- the CPU path holds nothing for the board memory: FIFO output empty, combiner empty
+   hr_vram_quiet <= hr_wcomb_idle and not (hr_vram_avm_write or hr_vram_avm_read);
+
+   i_rtg_blitter : entity work.rtg_blitter
+      port map (
+         m_clk_i               => main_clk,
+         m_sel_i               => main_blt_sel,
+         m_wr_i                => main_blt_wr,
+         m_rs_i                => main_blt_rs,
+         m_data_i              => main_blt_din,
+         m_data_o              => main_blt_dout,
+         h_clk_i               => hr_clk_i,
+         h_rst_i               => hr_rst_i,
+         h_quiet_i             => hr_vram_quiet,
+         h_flush_o             => hr_wcomb_flush,
+         h_busy_o              => open,
+         avm_write_o           => hr_blt_avm_write,
+         avm_read_o            => hr_blt_avm_read,
+         avm_address_o         => hr_blt_avm_address,
+         avm_writedata_o       => hr_blt_avm_writedata,
+         avm_byteenable_o      => hr_blt_avm_byteenable,
+         avm_burstcount_o      => hr_blt_avm_burstcount,
+         avm_readdata_i        => hr_blt_avm_readdata,
+         avm_readdatavalid_i   => hr_blt_avm_readdatavalid,
+         avm_waitrequest_i     => hr_blt_avm_waitrequest
+      ); -- i_rtg_blitter
+
+   i_avm_arbit_rtg : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => false,
+         G_FREQ_HZ      => 100_000_000,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => hr_wc_avm_write,
+         s0_avm_read_i          => hr_wc_avm_read,
+         s0_avm_address_i       => hr_wc_avm_address,
+         s0_avm_writedata_i     => hr_wc_avm_writedata,
+         s0_avm_byteenable_i    => hr_wc_avm_byteenable,
+         s0_avm_burstcount_i    => hr_wc_avm_burstcount,
+         s0_avm_readdata_o      => hr_wc_avm_readdata,
+         s0_avm_readdatavalid_o => hr_wc_avm_readdatavalid,
+         s0_avm_waitrequest_o   => hr_wc_avm_waitrequest,
+         s1_avm_write_i         => hr_blt_avm_write,
+         s1_avm_read_i          => hr_blt_avm_read,
+         s1_avm_address_i       => hr_blt_avm_address,
+         s1_avm_writedata_i     => hr_blt_avm_writedata,
+         s1_avm_byteenable_i    => hr_blt_avm_byteenable,
+         s1_avm_burstcount_i    => hr_blt_avm_burstcount,
+         s1_avm_readdata_o      => hr_blt_avm_readdata,
+         s1_avm_readdatavalid_o => hr_blt_avm_readdatavalid,
+         s1_avm_waitrequest_o   => hr_blt_avm_waitrequest,
+         m_avm_write_o          => hr_core_write_o,
+         m_avm_read_o           => hr_core_read_o,
+         m_avm_address_o        => hr_core_address_o,
+         m_avm_writedata_o      => hr_core_writedata_o,
+         m_avm_byteenable_o     => hr_core_byteenable_o,
+         m_avm_burstcount_o     => hr_core_burstcount_o,
+         m_avm_readdata_i       => hr_core_readdata_i,
+         m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i    => hr_core_waitrequest_i
+      ); -- i_avm_arbit_rtg
 
    fb_format_o  <= '0' & main_rtg_format;
    fb_pal_clk_o <= main_clk;

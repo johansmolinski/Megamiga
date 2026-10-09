@@ -363,6 +363,9 @@ Aminet. Install Picasso96 first, then copy the driver from the
 Reboot and pick one of the `MiSTer:` modes in Prefs/ScreenMode. The driver
 keeps MiSTer's name, so MiSTer's settings files work unchanged.
 
+The card has a blitter: Picasso96 hands rectangle fills and copies (window
+moves, scrolling) to the FPGA instead of doing them with the 68020.
+
 While an RTG screen is shown, the HDMI picture comes from the graphics card
 and the analog VGA output keeps showing the normal Amiga picture. A reset
 switches back to the Amiga picture. RTG needs the HDMI output.
