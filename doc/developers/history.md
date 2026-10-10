@@ -1425,6 +1425,29 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `~/aexp-work/ide/e2e` (68000 IDE with the changed cpu_wrapper; needs
   tg68_stub.v now). Lesson: in the e2e TBs `cw.wr` is HIGH for a read.
 
+- **Megamiga 0.5.1, AMIGAVISION BOOT FIX (2026-10-10, Minimig `rtg` aa1f75c).**
+  Field report: AmigaVision (the TheA500 Mini build, two HDFs: system with
+  DH0 Amiga: + DH1 Data:, PFS3, and Saves.hdf as slave) went black after
+  loading for a while on 0.5.0; a user said it booted on 0.3.0. NOT the HDF
+  path (both files one extent each on the card, direct-block path, the
+  arithmetic checked) and NOT the screen mode. Cause, from the HDF's scripts
+  and disassembled tools: `ags-uname` reads the long at `$B8010E` (the RTG
+  ID register) - `$5001` = "mister", `$6001` = "pocket", else an expansion
+  board by manufacturer 2011 = "uae", else "amiga". Since 0.4.0 rtg.v
+  answers `$5001`, so `S:mount-misterfs` runs `mount MR0:` with
+  `L:MiSTerFileSystem`, which writes a command to `$DD4002` and spins until
+  MiSTer's HPS echoes it (`cmp.w (a1),d2 / bne`) - never, here (the
+  `$DD4000-$DD5FFF` range goes to the chip bus). `bblank` has already
+  blanked the screen. The user confirmed with the workaround (`EQ "nomister"`
+  in `S:mount-misterfs`). FIX: rtg.v ID register reads `$4D01`; our driver
+  never reads it (`REG_ID` unused in MiSTer.card.asm), and MiSTer's stock
+  MiSTer.card cannot work with this board anyway (FB_BASE `$27000000`, 8 MB).
+  AmigaVision now says "uae" (the network card is manufacturer 2011); a
+  search of both HDFs found `ags-uname` only in the startup-sequence (uae:
+  a `Picasso96:` assign) and mount-misterfs. A MiSTer shared folder
+  (answering the `$DD4000` mailbox from the firmware) would be a feature of
+  its own. Settings file unchanged (211 bytes).
+
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).

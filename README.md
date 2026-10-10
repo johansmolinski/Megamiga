@@ -353,7 +353,11 @@ and RTG programs can open screens in 256 colours, 16 bit (65536 colours) or
 memory hold for example 1024 x 768 in 32 bit or 1280 x 1024 in 16 bit.
 It is MiSTer's Minimig RTG card: the same registers at `$B80100` and the same
 Picasso96 driver, rebuilt for the 4 MB of board memory the MEGA65 has for it
-(`$02000000`-`$023FFFFF`, in the HyperRAM).
+(`$02000000`-`$023FFFFF`, in the HyperRAM). Only its ID register differs
+(`$B8010E` reads `$4D01`, not MiSTer's `$5001`): software that looks for a
+MiSTer there, such as AmigaVision, would otherwise wait for MiSTer-only
+hardware such as the shared folder and hang. MiSTer's own `MiSTer.card`
+does not work with this card; use the one from `Megamiga_RTG.adf`.
 
 You need Kickstart 3.x, Workbench 3.x and
 [Picasso96 2.0](https://aminet.net/package/driver/video/Picasso96) from
