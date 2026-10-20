@@ -72,7 +72,7 @@ what the monitor's own H-size/V-size controls are for.
 ## The easy way: try one of the two ready-made files
 
 AExp ships with **two** ready-made settings files, each tuned for a
-different kind of screen:
+different kind of screen (Megamiga adds a third, for HDMI 576p):
 
 * **`aexp_screen.cfg_16_9`** — for a plain **16:9** display that just fills
   the screen and has no "4:3" aspect mode of its own. It leaves the picture
@@ -81,6 +81,12 @@ different kind of screen:
 * **`aexp_screen.cfg_4_3`** — a gentle "underscan" that pulls all four edges
   in a little. Tested to work very well on a **4:3 Checkmate display**, and —
   perhaps surprisingly — just as well on a **Samsung 55" 4K TV**.
+* **`aexp_screen.cfg_576p`** (Megamiga) — pixel-exact for **HDMI 576p 50 Hz
+  4:3**: it trims the picture to exactly 360 lores / 720 hires pixels and keeps
+  all 288 lines, so every Amiga pixel becomes exactly 2×2 (lores) or 1×2
+  (hires) screen pixels. Use it with the HDMI Filter **No Filter** (sharp
+  square pixels) or **Sharp Bilinear**. The other HDMI modes always scale by an
+  odd factor, so on those this file only removes a little of the left border.
 
 Because every TV and monitor overscans and stretches a little differently,
 there is no single file that is perfect everywhere. So the plan is simple:

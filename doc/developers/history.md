@@ -3187,6 +3187,33 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     (`_PA_KNM`). Fixed ROM 32751/32768 - 17 words left: move code into a bank next.
     Build `main-b` (fc07dca, REF quickhdf-b, incremental synthesis + implementation):
     WNS +0.006, WHS +0.035, saved fedora:~/saved/main-b. Not on the hardware yet.
+  - **PAL fields of exactly 288 lines (branch `pal288` from main 5a1d4b1, 2026-10-20).**
+    The user saw an unevenly scaled PAL picture on HDMI (VGA monitor behind an HDMI
+    adapter: lines and columns drawn twice or not at all). Cause on the core side: no HDMI
+    mode scales the Amiga raster by a whole number. ascal gets 377 lores / 754 hires
+    pixels (454 per line minus hblank hpos 25..102) and 287 lines per field (313-line long
+    field minus vbl lines 0..25; interlaced 287/286 alternating - the "286" of the first
+    answer was the short field), into 960x720 (720p, 4:3 window), 720x576 or 720x540:
+    576p was x2.01 vertically (a few lines three times with No Filter) and x0.95 for
+    hires. Not changed in Minimig: `vbstop` (25) is also the sprite pointer fetch line
+    (`vblend`) and `vbl` stops sprite DMA. New `CORE/vhdl/pal288.vhd` between Minimig and
+    `video_vblank_o` (main.vhd): counts the active lines of a field and keeps the first
+    one or two lines of Minimig's vblank (vpos 0/1, before the vsync in line 2) active,
+    RGB forced black (Denise shows the border colour in vblank, its blank input is
+    commented out); only for 286/287 lines, so NTSC (242) and VARBEAMEN modes pass
+    unchanged. Minimig's vblank changes in the clock its hblank falls (blver = 0), so the
+    padding starts and ends combinationally in that clock: whole lines, never a clock of
+    DE too many. Result: 288 lines per field, 576p exactly x2, the woven interlaced frame
+    576 = 1:1. New preset `aexp_screen.cfg_576p`: HDMI crop lores himin 17 (360 px = x2),
+    hires 34 (720 px = 1:1), no vertical crop; with No Filter / Sharp Bilinear on 576p 4:3
+    pixel-exact. Side effects: the analog soft-blank and the HDMI crop measure their
+    bottom edge 1-2 black lines lower (an `os_b`/`vimax` trim now cuts the padding
+    first). ascal: i_hdmax/i_vdmax = last index (count - 1), crop windows inclusive.
+    TB `~/aexp-work/pal288` (run.sh: the real amiga_clk.v + agnus_beamcounter.v in
+    Icarus for PAL, PAL interlaced, NTSC -> raster trace -> pal288.vhd in ghdl ->
+    check.py: edges at falling hblank only, pad = vblank_in and not vblank_out, vblank
+    covers vsync, 288 lines per field, padding vpos 0/1 right after the last active
+    line, NTSC untouched): PASS; `mut.py` 8/8 killed.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

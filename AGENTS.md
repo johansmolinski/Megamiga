@@ -197,6 +197,10 @@ Megamiga fork (johansmolinski):
   1 MB and writes the file size into the CSR; `amiga_sdram.vhd` puts the file's first
   512 KB where `$E00000` reads (A22..A19 = 1100, gary `sel_kick1mb`), the second into the
   kick bank, and clears the `$E00000` half before a 256/512 KB ROM. TB `~/aexp-work/aros`.
+- `pal288` (2026-10-20, from main 5a1d4b1): every PAL field leaves the core with 288 lines
+  (`pal288.vhd` in main.vhd: one or two black lines below Minimig's 287/286, Minimig's
+  vbstop untouched - it is also the sprite fetch line), so HDMI 576p is exactly x2; preset
+  `aexp_screen.cfg_576p` (lores 360 / hires 720 px). TB `~/aexp-work/pal288`.
 
 Out-of-repo testbenches for all fork increments live under `~/aexp-work/`
 (see the "Local test setup" memory); every history entry names its TB and
