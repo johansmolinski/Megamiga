@@ -3229,6 +3229,11 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     output line's flag = last active input line's flag; lace sees both flags); red on the
     pal288-a logic (mutant `fl_through`) and on the first attempt (`fl_hold_always`);
     `mut.py` 10/10.
+    Build `pal288-b` (b6c6bff, REF pal288-a): Vivado segfaulted in incremental synthesis
+    (signal 11 after reading pal288-a's synth_1 checkpoint, as aros-a); `pal288-c` (same
+    sources, REF pal288-a, `NO_REF_SYNTH=1`): WNS +0.048, WHS +0.035, first pass, 0 routing
+    errors; `Megamiga-pal288-c-R6.cor` (coretool, version 0.6.4-pal288-c). Not on the
+    hardware yet.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
