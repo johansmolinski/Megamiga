@@ -738,6 +738,9 @@ architecture synthesis of main is
    signal vid_vblank       : std_logic;
    signal vid_res          : std_logic_vector(1 downto 0);
    signal vid_vs           : std_logic;                       -- active high vsync
+   -- Megamiga: 288 active lines per PAL field (pal288.vhd)
+   signal vid_vblank_288   : std_logic;
+   signal vid_pad          : std_logic;
 
    -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026:
    -- frame-locked pixel-CE, transplanted from MiSTer Minimig.sv:653-675
@@ -1530,7 +1533,18 @@ begin
    video_hs_o     <= not vid_hsync_n;
    video_vs_o     <= vid_vs;
    video_hblank_o <= vid_hblank;
-   video_vblank_o <= vid_vblank;
+   --video_vblank_o <= vid_vblank;
+   -- Megamiga: one or two black lines below a PAL field make it 288 lines (exactly x2 on 576p)
+   i_pal288 : entity work.pal288
+      port map (
+         clk_i    => clk_main_i,
+         hblank_i => vid_hblank,
+         vblank_i => vid_vblank,
+         vblank_o => vid_vblank_288,
+         pad_o    => vid_pad
+      ); -- i_pal288
+
+   video_vblank_o <= vid_vblank_288;
 
    -- frame-locked pixel clock enable: 7.09 MHz for all-lores frames,
    -- 14.19 MHz for frames that contained any hires line. 14.19 MHz is half of
@@ -1569,9 +1583,12 @@ begin
       end if;
    end process video_shres_proc;
 
-   video_red_o   <= f_avg(vid_red,   vid_red_d)   when vid_res(1) = '1' else vid_red;
-   video_green_o <= f_avg(vid_green, vid_green_d) when vid_res(1) = '1' else vid_green;
-   video_blue_o  <= f_avg(vid_blue,  vid_blue_d)  when vid_res(1) = '1' else vid_blue;
+   video_red_o   <= (others => '0') when vid_pad = '1' else      -- Megamiga: pal288 padding
+                    f_avg(vid_red,   vid_red_d)   when vid_res(1) = '1' else vid_red;
+   video_green_o <= (others => '0') when vid_pad = '1' else
+                    f_avg(vid_green, vid_green_d) when vid_res(1) = '1' else vid_green;
+   video_blue_o  <= (others => '0') when vid_pad = '1' else
+                    f_avg(vid_blue,  vid_blue_d)  when vid_res(1) = '1' else vid_blue;
 
    video_ce_o     <= clk7_en or (clk7n_en and frame_hires);
 
