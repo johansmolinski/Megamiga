@@ -3216,7 +3216,19 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     line, NTSC untouched): PASS; `mut.py` 8/8 killed.
     Build `pal288-a` (49f8b18, REF main-b; incremental synthesis declined, "Change is too
     high", incremental implementation): WNS +0.010, WHS +0.035, first pass, 0 routing
-    errors. Not on the hardware yet.
+    errors. On the hardware (user, 2026-10-20, a 1084-style CRT behind HDMI, test screen
+    "PAL: High Res Laced"): progressive good, interlaced fields SWAPPED. Cause: Minimig
+    flips field1 (~long_frame & lace) at hpos 2 of line 0, so the padding lines carried
+    the NEXT field's flag, and ascal takes a frame's field from the flag at the last rising
+    DE before it (`i_flm`, latched at every DE rise, used at the first DE after vsync).
+    Fix (b6c6bff): pal288 also passes field1 (`fl_i`/`fl_o`) and holds it during the
+    padding at the value latched at the start of the last active input line. A first
+    attempt (hold whenever pad = 0) was still wrong - the flip lies inside the active part
+    of the last real line (hpos 102 .. hpos 25 of line 0) - and the bench caught it. Bench:
+    raster dumps field1, check.py `field` (fl_out = fl_in outside the padding; last active
+    output line's flag = last active input line's flag; lace sees both flags); red on the
+    pal288-a logic (mutant `fl_through`) and on the first attempt (`fl_hold_always`);
+    `mut.py` 10/10.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
