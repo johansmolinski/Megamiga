@@ -3214,6 +3214,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     check.py: edges at falling hblank only, pad = vblank_in and not vblank_out, vblank
     covers vsync, 288 lines per field, padding vpos 0/1 right after the last active
     line, NTSC untouched): PASS; `mut.py` 8/8 killed.
+    Build `pal288-a` (49f8b18, REF main-b; incremental synthesis declined, "Change is too
+    high", incremental implementation): WNS +0.010, WHS +0.035, first pass, 0 routing
+    errors. Not on the hardware yet.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
