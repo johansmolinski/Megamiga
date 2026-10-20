@@ -21,6 +21,15 @@
 -- and the end of the padding are combinational in that clock: the active part of a line is never
 -- one clock short or long.
 --
+-- The field flag (Minimig's field1, for ascal's weave) is held at its old value during the padding:
+-- Minimig flips it when vpos wraps to 0, so the padding lines would carry the NEXT field's flag, and
+-- ascal takes the field of a frame from the flag of the last active line before it (i_flm, latched
+-- at every rising DE) - the woven fields would land on the wrong half (seen on hardware, pal288-a).
+-- Minimig flips it at hpos 2 of line 0, inside the active part of the last real line (which runs from
+-- hpos 102 to hpos 25 of the next line), so the hold latches the flag where ascal does: at the start
+-- of every active input line. Held, the last active line carries the flag it carried before the
+-- padding existed.
+--
 -- Fields with another number of active lines are passed through unchanged: NTSC (241/242,
 -- ECS/AGA software can switch BEAMCON0 to NTSC) and the programmable VARBEAMEN modes.
 ---------------------------------------------------------------------------------------------------------
@@ -37,7 +46,9 @@ entity pal288 is
       clk_i    : in  std_logic;                  -- the video clock (Minimig's clk)
       hblank_i : in  std_logic;                  -- Minimig, active high
       vblank_i : in  std_logic;
+      fl_i     : in  std_logic;                  -- Minimig field1
       vblank_o : out std_logic;                  -- vblank_i without the padding lines
+      fl_o     : out std_logic;                  -- fl_i, held during the padding lines
       pad_o    : out std_logic                   -- '1' during the padding lines: show black
    );
 end entity pal288;
@@ -49,6 +60,7 @@ architecture synthesis of pal288 is
    signal act_cnt  : unsigned(9 downto 0) := (others => '0');   -- active lines of this field
    signal pad_reg  : std_logic := '0';
    signal pad_rem  : unsigned(1 downto 0) := (others => '0');   -- padding lines after this one
+   signal fl_hold  : std_logic := '0';                          -- fl_i at the last active line start
 
    signal line_start : std_logic;
    signal pad_start  : std_logic;
@@ -69,12 +81,16 @@ begin
 
    vblank_o   <= vblank_i and not pad;
    pad_o      <= pad;
+   fl_o       <= fl_hold when pad = '1' else fl_i;
 
    p_pad : process (clk_i)
    begin
       if rising_edge(clk_i) then
          hblank_d <= hblank_i;
          vblank_d <= vblank_i;
+         if line_start = '1' and vblank_i = '0' then
+            fl_hold <= fl_i;                     -- as ascal: the flag at the start of a line
+         end if;
 
          if vblank_i = '1' and vblank_d = '0' then
             act_cnt <= (others => '0');

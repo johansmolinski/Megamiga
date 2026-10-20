@@ -741,6 +741,7 @@ architecture synthesis of main is
    -- Megamiga: 288 active lines per PAL field (pal288.vhd)
    signal vid_vblank_288   : std_logic;
    signal vid_pad          : std_logic;
+   signal vid_fl           : std_logic;
 
    -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026:
    -- frame-locked pixel-CE, transplanted from MiSTer Minimig.sv:653-675
@@ -1512,7 +1513,8 @@ begin
          res            => vid_res,
          lace           => open,                 -- would only gate the analog scandoubler
                                                  -- (MiSTer: "& ~lace"); VGA keeps bob for now
-         field1         => video_fl_o,           -- field identity for ascal's weave deinterlacer
+         --field1         => video_fl_o,           -- field identity for ascal's weave deinterlacer
+         field1         => vid_fl,               -- field identity for ascal's weave deinterlacer, via pal288
                                                  -- (as MiSTer: assign VGA_F1 = field1)
 
          ldata          => aud_ldata,
@@ -1540,7 +1542,9 @@ begin
          clk_i    => clk_main_i,
          hblank_i => vid_hblank,
          vblank_i => vid_vblank,
+         fl_i     => vid_fl,
          vblank_o => vid_vblank_288,
+         fl_o     => video_fl_o,
          pad_o    => vid_pad
       ); -- i_pal288
 
