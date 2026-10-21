@@ -173,6 +173,12 @@ entity amiga_config is
       -- slow_ram_i.
       chipset_i        : in  std_logic_vector(1 downto 0);
 
+      -- Megamiga (ntsc): '1' = NTSC Agnus, command 0xF3 bit 1 (N); minimig.v latches it into its
+      -- ntsc register at reset, from which Agnus starts PAL or NTSC (agnus_beamcounter.v pal,
+      -- BEAMCON0 can still switch it). This is the standard the core clock runs at
+      -- (amiga_cold_boot.vhd ntsc_o); sampled like slow_ram_i.
+      ntsc_i           : in  std_logic := '0';
+
       -- Megamiga: chip RAM size for command 0xF5 bits [1:0] (CC): "00" 512 KB, "01" 1 MB,
       -- "11" 2 MB (the machine profile's Chip RAM radio); sampled like slow_ram_i.
       chip_size_i      : in  std_logic_vector(1 downto 0);
@@ -201,7 +207,8 @@ architecture synthesis of amiga_config is
    -- The configuration sequence: see the header comment for the why of each value
    constant C_SEQ : t_cfg_seq := (
       0 => (cmd => x"F1", payload => x"0007"),  -- cpuhlt=1 cpurst=1 usrrst=1: halt CPU, hold sys_reset
-      1 => (cmd => x"F3", payload => x"0008"),  -- chipset "XXXGEANT" = 0x08: ECS (Megamiga, A500+), PAL;
+      1 => (cmd => x"F3", payload => x"0008"),  -- chipset "XXXGEANT" = 0x08: ECS (Megamiga, A500+), PAL
+                                                --   (N from ntsc_q, Megamiga);
                                                 --   G/E bits from chipset_q, see C_IDX_CHIPSET
       2 => (cmd => x"F4", payload => x"0000"),  -- cpu "XXXXKCTT" = 0: 68000, no cache, no fast-kick;
                                                 --   TT = "11" (68020) from cpu_020_q, see C_IDX_CPUCFG
@@ -268,6 +275,7 @@ architecture synthesis of amiga_config is
    signal floppy_drives_q : std_logic_vector(1 downto 0) := "01";
    signal cpu_020_q       : std_logic := '0';
    signal chipset_q       : std_logic_vector(1 downto 0) := "01";
+   signal ntsc_q          : std_logic := '0';
    signal chip_size_q     : std_logic_vector(1 downto 0) := "11";
 
 begin
@@ -293,6 +301,7 @@ begin
                floppy_drives_q  <= floppy_drives_i;
                cpu_020_q        <= cpu_020_i;
                chipset_q        <= chipset_i;
+               ntsc_q           <= ntsc_i;
                chip_size_q      <= chip_size_i;
                if reset_i = '0' then
                   state <= ST_START_WAIT;
@@ -345,6 +354,7 @@ begin
                end if;
                if idx = C_IDX_CHIPSET then
                   io_din_o(4 downto 3) <= chipset_q;  -- G, E: AGA / ECS
+                  io_din_o(1)          <= ntsc_q;     -- N: NTSC (Megamiga)
                end if;
                if idx = C_IDX_CPUCFG then
                   io_din_o(1 downto 0) <= cpu_020_q & cpu_020_q;  -- TT: "11" = 68020

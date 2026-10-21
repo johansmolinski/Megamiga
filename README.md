@@ -832,13 +832,16 @@ menu keys, and steering the mouse from the keyboard — is in
 
 ### Video: HDMI
 
-HDMI outputs 720p at 50 Hz (16:9) by default. The first `HDMI:` menu
-entry offers the other 50 Hz modes — 576p at 50 Hz in 4:3 or 5:4 — plus the
-DVI switch that rescues displays which show nothing at all (see the end of
-this section).
+HDMI outputs 720p (16:9) by default. The first `HDMI:` menu entry offers
+576p in 4:3 or 5:4 instead, plus the DVI switch that rescues displays which
+show nothing at all (see the end of this section).
 
-**An OCS PAL Amiga is a 50 Hz machine**, so only faithful 50 Hz modes are
-offered. 
+**HDMI follows the Amiga's frame rate.** A PAL Amiga draws 50 pictures a
+second, an NTSC Amiga 60, and the HDMI mode follows whatever the Amiga shows
+at the moment: 720p at 50 or 60 Hz, and 576p at 50 Hz or 480p at 59.94 Hz (at
+60 Hz both 576p choices give 480p in 4:3; there is no 5:4 variant of it). When
+the rate changes, the display resyncs once. See
+[PAL and NTSC](#pal-and-ntsc-60-hz) below.
 
 The second `HDMI:` menu entry, directly below the display mode, selects
 the scaling filter:
@@ -881,6 +884,11 @@ there it would make the sync frequency step, which analog monitors
 dislike. (With it on, the machine also runs about 0.16 % fast, so software
 clocks gain a few seconds per hour — turn it off if you need authentic
 timing.)
+
+(Megamiga: Flicker-free is not available, and the menu entry has no effect.
+Since 0.2.0 the SDRAM's clock comes from the main clock generator only, so
+the core clock cannot switch to the faster twin. Since 0.7 that second clock
+generator makes the NTSC master clock instead.)
 
 #### Latency on the Checkmate Retro Monitor
 
@@ -927,7 +935,7 @@ you reassigned it in the Keyboard menu:
    have set to Disk Image, plus six** — seven at the factory default. Moving the
    cursor over a line does not open it; only <kbd>Return</kbd> does.
 3. <kbd>Return</kbd> — opens Settings, cursor on the first `HDMI:` line.
-4. <kbd>Return</kbd> — opens the HDMI menu, cursor on **720p 50 Hz 16:9**.
+4. <kbd>Return</kbd> — opens the HDMI menu, cursor on **720p 16:9**.
 5. <kbd>&darr;</kbd> <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past the two 576p
    modes, onto **DVI (no sound)**, then <kbd>Return</kbd> — DVI is on, and
    the picture should appear.
@@ -948,14 +956,40 @@ and a drive set to **Off** shows nothing at all. Neither adds a
 <kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is five
 <kbd>&darr;</kbd>.
 
+### PAL and NTSC (60 Hz)
+
+Megamiga is a PAL Amiga by default. **Settings > NTSC (60 Hz)** makes it an
+NTSC Amiga, like the crystal and the Agnus of an American machine. The core
+then runs at the NTSC master clock (28.636 MHz instead of 28.375 MHz), and
+Agnus starts in NTSC. The Kickstart comes up at 60 Hz with 200- and 400-line
+screens, and games and demos made for NTSC machines run at their intended
+speed and music tempo. Switching the toggle cold-boots the Amiga. It is one
+setting for all profiles.
+
+As on a real ECS or AGA Amiga, software can still switch the picture between
+PAL and NTSC on either machine: the Kickstart's Early Startup menu, the
+ScreenMode preferences, or a program that writes BEAMCON0. HDMI follows
+that too. Such a switch changes only the picture, not the master clock: on
+the PAL machine an NTSC screen runs at 59.4 Hz and the CPU keeps its PAL
+speed, exactly as on real hardware.
+
+HDMI shows every NTSC field as 240 lines (the bottom one or two lines of the
+lower border are cut) and every PAL field as 288. That is exactly ×2 on 480p
+and 576p, and exactly ×3 on 720p at 60 Hz, so the
+[`aexp_screen.cfg_576p`](doc/screen_adjust.md) preset is pixel-exact on 480p
+too. The analog outputs carry the NTSC timing as it is: 15.7 kHz / 60 Hz in
+the two 15 kHz modes (a Commodore 1084 handles both standards), 31.5 kHz /
+60 Hz in Standard.
+
 ### Video: VGA port (analog RGB)
 
 The VGA connector always carries the picture in parallel to HDMI. The
 `VGA:` menu selects one of three modes:
 
 * **Standard** (default): the Amiga's 15.6 kHz picture is line-doubled to
-  31 kHz so that VGA monitors accept it. Note that it is still a 50 Hz
-  signal, which not every flat panel likes.
+  31 kHz so that VGA monitors accept it. Note that a PAL Amiga's picture is
+  still a 50 Hz signal, which not every flat panel likes (an NTSC one is
+  60 Hz).
 * **15 kHz with HS/VS**: the raw 15.6 kHz RGB signal with separate
   horizontal and vertical sync, for retro monitors with a VGA-style
   input.
@@ -1185,7 +1219,8 @@ Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
 * One hard disk only, no CD-ROM
-* PAL only, no NTSC; the 68020 has no FPU and no MMU (the 68040 has both),
+* NTSC lines are all 227 color clocks long (a real NTSC Agnus alternates 227
+  and 228); the 68020 has no FPU and no MMU (the 68040 has both),
   and there is no 68030 or 68060
 * AGA: no SuperHires (1280 pixels) and no 31 kHz modes (DblPAL, Multiscan,
   Productivity) yet

@@ -39,8 +39,21 @@
 ## crossings in amiga_sdram.vhd are timed as ordinary synchronous paths.
 ## (AExp timed the flicker-free fast leg here: set_case_analysis 1 on hr_core_speed_reg[0]/Q
 ## and main_clk on i_clk_fast/CLKOUT0.)
-set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
-create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+## Megamiga 0.7 NTSC (2026-10-21): clk.vhd's second MMCM is the NTSC one now (i_clk_ntsc,
+## 28.636364 MHz and its 4x twin 114.545455 MHz), and TWO BUFGMUX_CTRLs (i_bufgmux = the core
+## clock, i_bufgmux4x = the SDRAM's 4x clock) select PAL or NTSC with one register select
+## (amiga_cold_boot's ntsc_applied). The NTSC leg is the faster one, so it is timed: case
+## analysis 1 on both selects, main_clk on i_clk_ntsc/CLKOUT0; the 4x clock keeps its
+## auto-derived name on i_clk_ntsc/CLKOUT1 and stays synchronous to main_clk (same MMCM). The PAL
+## leg is 0.9 % slower; its main <-> 4x paths (the other MMCM, other skew) are checked on the
+## routed checkpoint by pal_timing.tcl (in the ntsc bench). Sign-off: all three get_pins
+## non-empty, main_clk at 34.921 ns in the routed report.
+## (Until 0.7: set_case_analysis 0 on i_bufgmux/S and main_clk on i_clk_main/CLKOUT0.)
+#set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
+#create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+set_case_analysis 1 [get_pins CORE/clk_gen/i_bufgmux/S]
+set_case_analysis 1 [get_pins CORE/clk_gen/i_bufgmux4x/S]
+create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_ntsc/CLKOUT0]
 # Add more clocks here, if needed
 
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here

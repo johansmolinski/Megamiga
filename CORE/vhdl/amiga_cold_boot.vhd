@@ -27,6 +27,17 @@
 -- copied to $A10000; AR3: its RAM is cleared), and the Amiga stays in reset until
 -- cart_busy_i is low again. That value - latched when the init starts - is also the one
 -- that is applied, so a change during the init leads to another cold boot.
+-- Megamiga (ntsc): the video standard (ntsc_i, the menu's global "NTSC (60 Hz)" toggle) is the
+-- crystal of the machine: the core clock is PAL 28.375 MHz or NTSC 28.636364 MHz (clk.vhd, two
+-- MMCMs and glitch-free BUFGMUX_CTRLs selected by ntsc_o), and Agnus starts in that standard
+-- (amiga_config.vhd sends it in 0xF3 at every reset). A change is a cold boot with one more step:
+-- in CLK_DRAIN the Amiga is in reset and the SDRAM controller's other users are stopped (pause_o
+-- halts the maintenance writer); once nothing has been in flight (sdram_quiet_i) for
+-- C_SWITCH_CYCLES clocks, ntsc_o flips. The core clock and the SDRAM's 4x clock then switch one
+-- after the other within a few clocks: their relation is undefined meanwhile, which only matters
+-- for an access in flight - hence the drain. CLK_SETTLE gives the new clock C_SWITCH_CYCLES clocks
+-- (sdram_ctrl re-synchronises its 16 states to c_7m at the next bus cycle) before the scrub writes.
+-- If the SDRAM never gets quiet, the switch happens after C_SWITCH_TIMEOUT anyway.
 -- The request is level-based (requested /= applied), not a pulse. Consequently a change
 -- cannot be lost, and changes arriving during a cold boot converge to the latest value.
 ---------------------------------------------------------------------------------------------
@@ -52,6 +63,11 @@ entity amiga_cold_boot is
       kick_hold_i       : in  std_logic;                     -- Kickstart load in progress
       cart_i            : in  std_logic_vector(1 downto 0);  -- Megamiga: none / HRTmon / AR3
       cart_busy_i       : in  std_logic;                     -- Megamiga: cartridge init running
+      ntsc_i            : in  std_logic;                     -- Megamiga (ntsc): requested standard
+      sdram_quiet_i     : in  std_logic;                     -- ... nothing in flight in the SDRAM
+
+      ntsc_o            : out std_logic;                     -- ... applied: the clock select
+      pause_o           : out std_logic;                     -- ... stop the SDRAM writer (amiga_sdram)
 
       cart_init_o       : out std_logic;                     -- Megamiga: start the cartridge init
       cart_type_o       : out std_logic_vector(1 downto 0);  -- Megamiga: for the init and the Amiga
@@ -64,7 +80,8 @@ end entity amiga_cold_boot;
 
 architecture synthesis of amiga_cold_boot is
 
-   type t_state is (IDLE, ASSERT_RESET, SCRUB_SYSBASE_HI, SCRUB_SYSBASE_LO, CART_INIT, HOLD_RESET);
+   type t_state is (IDLE, ASSERT_RESET, CLK_DRAIN, CLK_SETTLE, SCRUB_SYSBASE_HI, SCRUB_SYSBASE_LO,
+                    CART_INIT, HOLD_RESET);
 
    -- minimig_syscontrol samples its master reset only on clk7_en (one out of four clk28
    -- ticks). Keep the request high for 64 clocks, matching the established keyboard-reset
@@ -91,6 +108,13 @@ architecture synthesis of amiga_cold_boot is
    signal cart_applied     : std_logic_vector(1 downto 0) := "00"; -- OSM default: no cartridge
    signal cart_q           : std_logic_vector(1 downto 0) := "00"; -- the one being initialised
 
+   -- Megamiga (ntsc): the clock switch. 32768 clocks are 1.15 ms; the timeout 2**22 = 148 ms.
+   constant C_SWITCH_CYCLES  : natural := 32768;
+   constant C_SWITCH_TIMEOUT : natural := 2**22;
+   signal ntsc_applied     : std_logic := '0';  -- power-up: PAL (the menu default)
+   signal switch_count     : natural range 0 to C_SWITCH_CYCLES - 1 := 0;
+   signal switch_timeout   : natural range 0 to C_SWITCH_TIMEOUT - 1 := 0;
+
 begin
 
    -- ASSERT_RESET gives main.vhd a complete clock before the first scrub write. HOLD_RESET
@@ -98,6 +122,9 @@ begin
    amiga_reset_o <= '0' when state = IDLE else '1';
 
    chip_scrub_o <= '1' when state = SCRUB_SYSBASE_HI or state = SCRUB_SYSBASE_LO else '0';
+
+   ntsc_o  <= ntsc_applied;
+   pause_o <= '1' when state = CLK_DRAIN or state = CLK_SETTLE else '0';
 
    -- Megamiga: the cartridge. cart_type_o is what the Amiga sees. During the init clock it
    -- must already be the new value, so the init works on that cartridge: CART_INIT only
@@ -122,7 +149,8 @@ begin
                   boards_i /= boards_applied or
                   z3b_ram_i /= z3b_ram_applied or
                   chipset_i /= chipset_applied or chip_size_i /= chip_size_applied or
-                  drv_map_i /= drv_map_applied or kick_hold_i = '1' or cart_i /= cart_applied then
+                  drv_map_i /= drv_map_applied or kick_hold_i = '1' or cart_i /= cart_applied or
+                  ntsc_i /= ntsc_applied then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
                end if;
@@ -130,9 +158,38 @@ begin
             when ASSERT_RESET =>
                if reset_hold_count = 0 then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
-                  state            <= SCRUB_SYSBASE_HI;
+                  switch_count     <= C_SWITCH_CYCLES - 1;
+                  switch_timeout   <= C_SWITCH_TIMEOUT - 1;
+                  if ntsc_i /= ntsc_applied then
+                     state <= CLK_DRAIN;
+                  else
+                     state <= SCRUB_SYSBASE_HI;
+                  end if;
                else
                   reset_hold_count <= reset_hold_count - 1;
+               end if;
+
+            -- Megamiga (ntsc): the Amiga is in reset and the writer paused; wait until the SDRAM
+            -- has had nothing in flight for C_SWITCH_CYCLES clocks, then switch the clock
+            when CLK_DRAIN =>
+               if switch_timeout /= 0 then
+                  switch_timeout <= switch_timeout - 1;
+               end if;
+               if sdram_quiet_i = '0' and switch_timeout /= 0 then
+                  switch_count <= C_SWITCH_CYCLES - 1;
+               elsif switch_count /= 0 then
+                  switch_count <= switch_count - 1;
+               else
+                  ntsc_applied <= ntsc_i;
+                  switch_count <= C_SWITCH_CYCLES - 1;
+                  state        <= CLK_SETTLE;
+               end if;
+
+            when CLK_SETTLE =>
+               if switch_count /= 0 then
+                  switch_count <= switch_count - 1;
+               else
+                  state <= SCRUB_SYSBASE_HI;
                end if;
 
             -- Megamiga: chip RAM is in the SDRAM, where amiga_sdram.vhd writes the word in

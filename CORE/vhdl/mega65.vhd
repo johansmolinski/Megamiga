@@ -367,6 +367,17 @@ signal qnice_kick_len         : std_logic_vector(22 downto 0);   -- Megamiga 0.7
 signal qnice_kick_1mb         : std_logic;                        -- a 1 MB (AROS) Kickstart
 signal main_kick_ldng         : std_logic;
 signal main_kick_busy         : std_logic;
+-- Megamiga 0.7 NTSC: the standard the core clock runs at (amiga_cold_boot), the SDRAM drain for
+-- its switch, and the Amiga's field rate for HDMI (main.vhd), settled in the QNICE clock domain
+signal main_ntsc              : std_logic;
+signal main_sdram_pause       : std_logic;
+signal main_maint_idle        : std_logic;
+signal main_sdram_quiet       : std_logic := '0';
+signal main_vid60             : std_logic;
+signal qnice_vid60_cdc        : std_logic;
+signal qnice_vid60_last       : std_logic := '0';
+signal qnice_vid60_cnt        : natural range 0 to 5_000_000 := 0;   -- C_RTGV_SETTLE
+signal qnice_vid60            : std_logic := '0';
 signal main_kick_hold         : std_logic;
 -- read-only data of the firmware (m2m-rodata.asm), QNICE device C_DEV_AMIGA_RODATA
 signal qnice_rodata_q         : std_logic_vector(15 downto 0);
@@ -949,7 +960,9 @@ signal mem_arb_waitrequest         : std_logic_vector(C_ARB_SLAVES - 1 downto 0)
 -- Keep them single-line for the awk scraper.
 -- The drive block at lines 2..34 shifted every entry below it by 22 lines vs
 -- the single-simulated-drive layout.
--- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
+-- HDMI follows the Amiga's field rate (Megamiga 0.7, branch ntsc): the three modes of the radio
+-- below are 720p 50 Hz, 576p 4:3 and 576p 5:4 while the Amiga runs at 50 Hz (PAL), 720p 60 Hz and
+-- 480p 59.94 Hz (twice) while it runs at 60 Hz (NTSC, the menu's NTSC toggle or BEAMCON0).
 
 -- Drive Settings submenu. Two radios decide the floppy configuration:
 --
@@ -1029,6 +1042,12 @@ constant C_MENU_HDMI_DVI      : natural := 81;
 -- of scaling the framebuffer into the HDMI mode of the radio above. Off = always scaled.
 constant C_MENU_RTG_NATIVE    : natural := 82;
 
+-- NTSC (60 Hz): single-select, default OFF (Megamiga 0.7). The machine's video standard: the
+-- core clock (clk.vhd: PAL 28.375 / NTSC 28.636364 MHz) and the standard Agnus starts in
+-- (userio 0xF3 N). amiga_cold_boot switches it with a cold boot of the Amiga.
+-- (Lines 121.. moved one down: Volume, Stereo, the filters, Keyboard, OSM key, Serial, SD status.)
+constant C_MENU_NTSC          : natural := 121;
+
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
@@ -1062,13 +1081,13 @@ subtype C_MENU_OSM_SCALING is natural range 118 downto 110;
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 145 downto 125;
+subtype C_MENU_VOLUME is natural range 146 downto 126;
 
 -- Stereo crossfeed radio ("Stereo: %s" submenu): line 220 (Full Stereo, default)
 -- down to line 223 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 153 downto 150;
+subtype C_MENU_STEREO is natural range 154 downto 151;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -1076,31 +1095,31 @@ subtype C_MENU_STEREO is natural range 153 downto 150;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 156;
-constant C_MENU_LEDFILT       : natural := 157;
+constant C_MENU_A500FILT      : natural := 157;
+constant C_MENU_LEDFILT       : natural := 158;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
 -- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 132 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 160;
+constant C_MENU_KBD_AMIGA     : natural := 161;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
 -- byte-identical (bit 7 keeps its "the menu key" meaning). Line 136 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 164;
-constant C_MENU_OSMKEY_F11    : natural := 165;
-constant C_MENU_OSMKEY_F13    : natural := 166;
-constant C_MENU_OSMKEY_COMBO  : natural := 167;
+constant C_MENU_OSMKEY_HELP   : natural := 165;
+constant C_MENU_OSMKEY_F11    : natural := 166;
+constant C_MENU_OSMKEY_F13    : natural := 167;
+constant C_MENU_OSMKEY_COMBO  : natural := 168;
 
 constant C_MENU_DRV_SPINUP    : natural := 66;   -- Drive Settings: spin-up delay of the simulated drives
 constant C_MENU_DRV_SOUND     : natural := 67;   -- Drive Settings: Virtual Drive Sound radio (a row), Megamiga 0.7: On (default)
 constant C_MENU_DRV_NOCLICK   : natural := 68;   -- ... Noclick: only while a motor runs (no click of an empty drive)
 constant C_MENU_DRV_SNDOFF    : natural := 69;   -- ... Off
-constant C_MENU_SERIAL        : natural := 172;  -- Settings: Amiga serial port on PMOD1 (default OFF)
-constant C_MENU_SD_STATUS     : natural := 181;  -- main menu: empty TEXT line at the end (the SD status is painted on the bottom row; unused by the firmware)
+constant C_MENU_SERIAL        : natural := 173;  -- Settings: Amiga serial port on PMOD1 (default OFF)
+constant C_MENU_SD_STATUS     : natural := 182;  -- main menu: empty TEXT line at the end (the SD status is painted on the bottom row; unused by the firmware)
 
 -- Megamiga 0.7: machine profiles are FILES (/amiga/profiles/<name>.prof, the firmware: see
 -- doc/developers/profiles.md). Profile Settings holds ONE block of radios and toggles: the
@@ -1239,15 +1258,17 @@ begin
    main_joy_2_fire_n_o  <= '1';
 
 
-   -- MMCME2_ADV clock generator: 28.375 MHz Amiga PAL master clock, plus the
-   -- 28.4375 MHz HDMI flicker-free "fast" twin selected by hr_core_speed (issue #12)
+   -- MMCME2_ADV clock generator: 28.375 MHz Amiga PAL master clock, or (Megamiga 0.7) the
+   -- 28.636364 MHz NTSC master clock of the second MMCM (AExp: the 28.4375 MHz HDMI
+   -- flicker-free "fast" twin selected by hr_core_speed, issue #12; never used by Megamiga)
    clk_gen : entity work.clk
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
-         -- Megamiga: the SDRAM clock (4x) comes from the native MMCM only, so the core clock
-         -- must not switch to the fast twin: HDMI flicker-free is disabled (see AGENTS.md)
-         core_speed_i      => "00",
-         main_clk_o        => main_clk,        -- CORE's 28.375 MHz clock
+         -- Megamiga: the core clock and its 4x SDRAM twin, PAL or NTSC; switched by
+         -- amiga_cold_boot while the Amiga is in reset and the SDRAM has nothing in flight
+         --core_speed_i      => "00",
+         ntsc_i            => main_ntsc,
+         main_clk_o        => main_clk,        -- CORE's 28.375 / 28.636364 MHz clock
          main_clk4x_o      => main_clk4x,      -- 113.5 MHz for the SDRAM controller
          main_rst_o        => main_rst,        -- CORE's reset, synchronized
          cpu_clk_o         => main_clkcpu      -- Megamiga (cpu040): the AP68040's clock
@@ -1507,6 +1528,21 @@ begin
    main_cart_hrtmon <= '1' when main_cart_type = "01" else '0';
    main_cart_ar3    <= '1' when main_cart_type = "10" else '0';
 
+   -- Megamiga 0.7 NTSC: nothing in flight in the SDRAM controller - the maintenance writer
+   -- (Kickstart, scrub, cartridge) is idle and the two toggle-handshake ports (the IDE board's
+   -- DMA, the AP68040's Fast RAM port) have no request outstanding. The chipset and the CPU bus
+   -- are quiet anyway: amiga_cold_boot only looks at this while it holds the Amiga in reset.
+   p_sdram_quiet : process (main_clk)
+   begin
+      if rising_edge(main_clk) then
+         if main_maint_idle = '1' and ide_dm_req = ide_dm_ack and main_fp_req = main_fp_ack then
+            main_sdram_quiet <= '1';
+         else
+            main_sdram_quiet <= '0';
+         end if;
+      end if;
+   end process p_sdram_quiet;
+
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
          clk_i             => main_clk,
@@ -1524,6 +1560,10 @@ begin
          kick_hold_i       => main_kick_hold,
          cart_i            => main_cart_req,
          cart_busy_i       => main_cart_busy,
+         ntsc_i            => main_osm_control_i(C_MENU_NTSC),
+         sdram_quiet_i     => main_sdram_quiet,
+         ntsc_o            => main_ntsc,
+         pause_o           => main_sdram_pause,
          cart_init_o       => main_cart_init,
          cart_type_o       => main_cart_type,
          amiga_reset_o     => amiga_cold_reset,
@@ -1570,6 +1610,7 @@ begin
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
          video_fl_o           => video_fl_o,
+         video_60hz_o         => main_vid60,
 
          -- Master volume (OSM "Volume" radio): 0..20 step index = mute..100%
          audio_volume_i       => main_volume,
@@ -1640,6 +1681,7 @@ begin
          z3_ram_i             => main_z3_ram,
          z3b_ram_i            => main_z3b_ram,
          chipset_i            => main_chipset,
+         ntsc_i               => main_ntsc,
          chip_size_i          => main_chip_size,
          fram_sel_o           => main_fram_sel,
          fram_we_o            => main_fram_we,
@@ -1969,6 +2011,8 @@ begin
          qnice_wait_o   => qnice_kick_wait,
          qnice_kick_1mb_i => qnice_kick_1mb,
          kick_busy_o    => main_kick_busy,
+         pause_i        => main_sdram_pause,
+         maint_idle_o   => main_maint_idle,
          qnice_ar3_ce_i => qnice_ar3_ce,
          cart_init_i    => main_cart_init,
          cart_type_i    => main_cart_type,
@@ -2234,13 +2278,53 @@ begin
 
    qnice_rtg_native <= '1' when qnice_osm_control_i(C_MENU_RTG_NATIVE) = '1' and qnice_rtgv /= C_RTGV_NONE else '0';
 
+   -- Megamiga 0.7 NTSC: HDMI follows the Amiga's field rate (main.vhd video_60hz_o): 50 Hz
+   -- (PAL) or 60 Hz (NTSC - the menu's NTSC toggle, Kickstart's boot menu or a program that
+   -- writes BEAMCON0). Like the RTG mode it must stay the same for C_RTGV_SETTLE (100 ms)
+   -- before HDMI follows: every HDMI mode change makes the display resync.
+   i_cdc_vid60 : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => false              -- main_vid60 is a register
+      )
+      port map (
+         src_clk_i     => main_clk,
+         src_data_i(0) => main_vid60,
+         dst_clk_i     => qnice_clk_i,
+         dst_data_o(0) => qnice_vid60_cdc
+      ); -- i_cdc_vid60
+
+   p_vid60_settle : process (qnice_clk_i)
+   begin
+      if rising_edge(qnice_clk_i) then
+         if qnice_vid60_cdc /= qnice_vid60_last then
+            qnice_vid60_last <= qnice_vid60_cdc;
+            qnice_vid60_cnt  <= 0;
+         elsif qnice_vid60_cnt /= C_RTGV_SETTLE then
+            qnice_vid60_cnt  <= qnice_vid60_cnt + 1;
+         else
+            qnice_vid60      <= qnice_vid60_last;
+         end if;
+         if qnice_rst_i = '1' then
+            qnice_vid60_last <= '0';
+            qnice_vid60_cnt  <= 0;
+            qnice_vid60      <= '0';
+         end if;
+      end if;
+   end process p_vid60_settle;
+
    -- Default (fall-through) is 720p 50 Hz 16:9. The RTG modes (M2M-UPSTREAM rtg-native-modes
    -- adds 1024x768 and 1080p30) only while the RTG card shows one of their resolutions.
+   -- Megamiga 0.7 NTSC: at 60 Hz the radio's 720p is 720p 60 Hz and both 576p are 480p 59.94 Hz
+   -- (the framework has no 5:4 window for 480p: 4:3 there too).
    qnice_video_mode_o <= C_VIDEO_HDMI_640_60   when qnice_rtg_native = '1' and qnice_rtgv = C_RTGV_640   else
                          C_VIDEO_SVGA_800_60   when qnice_rtg_native = '1' and qnice_rtgv = C_RTGV_800   else
                          C_VIDEO_SVGA_1024_60  when qnice_rtg_native = '1' and qnice_rtgv = C_RTGV_1024  else
                          C_VIDEO_HDMI_16_9_60  when qnice_rtg_native = '1' and qnice_rtgv = C_RTGV_720P  else
                          C_VIDEO_HDMI_1080_30  when qnice_rtg_native = '1' and qnice_rtgv = C_RTGV_1080P else
+                         C_VIDEO_HDMI_720_5994 when qnice_vid60 = '1' and (qnice_osm_control_i(C_MENU_HDMI_5_4_50) = '1' or
+                                                                          qnice_osm_control_i(C_MENU_HDMI_4_3_50) = '1') else
+                         C_VIDEO_HDMI_16_9_60  when qnice_vid60 = '1' else
                          C_VIDEO_HDMI_5_4_50   when qnice_osm_control_i(C_MENU_HDMI_5_4_50)    = '1' else
                          C_VIDEO_HDMI_4_3_50   when qnice_osm_control_i(C_MENU_HDMI_4_3_50)    = '1' else
                          C_VIDEO_HDMI_16_9_50;

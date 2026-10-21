@@ -85,8 +85,11 @@ different kind of screen (Megamiga adds a third, for HDMI 576p):
   4:3**: it trims the picture to exactly 360 lores / 720 hires pixels and keeps
   all 288 lines, so every Amiga pixel becomes exactly 2×2 (lores) or 1×2
   (hires) screen pixels. Use it with the HDMI Filter **No Filter** (sharp
-  square pixels) or **Sharp Bilinear**. The other HDMI modes always scale by an
-  odd factor, so on those this file only removes a little of the left border.
+  square pixels) or **Sharp Bilinear**. It is just as exact on **480p**, the
+  mode HDMI switches to while the Amiga runs NTSC (240 lines, also ×2), and on
+  720p at 60 Hz the lines are exactly ×3 (the pixels ×1.33). The other HDMI
+  modes always scale by an odd factor, so on those this file only removes a
+  little of the left border.
 
 Because every TV and monitor overscans and stretches a little differently,
 there is no single file that is perfect everywhere. So the plan is simple:

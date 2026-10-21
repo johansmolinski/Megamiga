@@ -27,7 +27,7 @@
 #   REROLL_MAX_MISS=<ns>  largest setup or hold miss that gets re-rolled
 #                         (default 0.3); a bigger miss is a real timing problem
 #   IMPL_MARGIN=<clock:ns ...>  extra setup uncertainty during placement only
-#                         (default "cpu_clk:0.4 native_clk4x_mmcm:0.2", 0 = off;
+#                         (default "cpu_clk:0.4 ntsc_clk4x_mmcm:0.2", 0 = off;
 #                         see impl_margin.tcl)
 #   REF_DIR=<CORE dir of an earlier build>  incremental synthesis (from its
 #                         synth_1 checkpoint, if there is one) and

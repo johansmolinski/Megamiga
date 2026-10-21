@@ -56,6 +56,9 @@ entity main is
       video_hblank_o          : out std_logic;
       video_vblank_o          : out std_logic;
       video_fl_o              : out std_logic;   -- interlace field flag: toggles per field
+      -- Megamiga (ntsc): '1' while the Amiga's fields come at about 60 Hz (shorter than
+      -- C_60HZ_FIELD clocks: NTSC, or a 31 kHz VARBEAMEN mode), '0' at 50 Hz (PAL); for HDMI
+      video_60hz_o            : out std_logic;
                                                  -- while the Amiga sets BPLCON0 LACE, constant
                                                  -- '0' otherwise; drives ascal's weave deinterlacer
 
@@ -150,6 +153,9 @@ entity main is
       chipset_i               : in  std_logic_vector(1 downto 0);
       -- Megamiga: chip RAM size "00" 512 KB, "01" 1 MB, "11" 2 MB (userio 0xF5 CC)
       chip_size_i             : in  std_logic_vector(1 downto 0);
+      -- Megamiga (ntsc): the video standard the core clock runs at, '1' = NTSC (userio 0xF3 N,
+      -- amiga_cold_boot.vhd ntsc_o: changes only while the Amiga is in reset)
+      ntsc_i                  : in  std_logic := '0';
       fram_sel_o              : out std_logic;
       fram_we_o               : out std_logic;                      -- '1' = write cycle
       -- Megamiga: the SDRAM word address of the CPU port (bank in bits 24:23):
@@ -738,7 +744,7 @@ architecture synthesis of main is
    signal vid_vblank       : std_logic;
    signal vid_res          : std_logic_vector(1 downto 0);
    signal vid_vs           : std_logic;                       -- active high vsync
-   -- Megamiga: 288 active lines per PAL field (pal288.vhd)
+   -- Megamiga: 288 active lines per PAL field, 240 per NTSC field (field_lines.vhd)
    signal vid_vblank_288   : std_logic;
    signal vid_pad          : std_logic;
    signal vid_fl           : std_logic;
@@ -769,6 +775,13 @@ architecture synthesis of main is
    end function f_avg;
    signal vid_red_d, vid_green_d, vid_blue_d : std_logic_vector(7 downto 0) := (others => '0');
    signal vid_vs_d         : std_logic := '0';
+   -- Megamiga (ntsc): the field period in core clocks, from one vsync start to the next. PAL:
+   -- 312/313 lines of 1816 clocks = 566592/568408, NTSC: 262/263 lines = 475792/477608 (at either
+   -- clock: a program can switch Agnus with BEAMCON0). The threshold lies in between.
+   constant C_60HZ_FIELD   : natural := 521_000;
+   constant C_FIELD_MAX    : natural := 2**20 - 1;   -- no vsync for 37 ms: 50 Hz
+   signal field_cnt        : natural range 0 to C_FIELD_MAX := 0;
+   signal field_60hz       : std_logic := '0';
 
    -- divide-by-2 enable (14.19 MHz) for the OSM overlay sampling in the
    -- retro 15 kHz VGA modes
@@ -1128,6 +1141,7 @@ begin
          floppy_drives_i  => drv_count_i,
          cpu_020_i        => cpu_020_i,
          chipset_i        => chipset_i,
+         ntsc_i           => ntsc_i,
          chip_size_i      => chip_size_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
@@ -1514,7 +1528,7 @@ begin
          lace           => open,                 -- would only gate the analog scandoubler
                                                  -- (MiSTer: "& ~lace"); VGA keeps bob for now
          --field1         => video_fl_o,           -- field identity for ascal's weave deinterlacer
-         field1         => vid_fl,               -- field identity for ascal's weave deinterlacer, via pal288
+         field1         => vid_fl,               -- field identity for ascal's weave deinterlacer, via field_lines
                                                  -- (as MiSTer: assign VGA_F1 = field1)
 
          ldata          => aud_ldata,
@@ -1536,8 +1550,9 @@ begin
    video_vs_o     <= vid_vs;
    video_hblank_o <= vid_hblank;
    --video_vblank_o <= vid_vblank;
-   -- Megamiga: one or two black lines below a PAL field make it 288 lines (exactly x2 on 576p)
-   i_pal288 : entity work.pal288
+   -- Megamiga: one or two black lines below a PAL field make it 288 lines (exactly x2 on 576p),
+   -- the last one or two lines of an NTSC field are blanked: 240 lines (x2 on 480p, x3 on 720p)
+   i_field_lines : entity work.field_lines
       port map (
          clk_i    => clk_main_i,
          hblank_i => vid_hblank,
@@ -1546,7 +1561,7 @@ begin
          vblank_o => vid_vblank_288,
          fl_o     => video_fl_o,
          pad_o    => vid_pad
-      ); -- i_pal288
+      ); -- i_field_lines
 
    video_vblank_o <= vid_vblank_288;
 
@@ -1571,6 +1586,27 @@ begin
       end if;
    end process video_ce_proc;
 
+   -- Megamiga (ntsc): 50 or 60 Hz, for the HDMI mode (mega65.vhd lets it settle)
+   video_rate_proc : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         if vid_vs = '1' and vid_vs_d = '0' then      -- start of vsync
+            if field_cnt < C_60HZ_FIELD then
+               field_60hz <= '1';
+            else
+               field_60hz <= '0';
+            end if;
+            field_cnt <= 0;
+         elsif field_cnt /= C_FIELD_MAX then
+            field_cnt <= field_cnt + 1;
+         else
+            field_60hz <= '0';
+         end if;
+      end if;
+   end process video_rate_proc;
+
+   video_60hz_o <= field_60hz;
+
    -- Megamiga: SuperHires (ECS/AGA, 1280 pixels, a new pixel on every 28 MHz clock). The
    -- M2M video path takes 14 MHz pixels at most (line buffers 768 / ascal 1024, AGENTS.md
    -- hard rule 6), so on SuperHires lines every output pixel is the average of the two
@@ -1587,7 +1623,7 @@ begin
       end if;
    end process video_shres_proc;
 
-   video_red_o   <= (others => '0') when vid_pad = '1' else      -- Megamiga: pal288 padding
+   video_red_o   <= (others => '0') when vid_pad = '1' else      -- Megamiga: field_lines padding/trim
                     f_avg(vid_red,   vid_red_d)   when vid_res(1) = '1' else vid_red;
    video_green_o <= (others => '0') when vid_pad = '1' else
                     f_avg(vid_green, vid_green_d) when vid_res(1) = '1' else vid_green;

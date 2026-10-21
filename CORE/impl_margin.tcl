@@ -9,7 +9,8 @@
 # impl_margin off restores the real constraints before route_design, so
 # routing, post-route phys_opt and the reported slack are the real ones.
 #
-#   IMPL_MARGIN="cpu_clk:0.4 native_clk4x_mmcm:0.2"   clock:ns pairs (default)
+#   IMPL_MARGIN="cpu_clk:0.4 ntsc_clk4x_mmcm:0.2"     clock:ns pairs (default; Megamiga 0.7: the
+#                                                      timed SDRAM clock is the NTSC leg, CORE.xdc)
 #   IMPL_MARGIN=0                                      no margin
 #
 # Reference: REF_DCP=<routed .dcp of a build that met timing> makes the
@@ -22,7 +23,7 @@ proc impl_margin_list {} {
     # Vivado: user clock uncertainty "will adversely impact the incremental
     # design run" (Project 1-1108); the reference placement is the margin then.
     if {[info exists ::env(REF_DCP)] && $::env(REF_DCP) ne ""} { return {} }
-    set m "cpu_clk:0.4 native_clk4x_mmcm:0.2"
+    set m "cpu_clk:0.4 ntsc_clk4x_mmcm:0.2"
     if {[info exists ::env(IMPL_MARGIN)]} { set m $::env(IMPL_MARGIN) }
     if {$m eq "" || $m eq "0"} { return {} }
     set out {}
