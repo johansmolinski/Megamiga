@@ -3234,6 +3234,58 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     sources, REF pal288-a, `NO_REF_SYNTH=1`): WNS +0.048, WHS +0.035, first pass, 0 routing
     errors; `Megamiga-pal288-c-R6.cor` (coretool, version 0.6.4-pal288-c).
     HW-confirmed by the user on 2026-10-20 (pal288-c): progressive and interlaced correct.
+  - **NTSC Amiga and HDMI at 50 or 60 Hz (branch `ntsc` from pal288, 2026-10-21).** The
+    user asked what correct 60 Hz would take, then for all five parts: a global toggle
+    first ("we can change that later"), and HDMI that follows what the Amiga outputs (a
+    real ECS/AGA Amiga switches PAL/NTSC by BEAMCON0: screenmode, programs, the early boot
+    menu). Minimig had it all but the clock: userio 0xF3 N -> minimig.v `ntsc` at reset ->
+    agnus_beamcounter `pal` (BEAMCON0 bit 5 switches it at runtime on ECS); NTSC = vtotal
+    262/263, vbstop 20, 242/241 active lines, 227-CCK lines only (no LOL 227.5).
+    - Clock: the NTSC master clock 28.636364 MHz exactly (100 x 63 / 5 / 44) and its 4x
+      twin 114.545 MHz (/11) come from AExp's flicker-free twin MMCM (`i_clk_fast` ->
+      `i_clk_ntsc`), dead in Megamiga since 0.2.0 (core_speed_i tied "00": the SDRAM clock
+      came from the native MMCM only; the Flicker-free menu toggle is a no-op, README now
+      says so). The existing BUFGMUX_CTRL `i_bufgmux` and a new `i_bufgmux4x` pick PAL or
+      NTSC with one select. Chosen over DRP reconfiguration of the one MMCM (that needs RST,
+      a relock, output gating against the pre-lock overshoot and BUFH-clocked BUFGCE enables
+      for three clocks); both MMCMs run all the time and a BUFGMUX_CTRL switch only stretches
+      one low phase (async S is glitch-free, as the fast twin always used it). The 68040's
+      clock stays on the PAL MMCM (42.04 MHz, asynchronous to the core anyway). CORE.xdc
+      times the faster NTSC leg (set_case_analysis 1 on both S pins, main_clk on
+      i_clk_ntsc/CLKOUT0; the 4x clock's auto name is `ntsc_clk4x_mmcm` now, impl_margin's
+      default follows); the PAL leg's main <-> 4x paths (other MMCM, other skew) are
+      re-timed on the routed checkpoint by `~/aexp-work/ntsc/pal_timing.tcl`.
+    - Switch: amiga_cold_boot treats the toggle as topology. New states after ASSERT_RESET:
+      CLK_DRAIN (Amiga in reset, `pause_o` stops amiga_sdram's maintenance writer - new
+      `pause_i`, `maint_idle_o` - and waits until the SDRAM had nothing in flight for 32768
+      clocks: writer idle, IDE DMA and 68040 port toggles equal; timeout 2^22 = 148 ms), the
+      flip of `ntsc_applied` (= the mux select), CLK_SETTLE (32768 clocks; sdram_ctrl
+      re-synchronises its 16 states to c_7m) and on into the scrub. Main and 4x switch a few
+      clocks apart, so their relation is undefined for an access in flight - hence the
+      drain; nothing is reset (main_rst untouched), QNICE handshakes just wait.
+      amiga_config sends N in 0xF3 from `ntsc_i` (= ntsc_applied), sampled in reset.
+    - HDMI: main.vhd `video_60hz_o` (vsync-to-vsync < 521000 clocks; PAL 566592/568408,
+      NTSC 475792/477608 at either crystal), cdc_stable + 100 ms settle in the QNICE domain
+      (as the RTG mode), then 720p50 -> 720p60 and 576p 4:3 / 5:4 -> 480p 59.94 (the
+      framework has no 5:4 window for 480p). RTG native modes keep priority.
+    - Lines: pal288.vhd -> `field_lines.vhd`: NTSC fields are trimmed to 240 (the last 1-2
+      active lines blanked, black), x2 on 480p, x3 on 720p; decided from the previous field
+      (241/242 lines), so a BEAMCON0 switch costs one odd field; no padding after a trimmed
+      field. The 576p preset is pixel-exact on 480p too.
+    - Menu: line 121 " NTSC (60 Hz)" at the end of the Display block (C_MENU_NTSC; Volume,
+      Stereo, filters, Keyboard, OSM key, Serial and SD status one line down), OPTM_SIZE 183,
+      OPTM_DY 30, the HDMI lines " 720p 16:9" / " 576p/480p 4:3" / " 576p/480p 5:4":
+      demand +11, MENU_HEAP_SIZE 3296 kept (headroom 5). Help pages 1 and 5, README (PAL and
+      NTSC section), screen_adjust.md. The settings signature changes: old settings files
+      are reset once.
+    - TBs `~/aexp-work/ntsc`: run.sh (real raster for PAL, PAL lace, NTSC, NTSC lace and a
+      PAL -> NTSC -> PAL BEAMCON0 switch; check.py: counts 288 / 240 by the previous field,
+      trimmed lines last, flags) PASS, `mut.py` 17/17 (10 pal288 + 7 trim); `cb/` amiga_cold_boot
+      (quiet, timeout, busy-then-quiet, a cold boot without switch) PASS, `mut.py` 7/7; `clk/`
+      clk.vhd with unisim in xsim on fedora (PAL 35.242/8.810 ns, NTSC 34.920/8.730 ns, cpu
+      23.788 ns in both; no phase < 17 ns / 4.2 ns over three switches; 4 x-edges per main
+      period in 10815 periods; no reset) PASS. The 60 Hz threshold against the traced field
+      periods: 50 Hz >= 567500, 60 Hz <= 483124 clocks.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

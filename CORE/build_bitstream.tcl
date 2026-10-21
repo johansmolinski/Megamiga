@@ -71,8 +71,11 @@ open_run impl_1
 set gate {}
 # A500+ mode: the core clock is pinned to native (no flicker-free fast leg), and the
 # chipset -> SDRAM multicycle constraints need the controller's instance name.
-if {[llength [get_pins -quiet {CORE/clk_gen/i_bufgmux/S}]] == 0} {
-    lappend gate "set_case_analysis target CORE/clk_gen/i_bufgmux/S missing"
+# Megamiga 0.7 NTSC: both clock muxes (core clock, SDRAM 4x clock) are on the NTSC leg
+foreach pin {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S} {
+    if {[llength [get_pins -quiet $pin]] == 0} {
+        lappend gate "set_case_analysis target $pin missing"
+    }
 }
 if {[llength [get_cells -quiet {CORE/i_amiga_sdram/i_sdram_ctrl/*}]] == 0} {
     lappend gate "multicycle target CORE/i_amiga_sdram/i_sdram_ctrl missing"
@@ -87,18 +90,31 @@ foreach c $tg {
         lappend gate "$c is not a source of the CPU -> SDRAM multicycle in CORE.xdc"
     }
 }
-foreach {clk want} {main_clk 35.242} {
+# Megamiga 0.7: main_clk is timed on the NTSC leg (28.636364 MHz; PAL was 35.242 ns)
+foreach {clk want} {main_clk 34.921} {
     set c [get_clocks -quiet $clk]
     if {[llength $c] == 0} {
         lappend gate "generated clock $clk missing"
     } elseif {[expr {abs([get_property PERIOD $c] - $want)}] > 0.05} {
-        lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (native 28.375 MHz)"
+        lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (NTSC 28.636364 MHz)"
     }
 }
 if {[llength $gate] > 0} {
     foreach g $gate { puts "GATE $board: $g" }
     puts "RESULT $board SIGNOFF-FAILED WNS=$wns WHS=$whs"
     exit 3
+}
+
+# Megamiga 0.7 NTSC: the PAL leg of the core clock (pal_leg.tcl; CORE.xdc times the NTSC
+# leg). A miss there is a timing miss: build_all.sh may re-roll it like any other.
+source [file join $here pal_leg.tcl]
+set pal [pal_leg_gate]
+if {[llength $pal] > 0} {
+    foreach g $pal { puts "PAL LEG $board: $g" }
+    set w [expr {$::pal_wns ne "" && $::pal_wns < $wns ? $::pal_wns : $wns}]
+    set h [expr {$::pal_whs ne "" && $::pal_whs < $whs ? $::pal_whs : $whs}]
+    puts "RESULT $board TIMING-FAILED WNS=$w WHS=$h (PAL leg)"
+    exit 2
 }
 
 puts "RESULT $board OK WNS=$wns WHS=$whs bit=CORE-${board}.runs/impl_1/mega65_[string tolower $board].bit"
