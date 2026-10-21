@@ -3286,6 +3286,20 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
       23.788 ns in both; no phase < 17 ns / 4.2 ns over three switches; 4 x-edges per main
       period in 10815 periods; no reset) PASS. The 60 Hz threshold against the traced field
       periods: 50 Hz >= 567500, 60 Hz <= 483124 clocks.
+    - Build `ntsc-a` (08880e2, REF pal288-c, NO_REF_SYNTH=1, 81.7 % of the cells reused):
+      WNS +0.011, WHS +0.011 on the NTSC leg, but SIGNOFF-FAILED - the gate still expected
+      main_clk at 35.242 ns. Re-timed with both selects on PAL (pal_timing.tcl): every PAL
+      main/4x check positive except hold 4x -> main, -0.003 ns (sdram_ctrl fpRD -> ide_board
+      dm_q, +0.011 on NTSC: the PAL MMCM's fractional multiplier has more jitter, DJ 0.246 ns).
+      Fix (3aa49ba): CORE.xdc names the 4x clock `main_clk4x` and gives 4x -> main 0.05 ns more
+      hold uncertainty (those paths have > 1 ns setup slack); `CORE/pal_leg.tcl` re-times the
+      PAL leg in every sign-off (build_bitstream.tcl: a miss is TIMING-FAILED, re-rollable;
+      reroll_bitstream.tcl: after an attempt's files are written, a miss tries the next one);
+      gates main_clk 34.921 ns and both S pins; impl_margin `main_clk4x`.
+      Build `ntsc-b` (3aa49ba, REF pal288-c, NO_REF_SYNTH=1): RESULT OK, WNS +0.117, WHS +0.004,
+      0 routing errors; PAL leg: setup >= 0.279, hold >= 0.013 (4x -> main +0.054).
+      `Megamiga-ntsc-b-R6.cor` (coretool, 0.6.4-ntsc-b, sha256 5721b766...). Not on the
+      hardware yet.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
