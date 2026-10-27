@@ -3282,6 +3282,26 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     real Amiga, no hang. Build `apidya-a` (REF fpbg-b, incremental synthesis +
     implementation): WNS +0.020, WHS +0.035. On the hardware (2026-10-27): Apidya loads
     from the ADF.
+  - **A damaged long file name crashed the file browser (branch `lfnfix` from main
+    85fd76f, 2026-10-27).** A user got "FATAL ERROR: SD Card: Unknown error while trying
+    to browse. Error code: 273F" and had to delete and recreate `/amiga` (no card image).
+    The code is R11 of `DIRBROWSE_READ`, but every SD/FAT32 error is `0xEExx`: 273F is
+    no error code. `FAT32$DIR_LIST` (QNICE library, also upstream) collects a long name
+    on the stack, 13 words per record. When a later record of the run had a wrong
+    sequence number or checksum, it skipped to the next entry without giving those words
+    back, so its RET took a character of the name as the return address and the CPU ran
+    into the firmware at random. A first record claiming more than 20 records (up to
+    63) with a consistent run would also have copied up to 819 words into the 257-word
+    name of the directory entry and onto the browser's 768-word stack. The same function
+    looks up names for `FAT32$CD`/`FILE_OPEN` and lists `SDCard:`, so any of those could
+    crash on that directory. Fix (QNICE fork `fat32-fastseek`): a broken run gives the
+    stack back before skipping, then the entry shows its short name (as on Windows); a
+    run of more than 20 records is skipped. What damaged the user's directory is
+    unknown (interrupted write by any system, or the fork's write layer). Tests
+    `M2M/QNICE/test_programs/fat32_lfn` (`run.sh`: 9 image cases with the stack pointer
+    checked after every call; the old library fails all 7 damaged cases with the CPU in
+    garbage; `mutants.py` 6/6 killed). Fixed ROM 32764/32768 words. Firmware patch
+    `lfnfix-p1` into `apidya-a` (saved as fedora `~/builds/apidya-a-save`).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
