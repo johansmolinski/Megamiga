@@ -3302,6 +3302,8 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     checked after every call; the old library fails all 7 damaged cases with the CPU in
     garbage; `mutants.py` 6/6 killed). Fixed ROM 32764/32768 words. Firmware patch
     `lfnfix-p1` into `apidya-a` (saved as fedora `~/builds/apidya-a-save`).
+    Merged into main 2026-11-02 without a hardware test: there is no reproducible
+    case (the user's damaged directory is gone), so the field will tell.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
