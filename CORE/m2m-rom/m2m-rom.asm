@@ -4010,6 +4010,9 @@ IDE_CMD_START   INCRB
                 CMP     IDE_CMD_SET_MULT, R0
                 RBRA    _ICS_SETM, Z
 
+                CMP     IDE_CMD_DIAG, R0        ; Megamiga 0.7: EXECUTE DEVICE
+                RBRA    _ICS_DIAG, Z            ; DIAGNOSTIC (AROS)
+
                 CMP     IDE_CMD_INITDP, R0      ; the CHS geometry for the
                 RBRA    _ICS_OKN, !Z            ; Gayle's scsi.device: sectors
                 MOVE    IDE_TF_COUNT, R1        ; per track = count (0 = 256),
@@ -4038,7 +4041,7 @@ _ICS_OKL        CMP     0xFFFF, @R1
 _ICS_OKD        MOVE    IDE_ST_READY, R8
                 XOR     R9, R9
                 MOVE    IDE_FL_IRQ, R10
-                RSUB    IDE_COMMIT, 1
+_ICS_OKC        RSUB    IDE_COMMIT, 1
                 MOVE    IDE_STATE, R1
                 MOVE    IDE_ST_IDLE, @R1
                 RBRA    _ICS_RET, 1
@@ -4063,6 +4066,21 @@ _ICS_SM1        MOVE    HDF_MULT, R2
                 MOVE    R1, R9
                 RSUB    IDE_MULT_REG, 1
                 RBRA    _ICS_OKD, 1
+
+                ; EXECUTE DEVICE DIAGNOSTIC (Megamiga 0.7): AROS's ata.device sends
+                ; it after the reset and takes a drive only if the error register
+                ; then reads 0x01 (device 0 passed, device 1 passed or absent); the
+                ; ATA signature goes back into the task file (ATA/ATAPI-7 9.12)
+_ICS_DIAG       MOVE    IDE_NSIG, R1
+                MOVE    1, @R1++                ; sector count 01
+                MOVE    1, @R1++                ; LBA low 01
+                MOVE    0, @R1++                ; LBA mid 00
+                MOVE    0, @R1++                ; LBA high 00
+                MOVE    0, @R1                  ; device 00 (device 0)
+                MOVE    IDE_ST_READY, R8
+                MOVE    IDE_ERR_DIAG, R9
+                MOVE    IDE_FL_TFIRQ, R10
+                RBRA    _ICS_OKC, 1
 
 _ICS_ABRT       MOVE    IDE_ERR_ABRT, R9        ; everything else: aborted
                 RSUB    IDE_ERROR, 1
@@ -4649,110 +4667,14 @@ _IWF_RET        DECRB
                 RET
 
 ; IDE_IDENTIFY: build the IDENTIFY DEVICE data in the buffer of the board
+; (Megamiga 0.7, AROS: the routine moved into the bank BANK_IDE to make room
+; in the fixed ROM - B3_IDE_IDENT)
 ;
 ; Geometry: 16 heads, 63 sectors per track, cylinders = sectors / 1008
 ; (at most 16383). The words are byte-swapped for the RIPPLE bus.
 ; Output: none; R8..R12 clobbered
-IDE_IDENTIFY    INCRB
-                RSUB    IDE_SEL, 1
-                MOVE    IDE_DATA, R0            ; all words zero first
-                MOVE    256, R1
-_IID_Z          MOVE    0, @R0++
-                SUB     1, R1
-                RBRA    _IID_Z, !Z
-
-                MOVE    IDE_ID_TAB, R0          ; fixed words: index, value
-_IID_T          MOVE    @R0++, R1
-                CMP     0xFFFF, R1
-                RBRA    _IID_S, Z
-                MOVE    @R0++, R8
-                MOVE    R1, R9
-                RSUB    IDE_ID_PUT, 1
-                RBRA    _IID_T, 1
-
-_IID_S          MOVE    IDE_ID_SERIAL, R8       ; strings (read-only data
-                RSUB    RODATA_STR, 1           ; device: copied to RAM)
-                MOVE    IDE_IDW_SERIAL, R9
-                MOVE    10, R10
-                RSUB    IDE_ID_STR, 1
-                MOVE    IDE_ID_FWREV, R8
-                RSUB    RODATA_STR, 1
-                MOVE    IDE_IDW_FWREV, R9
-                MOVE    4, R10
-                RSUB    IDE_ID_STR, 1
-                MOVE    IDE_ID_MODEL, R8
-                RSUB    RODATA_STR, 1
-                MOVE    IDE_IDW_MODEL, R9
-                MOVE    20, R10
-                RSUB    IDE_ID_STR, 1
-
-                MOVE    HDF_SECT_LO, R8         ; capacity in sectors
-                MOVE    @R8, R8
-                MOVE    IDE_IDW_LBA_LO, R9
-                RSUB    IDE_ID_PUT, 1
-                MOVE    HDF_SECT_HI, R8
-                MOVE    @R8, R8
-                MOVE    IDE_IDW_LBA_HI, R9
-                RSUB    IDE_ID_PUT, 1
-
-                MOVE    HDF_SECT_LO, R8         ; cylinders = sectors / 1008
-                MOVE    @R8, R8
-                MOVE    HDF_SECT_HI, R9
-                MOVE    @R9, R9
-                MOVE    IDE_SECT_PER_CYL, R10
-                XOR     R11, R11
-                SYSCALL(divu32, 1)
-                CMP     0, R9                   ; more than 16 bits or more
-                RBRA    _IID_CMAX, !Z           ; than the CHS maximum: clamp
-                CMP     R8, IDE_MAX_CYL         ; quotient > maximum?
-                RBRA    _IID_CYL, !N
-_IID_CMAX       MOVE    IDE_MAX_CYL, R8
-_IID_CYL        MOVE    IDE_IDW_CYL, R9
-                RSUB    IDE_ID_PUT, 1
-
-                MOVE    HDF_HEADS, R8           ; the current CHS geometry
-                MOVE    @R8, R8                 ; (words 54..58)
-                MOVE    R8, R2                  ; R2: heads
-                MOVE    IDE_IDW_CUR_HDS, R9
-                RSUB    IDE_ID_PUT, 1
-                MOVE    HDF_SPT, R8
-                MOVE    @R8, R8
-                MOVE    IDE_IDW_CUR_SPT, R9
-                RSUB    IDE_ID_PUT, 1
-                MOVE    R2, R9                  ; R3: sectors per cylinder
-                SYSCALL(mulu, 1)
-                MOVE    R10, R3
-                MOVE    HDF_SECT_LO, R8         ; cylinders, at most 65535
-                MOVE    @R8, R8
-                MOVE    HDF_SECT_HI, R9
-                MOVE    @R9, R9
-                XOR     R11, R11
-                SYSCALL(divu32, 1)
-                CMP     0, R9
-                RBRA    _IID_CC, Z
-                MOVE    0xFFFF, R8
-_IID_CC         MOVE    IDE_IDW_CUR_CYL, R9
-                RSUB    IDE_ID_PUT, 1
-                MOVE    R3, R9                  ; capacity = cylinders x
-                SYSCALL(mulu, 1)                ; heads x sectors
-                MOVE    R10, R8
-                MOVE    IDE_IDW_CUR_CAP, R9
-                RSUB    IDE_ID_PUT, 1
-                MOVE    R11, R8
-                ADD     1, R9
-                RSUB    IDE_ID_PUT, 1
-
-                MOVE    HDF_MULT, R8            ; the current multiple count
-                MOVE    @R8, R8                 ; (bit 8: valid; 0 = off)
-                CMP     0, R8
-                RBRA    _IID_M0, Z
-                OR      0x0100, R8
-_IID_M0         MOVE    IDE_IDW_MULT, R9
-                RSUB    IDE_ID_PUT, 1
-                RSUB    HDF_VRDB_ID, 1          ; Megamiga 0.7: its geometry
-
-                DECRB
-                RET
+IDE_IDENTIFY    RSUB    FAR_CALL, 1
+                .DW     BANK_IDE, B3_IDE_IDENT
 
 ; IDE_ID_PUT: store one IDENTIFY word, byte-swapped for the bus
 ; Input: R8: value, R9: word index; device selected. Registers preserved.
@@ -5384,6 +5306,8 @@ IDE_TF_DEVH     .EQU    0x8107
 IDE_NSTAT       .EQU    0x8110              ; status to apply on commit
 IDE_NERR        .EQU    0x8111              ; error register to apply on commit
 IDE_NFLAGS      .EQU    0x8112              ; bit 0: data phase CPU -> buffer
+IDE_NSIG        .EQU    0x8113              ; count, LBA 7..0/15..8/23..16, devh to
+                                            ; apply on commit (flag IDE_FL_TF)
 IDE_CTRL        .EQU    0x8118              ; see IDE_CTRL_*
 IDE_COMMIT_REG  .EQU    0x811F              ; any write: commit
 IDE_ENG_U0      .EQU    0x8120              ; sector engine, unit 0: mode, sectors
@@ -5426,6 +5350,8 @@ IDE_FL_WRIRQ    .EQU    0x0005              ; IDE_FL_WRITE | IDE_FL_IRQ
 IDE_FL_ENDIRQ   .EQU    0x000C              ; IDE_FL_END | IDE_FL_IRQ
 IDE_FL_MORE     .EQU    0x0010              ; the next sector is in the same block
 IDE_FL_NOIRQ    .EQU    0xFFFB              ; AND mask: no IDE_FL_IRQ
+IDE_FL_TF       .EQU    0x0002              ; also apply the task file IDE_NSIG..
+IDE_FL_TFIRQ    .EQU    0x0006              ; IDE_FL_TF | IDE_FL_IRQ
 IDE_GAYLE       .EQU    0x8119              ; bit 0: the board is the Gayle (read only)
 IDE_ERR_ABRT    .EQU    0x0004              ; command aborted
 IDE_ERR_IDNF    .EQU    0x0010              ; sector not found (out of range)
@@ -5447,6 +5373,8 @@ IDE_MULT_MAX    .EQU    16                  ; the largest block (IDENTIFY 47)
 IDE_MULT_BAD    .EQU    0xFFE0              ; counts of 32 and more
 IDE_IDW_MULT    .EQU    59                  ; IDENTIFY: the current count
 IDE_CMD_INITDP  .EQU    0x0091              ; INITIALIZE DEVICE PARAMETERS
+IDE_CMD_DIAG    .EQU    0x0090              ; EXECUTE DEVICE DIAGNOSTIC
+IDE_ERR_DIAG    .EQU    0x0001              ; its result: device 0 (and 1) passed
 IDE_MAX_CYL     .EQU    16383               ; CHS maximum
 IDE_IDW_CYL     .EQU    1                   ; IDENTIFY word indexes
 IDE_IDW_HDS     .EQU    3                   ; (Megamiga 0.7: the default heads and
@@ -9892,6 +9820,113 @@ _QX_Q           MOVE    QHDF_ON, R1             ; the quick HDF goes
                 RBRA    _QX_RET, !Z
                 RSUB    IDE_RESET_AMIGA, 1
 _QX_RET         SYSCALL(leave, 1)
+                RET
+
+; B3_IDE_IDENT: IDE_IDENTIFY (the stub in the fixed ROM), moved here for room
+; in the fixed ROM (Megamiga 0.7, AROS)
+;
+; Geometry: 16 heads, 63 sectors per track, cylinders = sectors / 1008
+; (at most 16383). The words are byte-swapped for the RIPPLE bus.
+; Output: none; R8..R12 clobbered
+B3_IDE_IDENT    INCRB
+                RSUB    IDE_SEL, 1
+                MOVE    IDE_DATA, R0            ; all words zero first
+                MOVE    256, R1
+_IID_Z          MOVE    0, @R0++
+                SUB     1, R1
+                RBRA    _IID_Z, !Z
+
+                MOVE    IDE_ID_TAB, R0          ; fixed words: index, value
+_IID_T          MOVE    @R0++, R1
+                CMP     0xFFFF, R1
+                RBRA    _IID_S, Z
+                MOVE    @R0++, R8
+                MOVE    R1, R9
+                RSUB    IDE_ID_PUT, 1
+                RBRA    _IID_T, 1
+
+_IID_S          MOVE    IDE_ID_SERIAL, R8       ; strings (read-only data
+                RSUB    RODATA_STR, 1           ; device: copied to RAM)
+                MOVE    IDE_IDW_SERIAL, R9
+                MOVE    10, R10
+                RSUB    IDE_ID_STR, 1
+                MOVE    IDE_ID_FWREV, R8
+                RSUB    RODATA_STR, 1
+                MOVE    IDE_IDW_FWREV, R9
+                MOVE    4, R10
+                RSUB    IDE_ID_STR, 1
+                MOVE    IDE_ID_MODEL, R8
+                RSUB    RODATA_STR, 1
+                MOVE    IDE_IDW_MODEL, R9
+                MOVE    20, R10
+                RSUB    IDE_ID_STR, 1
+
+                MOVE    HDF_SECT_LO, R8         ; capacity in sectors
+                MOVE    @R8, R8
+                MOVE    IDE_IDW_LBA_LO, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    HDF_SECT_HI, R8
+                MOVE    @R8, R8
+                MOVE    IDE_IDW_LBA_HI, R9
+                RSUB    IDE_ID_PUT, 1
+
+                MOVE    HDF_SECT_LO, R8         ; cylinders = sectors / 1008
+                MOVE    @R8, R8
+                MOVE    HDF_SECT_HI, R9
+                MOVE    @R9, R9
+                MOVE    IDE_SECT_PER_CYL, R10
+                XOR     R11, R11
+                SYSCALL(divu32, 1)
+                CMP     0, R9                   ; more than 16 bits or more
+                RBRA    _IID_CMAX, !Z           ; than the CHS maximum: clamp
+                CMP     R8, IDE_MAX_CYL         ; quotient > maximum?
+                RBRA    _IID_CYL, !N
+_IID_CMAX       MOVE    IDE_MAX_CYL, R8
+_IID_CYL        MOVE    IDE_IDW_CYL, R9
+                RSUB    IDE_ID_PUT, 1
+
+                MOVE    HDF_HEADS, R8           ; the current CHS geometry
+                MOVE    @R8, R8                 ; (words 54..58)
+                MOVE    R8, R2                  ; R2: heads
+                MOVE    IDE_IDW_CUR_HDS, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    HDF_SPT, R8
+                MOVE    @R8, R8
+                MOVE    IDE_IDW_CUR_SPT, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    R2, R9                  ; R3: sectors per cylinder
+                SYSCALL(mulu, 1)
+                MOVE    R10, R3
+                MOVE    HDF_SECT_LO, R8         ; cylinders, at most 65535
+                MOVE    @R8, R8
+                MOVE    HDF_SECT_HI, R9
+                MOVE    @R9, R9
+                XOR     R11, R11
+                SYSCALL(divu32, 1)
+                CMP     0, R9
+                RBRA    _IID_CC, Z
+                MOVE    0xFFFF, R8
+_IID_CC         MOVE    IDE_IDW_CUR_CYL, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    R3, R9                  ; capacity = cylinders x
+                SYSCALL(mulu, 1)                ; heads x sectors
+                MOVE    R10, R8
+                MOVE    IDE_IDW_CUR_CAP, R9
+                RSUB    IDE_ID_PUT, 1
+                MOVE    R11, R8
+                ADD     1, R9
+                RSUB    IDE_ID_PUT, 1
+
+                MOVE    HDF_MULT, R8            ; the current multiple count
+                MOVE    @R8, R8                 ; (bit 8: valid; 0 = off)
+                CMP     0, R8
+                RBRA    _IID_M0, Z
+                OR      0x0100, R8
+_IID_M0         MOVE    IDE_IDW_MULT, R9
+                RSUB    IDE_ID_PUT, 1
+                RSUB    B3_VRDB_ID, 1           ; Megamiga 0.7: its geometry
+
+                DECRB
                 RET
 
 ; End of the bank BANK_IDE
