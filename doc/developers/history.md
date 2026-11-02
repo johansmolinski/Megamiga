@@ -3418,6 +3418,30 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     `lfnfix-p1` into `apidya-a` (saved as fedora `~/builds/apidya-a-save`).
     Merged into main 2026-11-02 without a hardware test: there is no reproducible
     case (the user's damaged directory is gone), so the field will tell.
+  - **AROS finds its hard disk on the Gayle (branch `arosdiag` from lfnfix 6dc43f3,
+    2026-11-02).** AROS m68k (nightly 20261101: `aros-ext.bin` + `aros-rom.bin` from the
+    boot ISO as one 1 MB Kickstart, ext first) booted, but its boot menu showed no DH0 and
+    `Assign` only RAM Disk and the Kickstart. AROS's ata.device (`rom/devs/ata/lowlevel.c`,
+    `ata_ReadSignature`) sends EXECUTE DEVICE DIAGNOSTIC (0x90) after the software reset
+    when the signature is 00/00 and wants `(Error & 0x7f) == 1`; the firmware aborted
+    0x90 (error 0x04), so AROS dropped the drive. Fix: the firmware answers 0x90 with
+    READY, error 01, INTRQ and the ATA signature (count 01, LBA 01 00 00, device 00) in
+    the task file (commit flags TF + IRQ, `IDE_NSIG`). Room: `IDE_IDENTIFY` moved into
+    code bank 3 (`B3_IDE_IDENT` behind a FAR_CALL stub); fixed ROM 32629/32768 words.
+    Bench `~/aexp-work/arosdiag/fw` (the quickhdf firmware bench + 0x90 checks,
+    `fedora_arosdiag.sh`): all cases PASS, 27 mutants killed. Firmware patch
+    `arosdiag-p1` into `apidya-a`. On the hardware (A1200 profile, Gayle, 68020 and 68040,
+    with and without Zorro III RAM): DH0 is found and AROS boots into Wanderer from a 512
+    MB RDB HDF (`~/aexp-work/aros-hdf/mkaroshdf.sh`). AROS itself is very slow (minutes
+    to open a window; the UART diagnostics show the disk mostly idle and the CPU in AROS's
+    ROM code on the chip bus) - the user does not pursue it further. Earlier runs gave
+    "AFFS Write error 45" requesters and a bitmap block 0x444F5303 ("DOS\3") after a
+    first boot (a full validation) had been reset midway; a diagnostics build
+    (`arosdiag-p2`, not committed: firmware-path commands, firmware errors and the
+    engine's taken/forwarded/failed counters on the UART) then showed a clean boot from a
+    fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
+    only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
+    animation is garbled on HDMI only (VGA is fine).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
