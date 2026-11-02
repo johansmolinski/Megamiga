@@ -65,7 +65,7 @@
 ; data moves, one line of the IDE board's diagnostics counters on the UART
 ; (115200 8N1, the MEGA65's debug UART): "IDE" and 14 x 8 hex digits, see
 ; ide_board.vhd (0x134/0x140). Firmware only: patch_firmware.sh switches it.
-#define IDE_DIAG 1
+#define IDE_DIAG 0
 
 START_FIRMWARE
 #if SD_SPI_ONLY
