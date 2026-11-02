@@ -21,32 +21,23 @@
 --      fractional dividers are only permitted on CLKFBOUT and CLKOUT0 - here only CLKFBOUT
 --      is fractional, CLKOUT0_DIVIDE_F = 40.000 is integer-valued (1.000..128.000, legal)
 --
--- HDMI flicker-free (implemented, GitHub issue #12):
---    The native 28.375 MHz clock gives a 313-line PAL frame rate of 49.9201 Hz, which is
---    slightly *below* the hardware-nailed HDMI rate of exactly 50.000 Hz. The ascal scaler's
---    single-framebuffer read (HDMI, 50.000) and write (core, 49.92) pointers therefore drift
---    and eventually cross over, dropping/repeating one frame roughly every 12 s (a judder or
---    tear on horizontal scrollers). We add a second MMCM "i_clk_fast" that produces
---    28.437500 MHz (313-line = 50.030 Hz, slightly *above* 50) and switch between "native"
---    and "fast" glitch-free with a BUFGMUX_CTRL. The select comes from the ascal over/under
---    flow feedback (core_speed_i, driven by the FSM in mega65.vhd); the resulting bang-bang
---    dither makes the core's *time-average* frame rate exactly 50.000 Hz, so the pointers no
---    longer cross. Interlace field-pairs already average exactly 50.000 Hz (625 x 1816 core
---    clocks = 2 x 28.375 MHz for two fields), so the loop simply settles on "native" there.
+-- NTSC (Megamiga, October 2026, branch ntsc): the NTSC Amiga master clock is 28.636364 MHz
+--    (= 315/11 MHz = 8 x 3.579545 MHz colorburst). A second MMCM "i_clk_ntsc" makes it EXACTLY:
+--       f_VCO  = 100 MHz x 63.000 / 5 = 1260.000 MHz,  CLKOUT0 / 44 = 28.636364 MHz (0 ppm)
+--                                                       CLKOUT1 / 11 = 114.545455 MHz (4x, SDRAM)
+--    Legality (Artix-7 -2): VCO 1260 MHz in 600..1440; PFD 20 MHz in 10..500; all dividers integer.
+--    Two glitch-free BUFGMUX_CTRLs pick the core clock and its 4x twin from the PAL or the NTSC
+--    MMCM with ONE select, ntsc_i (amiga_cold_boot.vhd switches it while the Amiga is held in
+--    reset and the SDRAM controller has nothing in flight; a BUFGMUX_CTRL switch only stretches
+--    one low phase, so nothing is reset and the logic just sees one long clock). Both MMCMs run
+--    all the time, so there is no reconfiguration, no relock and no output gating.
+--    The AP68040's clock (CLKOUT2 of the PAL MMCM, 42.04 MHz) is asynchronous to the core clock
+--    anyway (ap040_island), so it stays the same in both modes.
+--    Timing: CORE.xdc times the NTSC leg (the faster one; set_case_analysis 1 on both selects).
 --
---    Direction note vs C64MEGA65: the C64's native rate is ABOVE 50 Hz, so its flicker-free
---    twin is *slower*. The Amiga's native rate is BELOW 50 Hz, so ours (i_clk_fast) is
---    *faster*. The mechanism is identical, only the sign of the twin's offset flips.
---
--- Future extensions (documented here for later milestones, NOT implemented yet):
---    * Increment 2 (3-clock): add a third MMCM "i_clk_slow" at 28.312500 MHz (312-line =
---      49.970 Hz, below 50) plus a 3-state ladder FSM, to also pull sustained >50 Hz content
---      (parity-forced-short interlace, held short frames) down to exactly 50.000 Hz. The
---      native and fast legs stay unchanged, so this is a pure addition.
---    * NTSC: the NTSC Amiga master clock is 28.63636 MHz (= 315/11 MHz = 8 x 3.579545 MHz
---      colorburst). This is achievable EXACTLY with a second MMCM (or DRP reconfiguration):
---      DIVCLK_DIVIDE = 5, CLKFBOUT_MULT_F = 63.000 (VCO = 1260.000 MHz, in range),
---      CLKOUT0_DIVIDE_F = 44.000 -> 100 x 63 / 5 / 44 = 28.636364 MHz, 0 ppm error.
+--    (This MMCM was the HDMI flicker-free "fast" twin of AExp (issue #12, 28.4375 MHz, selected
+--    by core_speed_i from ascal's over/underflow feedback). Megamiga never used it: the SDRAM's
+--    4x clock came from the native MMCM only, so core_speed_i was tied to "00" since 0.2.0.)
 --
 -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026: rewrote the M2M template clock
 -- (single MMCM, 54 MHz demo clock) to generate the 28.375 MHz Amiga PAL core clock.
@@ -68,15 +59,13 @@ entity clk is
    port (
       sys_clk_i       : in  std_logic;   -- expects 100 MHz
 
-      -- HDMI flicker-free core clock select (asynchronous, glitch-free absorbed by BUFGMUX_CTRL):
-      --   "00" = native 28.375000 MHz (49.9201 Hz, below 50; also the flicker-free-OFF/authentic case)
-      --   "01" = fast   28.437500 MHz (50.030 Hz, above 50)
-      -- Bit 1 is reserved for the Increment-2 "slow" leg (3-clock design); unused here.
-      core_speed_i    : in  unsigned(1 downto 0);
+      -- Megamiga: the video standard (asynchronous; the BUFGMUX_CTRLs absorb it glitch-free):
+      --   '0' = PAL  28.375000 MHz (ideal 28.3751600 MHz, -5.6 ppm), 4x 113.5 MHz
+      --   '1' = NTSC 28.636364 MHz (exact),                          4x 114.545455 MHz
+      ntsc_i          : in  std_logic;
 
-      main_clk_o      : out std_logic;   -- Amiga PAL core clock: 28.375000 MHz (ideal: 28.3751600 MHz, -5.6 ppm)
-      main_clk4x_o    : out std_logic;   -- 4 x the core clock: 113.5 MHz for the SDRAM (Megamiga),
-                                         -- from the NATIVE MMCM only: keep core_speed_i at native
+      main_clk_o      : out std_logic;   -- Amiga core clock: PAL 28.375000 / NTSC 28.636364 MHz
+      main_clk4x_o    : out std_logic;   -- 4 x the core clock for the SDRAM (Megamiga), same select
       main_rst_o      : out std_logic;   -- main's reset, synchronized
       -- Megamiga, October 2026 (branch cpu040): the AP68040's own clock, 1135 MHz / 27 =
       -- 42.037037 MHz from the native MMCM (CLKOUT2), unrelated in phase to the core clock
@@ -96,11 +85,12 @@ signal main_fb_mmcm       : std_logic;
 signal native_clk_mmcm    : std_logic;
 signal main_locked        : std_logic;
 
--- fast leg (28.437500 MHz), HDMI flicker-free twin
-signal fast_fb            : std_logic;
-signal fast_fb_mmcm       : std_logic;
-signal fast_clk_mmcm      : std_logic;
-signal fast_locked        : std_logic;
+-- NTSC leg (28.636364 MHz), Megamiga (was AExp's HDMI flicker-free "fast" twin)
+signal ntsc_fb            : std_logic;
+signal ntsc_fb_mmcm       : std_logic;
+signal ntsc_clk_mmcm      : std_logic;
+signal ntsc_clk4x_mmcm    : std_logic;
+signal ntsc_locked        : std_logic;
 
 -- glitch-free mux output feeding the shared output BUFG
 signal main_clk_mmcm      : std_logic;
@@ -176,16 +166,12 @@ begin
       ); -- i_clk_main
 
    -------------------------------------------------------------------------------------
-   -- HDMI flicker-free "fast" twin: 28.437500 MHz
-   -- 100 MHz x 56.875 / 5 = 1137.500 MHz VCO; 1137.500 MHz / 40 = 28.437500 MHz
-   -- Shares the native leg's DIVCLK_DIVIDE (5) and CLKOUT0_DIVIDE_F (40); only
-   -- CLKFBOUT_MULT_F differs by +0.125, for the tightest possible jitter/clock-tree
-   -- match to native and minimal placement perturbation near the HyperRAM PHY.
-   -- Legality (Artix-7 -2): VCO 1137.5 MHz in 600..1440; PFD 20 MHz in 10..500;
-   -- MULT_F 56.875 = 455/8 is a legal multiple of 0.125 within 2.000..64.000.
+   -- Megamiga: the NTSC core clock 28.636364 MHz and its 4x twin 114.545455 MHz
+   -- 100 MHz x 63.000 / 5 = 1260.000 MHz VCO; / 44 = 28.636364 MHz, / 11 = 114.545455 MHz
+   -- (AExp: the HDMI flicker-free "fast" twin, 100 x 56.875 / 5 / 40 = 28.4375 MHz)
    -------------------------------------------------------------------------------------
 
-   i_clk_fast : MMCME2_ADV
+   i_clk_ntsc : MMCME2_ADV
       generic map (
          BANDWIDTH            => "OPTIMIZED",
          CLKOUT4_CASCADE      => FALSE,
@@ -194,20 +180,27 @@ begin
          CLKIN1_PERIOD        => 10.0,       -- INPUT @ 100 MHz
          REF_JITTER1          => 0.010,
          DIVCLK_DIVIDE        => 5,
-         CLKFBOUT_MULT_F      => 56.875,     -- VCO = 1137.500 MHz (legal: 600..1440 MHz @ -2)
+         --CLKFBOUT_MULT_F      => 56.875,     -- VCO = 1137.500 MHz (legal: 600..1440 MHz @ -2)
+         CLKFBOUT_MULT_F      => 63.000,     -- VCO = 1260.000 MHz (legal: 600..1440 MHz @ -2)
          CLKFBOUT_PHASE       => 0.000,
          CLKFBOUT_USE_FINE_PS => FALSE,
-         CLKOUT0_DIVIDE_F     => 40.000,     -- 28.437500 MHz (313-line PAL = 50.030 Hz, above 50)
+         --CLKOUT0_DIVIDE_F     => 40.000,     -- 28.437500 MHz (313-line PAL = 50.030 Hz, above 50)
+         CLKOUT0_DIVIDE_F     => 44.000,     -- 28.636364 MHz, the NTSC master clock (0 ppm)
          CLKOUT0_PHASE        => 0.000,
          CLKOUT0_DUTY_CYCLE   => 0.500,
-         CLKOUT0_USE_FINE_PS  => FALSE
+         CLKOUT0_USE_FINE_PS  => FALSE,
+         CLKOUT1_DIVIDE       => 11,         -- 114.545455 MHz = 4 x CLKOUT0, phase-aligned
+         CLKOUT1_PHASE        => 0.000,
+         CLKOUT1_DUTY_CYCLE   => 0.500,
+         CLKOUT1_USE_FINE_PS  => FALSE
       )
       port map (
          -- Output clocks
-         CLKFBOUT            => fast_fb_mmcm,
-         CLKOUT0             => fast_clk_mmcm,
+         CLKFBOUT            => ntsc_fb_mmcm,
+         CLKOUT0             => ntsc_clk_mmcm,
+         CLKOUT1             => ntsc_clk4x_mmcm,
          -- Input clock control
-         CLKFBIN             => fast_fb,
+         CLKFBIN             => ntsc_fb,
          CLKIN1              => sys_clk_i,
          CLKIN2              => '0',
          -- Tied to always select the primary input clock
@@ -226,12 +219,12 @@ begin
          PSINCDEC            => '0',
          PSDONE              => open,
          -- Other control and status signals
-         LOCKED              => fast_locked,
+         LOCKED              => ntsc_locked,
          CLKINSTOPPED        => open,
          CLKFBSTOPPED        => open,
          PWRDWN              => '0',
          RST                 => '0'
-      ); -- i_clk_fast
+      ); -- i_clk_ntsc
 
    -------------------------------------------------------------------------------------
    -- Output buffering
@@ -244,27 +237,31 @@ begin
          O => main_fb
       );
 
-   -- fast leg feedback (its own BUFG, symmetric with native)
-   fast_fb_bufg : BUFG
+   -- NTSC leg feedback (its own BUFG, symmetric with native)
+   ntsc_fb_bufg : BUFG
       port map (
-         I => fast_fb_mmcm,
-         O => fast_fb
+         I => ntsc_fb_mmcm,
+         O => ntsc_fb
       );
 
-   -- Glitch-free switch between native ("00") and fast ("01"); the select is treated
+   -- Glitch-free switch between PAL ('0') and NTSC ('1'); the select is treated
    -- asynchronously to both clock inputs and absorbed cleanly by the BUFGMUX_CTRL.
+   -- Keep the instance names: CORE.xdc sets the case analysis on their S pins.
    i_bufgmux : BUFGMUX_CTRL
       port map (
-         I0 => native_clk_mmcm,     -- s = 0 -> native (28.375000 MHz)
-         I1 => fast_clk_mmcm,       -- s = 1 -> fast   (28.437500 MHz)
-         S  => core_speed_i(0),
+         I0 => native_clk_mmcm,     -- s = 0 -> PAL  (28.375000 MHz)
+         I1 => ntsc_clk_mmcm,       -- s = 1 -> NTSC (28.636364 MHz)
+         S  => ntsc_i,
          O  => main_clk_mmcm
       );
 
-   main_clk4x_bufg : BUFG
+   -- the 4x clock follows the same select (it was a plain BUFG on the native MMCM's CLKOUT1)
+   i_bufgmux4x : BUFGMUX_CTRL
       port map (
-         I => native_clk4x_mmcm,
-         O => main_clk4x_o
+         I0 => native_clk4x_mmcm,   -- s = 0 -> PAL  (113.500000 MHz)
+         I1 => ntsc_clk4x_mmcm,     -- s = 1 -> NTSC (114.545455 MHz)
+         S  => ntsc_i,
+         O  => main_clk4x_o
       );
 
    cpu_clk_bufg : BUFG
@@ -289,10 +286,10 @@ begin
          DEST_SYNC_FF    => 6
       )
       port map (
-         -- Hold the core in reset until BOTH legs are locked, so the "fast" MMCM is already
+         -- Hold the core in reset until BOTH legs are locked, so the NTSC MMCM is already
          -- toggling before the select can ever choose it (load-bearing: BUFGMUX_CTRL would
-         -- otherwise forward a dead clock on the first native->fast switch).
-         src_arst  => not (main_locked and fast_locked),   -- 1-bit input: Source reset signal.
+         -- otherwise forward a dead clock on the first PAL->NTSC switch).
+         src_arst  => not (main_locked and ntsc_locked),   -- 1-bit input: Source reset signal.
          dest_clk  => main_clk_o,        -- 1-bit input: Destination clock.
          dest_arst => main_rst_o         -- 1-bit output: src_rst synchronized to the destination clock domain.
                                          -- This output is registered.

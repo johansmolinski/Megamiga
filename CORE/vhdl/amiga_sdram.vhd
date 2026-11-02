@@ -129,6 +129,11 @@ entity amiga_sdram is
       qnice_wait_o   : out   std_logic;
       qnice_kick_1mb_i : in  std_logic := '0';               -- Megamiga 0.7: a 1 MB Kickstart
       kick_busy_o    : out   std_logic;                      -- core clock: words still in flight
+      -- Megamiga (ntsc): while pause_i is high the maintenance writer (scrub, Kickstart, AR3 ROM,
+      -- $E00000 clear, cartridge init) starts no new write; maint_idle_o says the last one is
+      -- done. amiga_cold_boot.vhd switches the core clock between PAL and NTSC only then.
+      pause_i        : in    std_logic := '0';
+      maint_idle_o   : out   std_logic;
       -- Megamiga: the Action Replay III ROM loader, the same byte stream into the AR3 bank
       -- (QNICE device C_DEV_AMIGA_AR3, byte address = file offset 0..256 KB - 1; mega65.vhd
       -- passes only window 0..63)
@@ -427,7 +432,7 @@ begin
 
    f_head_clr <= '1' when f_dout(36) = '0' and f_dout(34) = '1' and
                           unsigned(f_dout(33 downto 16)) = 0 else '0';
-   f_rd_en <= '1' when m_state = M_IDLE and scrub_i = '0' and f_empty = '0' and
+   f_rd_en <= '1' when m_state = M_IDLE and pause_i = '0' and scrub_i = '0' and f_empty = '0' and
                        f_rd_rst_busy = '0' and m_mirror = '0' and e_run = '0' and
                        (f_head_clr = '0' or e_done = '1') else '0';
 
@@ -445,7 +450,9 @@ begin
          case m_state is
             when M_IDLE =>
                m_active <= '0';
-               if scrub_i = '1' then                                 -- cold-boot scrub
+               if pause_i = '1' then                                 -- Megamiga (ntsc): the
+                  null;                                              -- clock switch
+               elsif scrub_i = '1' then                              -- cold-boot scrub
                   m_addr   <= "0000" & scrub_addr_i;
                   m_data   <= (others => '0');
                   m_scrub  <= '1';
@@ -558,6 +565,7 @@ begin
    end process p_maint;
 
    cart_busy_o <= c_run or c_tail or cart_init_i;
+   maint_idle_o <= '1' when m_state = M_IDLE else '0';
 
    -- Megamiga: the HRTmon cartridge image (CORE/hrtmon, GPL-2.0-or-later, built from the
    -- HRTmon 2.38 source by CORE/hrtmon/build.sh): C_HRTMON_WORDS words in block RAM, as

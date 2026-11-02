@@ -197,6 +197,18 @@ Megamiga fork (johansmolinski):
   1 MB and writes the file size into the CSR; `amiga_sdram.vhd` puts the file's first
   512 KB where `$E00000` reads (A22..A19 = 1100, gary `sel_kick1mb`), the second into the
   kick bank, and clears the `$E00000` half before a 256/512 KB ROM. TB `~/aexp-work/aros`.
+- `pal288` (2026-10-20, from main 5a1d4b1): every PAL field leaves the core with 288 lines
+  (`pal288.vhd` in main.vhd: one or two black lines below Minimig's 287/286, Minimig's
+  vbstop untouched - it is also the sprite fetch line), so HDMI 576p is exactly x2; preset
+  `aexp_screen.cfg_576p` (lores 360 / hires 720 px). TB `~/aexp-work/pal288`.
+- `ntsc` (2026-10-21, from pal288): NTSC Amiga, global toggle `Settings > NTSC (60 Hz)`
+  (line 121, C_MENU_NTSC; lines 121.. moved one down). clk.vhd: AExp's unused flicker-free
+  twin MMCM is the NTSC one (28.636364 / 114.545 MHz), two BUFGMUX_CTRLs (core + 4x clock),
+  CORE.xdc times the NTSC leg (case analysis 1); the 68040 clock stays PAL. amiga_cold_boot
+  switches it in reset with the SDRAM drained (pause_i / maint_idle_o in amiga_sdram, DMA
+  toggles); amiga_config sends 0xF3 N. HDMI follows the field rate (main.vhd video_60hz_o,
+  100 ms settle): 720p50/60, 576p -> 480p59.94. `pal288.vhd` is `field_lines.vhd` (NTSC fields
+  trimmed to 240). TBs `~/aexp-work/ntsc` (+ `clk/` xsim on fedora).
 
 Out-of-repo testbenches for all fork increments live under `~/aexp-work/`
 (see the "Local test setup" memory); every history entry names its TB and
@@ -221,7 +233,8 @@ mutant set.
   upper row halves of all four banks (column bit 9 = 1, the old floppy area, free
   since `floppy-direct`) are the 32 MB Z3 board (`z3-48`, 2026-10-18). HyperRAM: ascal framebuffer +
   RTG VRAM (byte `$400000`, 4 MB).
-- **PAL only.** Video CE never 28 MHz (SuperHires pixel pairs averaged).
+- **PAL or NTSC** (0.7: `Settings > NTSC (60 Hz)`, the core clock follows). Video CE never
+  28 MHz (SuperHires pixel pairs averaged).
 - **Floppy**: df0..df2, each Disk Image (ADF r/w; until `floppy-direct`
   buffered in SDRAM and written back by `HANDLE_CORE_IO`, since then read and
   written on the SD card through `adf_sd.vhd`'s one-track buffer) or the

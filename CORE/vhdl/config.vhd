@@ -121,7 +121,7 @@ constant HELP_1 : string :=
    " hdf: in the main menu boots one HDF in\n" &
    " their place until Space ejects it.\n\n" &
 
-   " Not implemented, yet: NTSC, flicker-free\n\n" &
+   " NTSC: Settings. No flicker-free, yet.\n\n" &
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";
@@ -231,9 +231,9 @@ constant HELP_5 : string :=
 
    "\n VIDEO: HDMI AND ANALOG\n\n" &
 
-   " HDMI: PAL Amiga, so 50 Hz modes only:\n" &
-   "       720p 16:9\n" &
-   "       576p 4:3 or 5:4\n" &
+   " HDMI follows the Amiga (50 or 60 Hz):\n" &
+   "       720p 16:9 at 50 or 60 Hz\n" &
+   "       576p 4:3 or 5:4, 480p at 60 Hz\n" &
    " HDMI interlace fixing is automatic.\n\n" &
 
    " IMPORTANT - HDMI: Flicker-free\n" &
@@ -245,7 +245,7 @@ constant HELP_5 : string :=
    " Audio is then on the 3.5 mm jack only.\n\n" &
 
    " The VGA connector always carries video:\n" &
-   " Standard = 31 kHz, 50 Hz\n" &
+   " Standard = 31 kHz, 50 or 60 Hz\n" &
    " 15 kHz HS/VS = separate sync\n" &
    " 15 kHz CSYNC = CRT / RGB SCART\n" &
    " https://a500.mega65.org/doc/retrotubes\n\n" &
@@ -503,7 +503,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 182; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 183; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -524,7 +524,7 @@ constant OPTM_SIZE         : natural := 182; -- amount of items including empty 
 -- Megamiga 0.6.4 (recounted; the figures here had been stale since the Settings
 -- submenu took most of the main page): main menu view = 22 lines with three
 -- drives (20 with one), Profile Settings = 27 (one profile block of 18),
--- Drive Settings = 26, Settings = 29, HDMI Settings = 9, HDMI Filter = 12,
+-- Drive Settings = 26, Settings = 29 (30 with NTSC, 2026-10-21), HDMI Settings = 9, HDMI Filter = 12,
 -- VGA = 10, OSM Scaling = 13, Volume = 25, Stereo Mix = 8, OSM-open key = 8.
 -- The Settings view is the tallest, so OPTM_DY tracks it. The frame has this
 -- height in every view and the SD card status is painted on its bottom row
@@ -534,7 +534,7 @@ constant OPTM_SIZE         : natural := 182; -- amount of items including empty 
 -- CEILING: OPTM_DY + 2 (frame) must not exceed CHARS_DY = VGA_DY / FONT_DY = 36
 -- (globals.vhd); the Shell anchors the options OSM at y = 0 (M2M/rom/screen.asm).
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 29;
+constant OPTM_DY           : natural := 30;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   lines 13..15: Drives radio (C_MENU_DRIVES_*); how many Amiga units exist,
@@ -713,9 +713,9 @@ constant OPTM_ITEMS        : string :=
    " Display\n"             &  --  74: Headline "Display"
    " HDMI: %s\n"            &  --  75: HDMI submenu block: "HDMI: %s"
    " HDMI Settings\n"       &  --  76: Headline "HDMI Settings"
-   " 720p 50 Hz 16:9\n"     &  --  77: 720p 50 Hz 16:9, default
-   " 576p 50 Hz 4:3\n"      &  --  78: 576p 50 Hz 4:3
-   " 576p 50 Hz 5:4\n"      &  --  79: 576p 50 Hz 5:4
+   " 720p 16:9\n"           &  --  77: 720p 16:9, default (50 Hz, 60 Hz while the Amiga runs NTSC)
+   " 576p/480p 4:3\n"       &  --  78: 576p 50 Hz 4:3 (480p 59.94 Hz while the Amiga runs NTSC)
+   " 576p/480p 5:4\n"       &  --  79: 576p 50 Hz 5:4 (480p 59.94 Hz 4:3 while the Amiga runs NTSC)
    "\n"                     &  --  80: Line
    " DVI (no sound)\n"      &  --  81: DVI (no sound) (single-select, default OFF)
    " RTG native resolution\n" & --  82: RTG native resolution (single-select, default ON; was a Line)
@@ -757,67 +757,68 @@ constant OPTM_ITEMS        : string :=
    " 50%\n"                 &  -- 118: 50%
    "\n"                     &  -- 119: Line
    " Back to Settings\n"    &  -- 120: Close submenu / back to Settings
-   "\n"                     &  -- 121: Line
-   " Audio\n"               &  -- 122: Headline "Audio"
-   " Volume: %s\n"          &  -- 123: Volume submenu block: "Volume: %s"
-   " Volume Control\n"      &  -- 124: Headline "Volume Control"
-   " 100%\n"                &  -- 125: 100% (default)
-   " 95%\n"                 &  -- 126: 95%
-   " 90%\n"                 &  -- 127: 90%
-   " 85%\n"                 &  -- 128: 85%
-   " 80%\n"                 &  -- 129: 80%
-   " 75%\n"                 &  -- 130: 75%
-   " 70%\n"                 &  -- 131: 70%
-   " 65%\n"                 &  -- 132: 65%
-   " 60%\n"                 &  -- 133: 60%
-   " 55%\n"                 &  -- 134: 55%
-   " 50%\n"                 &  -- 135: 50%
-   " 45%\n"                 &  -- 136: 45%
-   " 40%\n"                 &  -- 137: 40%
-   " 35%\n"                 &  -- 138: 35%
-   " 30%\n"                 &  -- 139: 30%
-   " 25%\n"                 &  -- 140: 25%
-   " 20%\n"                 &  -- 141: 20%
-   " 15%\n"                 &  -- 142: 15%
-   " 10%\n"                 &  -- 143: 10%
-   " 5%\n"                  &  -- 144: 5%
-   " 0%\n"                  &  -- 145: 0% (mute)
-   "\n"                     &  -- 146: Line
-   " Back to Settings\n"    &  -- 147: Close submenu / back to Settings
-   " Stereo: %s\n"          &  -- 148: Stereo Mix submenu block: "Stereo: %s"
-   " Stereo Mix\n"          &  -- 149: Headline "Stereo Mix"
-   " Full Stereo\n"         &  -- 150: Full Stereo (default)
-   " Wide Stereo\n"         &  -- 151: Wide Stereo
-   " Narrow Stereo\n"       &  -- 152: Narrow Stereo
-   " Mono\n"                &  -- 153: Mono
-   "\n"                     &  -- 154: Line
-   " Back to Settings\n"    &  -- 155: Close submenu / back to Settings
-   " A500 Filter\n"         &  -- 156: A500 Filter (single-select, default ON)
-   " LED Filter\n"          &  -- 157: LED Filter (single-select, default ON)
-   "\n"                     &  -- 158: Line
-   " Keyboard\n"            &  -- 159: Headline "Keyboard"
-   " Amiga\n"               &  -- 160: Amiga (pure positional)
-   " MEGA65\n"              &  -- 161: MEGA65 (semantic; default)
-   " OSM: %s\n"             &  -- 162: OSM-open key submenu block: "OSM: %s"
-   " Key to open the menu\n" & -- 163: Headline "Key to open the menu"
-   " Help\n"                &  -- 164: Help (default opener)
-   " F11\n"                 &  -- 165: F11
-   " F13\n"                 &  -- 166: F13
-   " MEGA + Run/Stop\n"     &  -- 167: MEGA + Run/Stop
-   "\n"                     &  -- 168: Line
-   " Back to Settings\n"    &  -- 169: Close submenu / back to Settings
-   "\n"                     &  -- 170: Line
-   " Ports\n"               &  -- 171: Headline "Ports"
-   " Serial port on PMOD\n" &  -- 172: Serial port on PMOD1 (single-select, default OFF)
-   "\n"                     &  -- 173: Line
-   " Back to main menu\n"   &  -- 174: Close Settings
-   "\n"                     &  -- 175: Line
-   " Freeze cartridge\n"    &  -- 176: Freeze: the cartridge button (momentary)
-   "\n"                     &  -- 177: Line
-   " About & Help\n"        &  -- 178: About & Help (WHS(1))
-   " Close Menu\n"          &  -- 179: Close Menu (was 212; the Line moved below it)
-   "\n"                     &  -- 180: Line
-   " \n" ;                     -- 181: Text: empty; SD_STATUS_STEP (m2m-rom.asm) paints the live status of both SD cards on the bottom row of the main menu
+   " NTSC (60 Hz)\n"        &  -- 121: NTSC (60 Hz): the video standard of the machine (single-select, default OFF; Megamiga)
+   "\n"                     &  -- 122: Line
+   " Audio\n"               &  -- 123: Headline "Audio"
+   " Volume: %s\n"          &  -- 124: Volume submenu block: "Volume: %s"
+   " Volume Control\n"      &  -- 125: Headline "Volume Control"
+   " 100%\n"                &  -- 126: 100% (default)
+   " 95%\n"                 &  -- 127: 95%
+   " 90%\n"                 &  -- 128: 90%
+   " 85%\n"                 &  -- 129: 85%
+   " 80%\n"                 &  -- 130: 80%
+   " 75%\n"                 &  -- 131: 75%
+   " 70%\n"                 &  -- 132: 70%
+   " 65%\n"                 &  -- 133: 65%
+   " 60%\n"                 &  -- 134: 60%
+   " 55%\n"                 &  -- 135: 55%
+   " 50%\n"                 &  -- 136: 50%
+   " 45%\n"                 &  -- 137: 45%
+   " 40%\n"                 &  -- 138: 40%
+   " 35%\n"                 &  -- 139: 35%
+   " 30%\n"                 &  -- 140: 30%
+   " 25%\n"                 &  -- 141: 25%
+   " 20%\n"                 &  -- 142: 20%
+   " 15%\n"                 &  -- 143: 15%
+   " 10%\n"                 &  -- 144: 10%
+   " 5%\n"                  &  -- 145: 5%
+   " 0%\n"                  &  -- 146: 0% (mute)
+   "\n"                     &  -- 147: Line
+   " Back to Settings\n"    &  -- 148: Close submenu / back to Settings
+   " Stereo: %s\n"          &  -- 149: Stereo Mix submenu block: "Stereo: %s"
+   " Stereo Mix\n"          &  -- 150: Headline "Stereo Mix"
+   " Full Stereo\n"         &  -- 151: Full Stereo (default)
+   " Wide Stereo\n"         &  -- 152: Wide Stereo
+   " Narrow Stereo\n"       &  -- 153: Narrow Stereo
+   " Mono\n"                &  -- 154: Mono
+   "\n"                     &  -- 155: Line
+   " Back to Settings\n"    &  -- 156: Close submenu / back to Settings
+   " A500 Filter\n"         &  -- 157: A500 Filter (single-select, default ON)
+   " LED Filter\n"          &  -- 158: LED Filter (single-select, default ON)
+   "\n"                     &  -- 159: Line
+   " Keyboard\n"            &  -- 160: Headline "Keyboard"
+   " Amiga\n"               &  -- 161: Amiga (pure positional)
+   " MEGA65\n"              &  -- 162: MEGA65 (semantic; default)
+   " OSM: %s\n"             &  -- 163: OSM-open key submenu block: "OSM: %s"
+   " Key to open the menu\n" & -- 164: Headline "Key to open the menu"
+   " Help\n"                &  -- 165: Help (default opener)
+   " F11\n"                 &  -- 166: F11
+   " F13\n"                 &  -- 167: F13
+   " MEGA + Run/Stop\n"     &  -- 168: MEGA + Run/Stop
+   "\n"                     &  -- 169: Line
+   " Back to Settings\n"    &  -- 170: Close submenu / back to Settings
+   "\n"                     &  -- 171: Line
+   " Ports\n"               &  -- 172: Headline "Ports"
+   " Serial port on PMOD\n" &  -- 173: Serial port on PMOD1 (single-select, default OFF)
+   "\n"                     &  -- 174: Line
+   " Back to main menu\n"   &  -- 175: Close Settings
+   "\n"                     &  -- 176: Line
+   " Freeze cartridge\n"    &  -- 177: Freeze: the cartridge button (momentary)
+   "\n"                     &  -- 178: Line
+   " About & Help\n"        &  -- 179: About & Help (WHS(1))
+   " Close Menu\n"          &  -- 180: Close Menu (was 212; the Line moved below it)
+   "\n"                     &  -- 181: Line
+   " \n" ;                     -- 182: Text: empty; SD_STATUS_STEP (m2m-rom.asm) paints the live status of both SD cards on the bottom row of the main menu
 -- also make sure that your group numbers are monotonic increasing (e.g. 1, 2, 3, 4, ...)
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_ADF0       : integer := 1;   -- mount ADF for df0 (manual CRT/ROM load 0)
@@ -873,6 +874,7 @@ constant OPTM_G_DRVSOUND   : integer := 81;  -- Drive Settings: Virtual Drive So
 constant OPTM_G_PROFREN    : integer := 82;  -- Rename Profile: momentary, the name editor (firmware, OSM_SEL_POST)
 constant OPTM_G_QHDF       : integer := 83;  -- quick HDF on the main page: the master in place of the
                                               -- profile's HDFs until Space ejects it (manual CRT/ROM load 3, C_DEV_AMIGA_IDEQ)
+constant OPTM_G_NTSC       : integer := 84;  -- NTSC (60 Hz) toggle: the video standard (core clock + Agnus); read in HDL (mega65.vhd)
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -1077,67 +1079,68 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE, --  
                                               OPTM_G_OSM_MODE,                                         -- 118: 50%
                                               OPTM_G_LINE,                                             -- 119: Line
                                               OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 120: Close submenu / back to Settings
-                                              OPTM_G_LINE,                                             -- 121: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 122: Headline "Audio"
-                                              OPTM_G_SUBMENU,                                          -- 123: Volume submenu block: "Volume: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 124: Headline "Volume Control"
-                                              OPTM_G_VOLUME + OPTM_G_STDSEL,                           -- 125: 100% (default)
-                                              OPTM_G_VOLUME,                                           -- 126: 95%
-                                              OPTM_G_VOLUME,                                           -- 127: 90%
-                                              OPTM_G_VOLUME,                                           -- 128: 85%
-                                              OPTM_G_VOLUME,                                           -- 129: 80%
-                                              OPTM_G_VOLUME,                                           -- 130: 75%
-                                              OPTM_G_VOLUME,                                           -- 131: 70%
-                                              OPTM_G_VOLUME,                                           -- 132: 65%
-                                              OPTM_G_VOLUME,                                           -- 133: 60%
-                                              OPTM_G_VOLUME,                                           -- 134: 55%
-                                              OPTM_G_VOLUME,                                           -- 135: 50%
-                                              OPTM_G_VOLUME,                                           -- 136: 45%
-                                              OPTM_G_VOLUME,                                           -- 137: 40%
-                                              OPTM_G_VOLUME,                                           -- 138: 35%
-                                              OPTM_G_VOLUME,                                           -- 139: 30%
-                                              OPTM_G_VOLUME,                                           -- 140: 25%
-                                              OPTM_G_VOLUME,                                           -- 141: 20%
-                                              OPTM_G_VOLUME,                                           -- 142: 15%
-                                              OPTM_G_VOLUME,                                           -- 143: 10%
-                                              OPTM_G_VOLUME,                                           -- 144: 5%
-                                              OPTM_G_VOLUME,                                           -- 145: 0% (mute)
-                                              OPTM_G_LINE,                                             -- 146: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 147: Close submenu / back to Settings
-                                              OPTM_G_SUBMENU,                                          -- 148: Stereo Mix submenu block: "Stereo: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 149: Headline "Stereo Mix"
-                                              OPTM_G_STEREO + OPTM_G_STDSEL,                           -- 150: Full Stereo (default)
-                                              OPTM_G_STEREO,                                           -- 151: Wide Stereo
-                                              OPTM_G_STEREO,                                           -- 152: Narrow Stereo
-                                              OPTM_G_STEREO,                                           -- 153: Mono
-                                              OPTM_G_LINE,                                             -- 154: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 155: Close submenu / back to Settings
-                                              OPTM_G_A500FILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,      -- 156: A500 Filter (single-select, default ON)
-                                              OPTM_G_LEDFILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- 157: LED Filter (single-select, default ON)
-                                              OPTM_G_LINE,                                             -- 158: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 159: Headline "Keyboard"
-                                              OPTM_G_KBD,                                              -- 160: Amiga (pure positional)
-                                              OPTM_G_KBD + OPTM_G_STDSEL,                              -- 161: MEGA65 (semantic; default)
-                                              OPTM_G_SUBMENU,                                          -- 162: OSM-open key submenu block: "OSM: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 163: Headline "Key to open the menu"
-                                              OPTM_G_OSMKEY + OPTM_G_STDSEL,                           -- 164: Help (default opener)
-                                              OPTM_G_OSMKEY,                                           -- 165: F11
-                                              OPTM_G_OSMKEY,                                           -- 166: F13
-                                              OPTM_G_OSMKEY,                                           -- 167: MEGA + Run/Stop
-                                              OPTM_G_LINE,                                             -- 168: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 169: Close submenu / back to Settings
-                                              OPTM_G_LINE,                                             -- 170: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 171: Headline "Ports"
-                                              OPTM_G_SERIAL + OPTM_G_SINGLESEL,                        -- 172: Serial port on PMOD1 (single-select, default OFF)
-                                              OPTM_G_LINE,                                             -- 173: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 174: Close Settings
-                                              OPTM_G_LINE,                                             -- 175: Line
-                                              OPTM_G_FREEZE + OPTM_G_SINGLESEL,                        -- 176: Freeze: the cartridge button (momentary)
-                                              OPTM_G_LINE,                                             -- 177: Line
-                                              OPTM_G_About + OPTM_G_HELP,                              -- 178: About & Help (WHS(1))
-                                              OPTM_G_CLOSE,                                            -- 179: Close Menu
-                                              OPTM_G_LINE,                                             -- 180: Line
-                                              OPTM_G_TEXT                                              -- 181: Text: empty (the SD card status is painted on the bottom row)
+                                              OPTM_G_NTSC + OPTM_G_SINGLESEL,                          -- 121: NTSC (60 Hz): the video standard (single-select, default OFF)
+                                              OPTM_G_LINE,                                             -- 122: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 123: Headline "Audio"
+                                              OPTM_G_SUBMENU,                                          -- 124: Volume submenu block: "Volume: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 125: Headline "Volume Control"
+                                              OPTM_G_VOLUME + OPTM_G_STDSEL,                           -- 126: 100% (default)
+                                              OPTM_G_VOLUME,                                           -- 127: 95%
+                                              OPTM_G_VOLUME,                                           -- 128: 90%
+                                              OPTM_G_VOLUME,                                           -- 129: 85%
+                                              OPTM_G_VOLUME,                                           -- 130: 80%
+                                              OPTM_G_VOLUME,                                           -- 131: 75%
+                                              OPTM_G_VOLUME,                                           -- 132: 70%
+                                              OPTM_G_VOLUME,                                           -- 133: 65%
+                                              OPTM_G_VOLUME,                                           -- 134: 60%
+                                              OPTM_G_VOLUME,                                           -- 135: 55%
+                                              OPTM_G_VOLUME,                                           -- 136: 50%
+                                              OPTM_G_VOLUME,                                           -- 137: 45%
+                                              OPTM_G_VOLUME,                                           -- 138: 40%
+                                              OPTM_G_VOLUME,                                           -- 139: 35%
+                                              OPTM_G_VOLUME,                                           -- 140: 30%
+                                              OPTM_G_VOLUME,                                           -- 141: 25%
+                                              OPTM_G_VOLUME,                                           -- 142: 20%
+                                              OPTM_G_VOLUME,                                           -- 143: 15%
+                                              OPTM_G_VOLUME,                                           -- 144: 10%
+                                              OPTM_G_VOLUME,                                           -- 145: 5%
+                                              OPTM_G_VOLUME,                                           -- 146: 0% (mute)
+                                              OPTM_G_LINE,                                             -- 147: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 148: Close submenu / back to Settings
+                                              OPTM_G_SUBMENU,                                          -- 149: Stereo Mix submenu block: "Stereo: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 150: Headline "Stereo Mix"
+                                              OPTM_G_STEREO + OPTM_G_STDSEL,                           -- 151: Full Stereo (default)
+                                              OPTM_G_STEREO,                                           -- 152: Wide Stereo
+                                              OPTM_G_STEREO,                                           -- 153: Narrow Stereo
+                                              OPTM_G_STEREO,                                           -- 154: Mono
+                                              OPTM_G_LINE,                                             -- 155: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 156: Close submenu / back to Settings
+                                              OPTM_G_A500FILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,      -- 157: A500 Filter (single-select, default ON)
+                                              OPTM_G_LEDFILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- 158: LED Filter (single-select, default ON)
+                                              OPTM_G_LINE,                                             -- 159: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 160: Headline "Keyboard"
+                                              OPTM_G_KBD,                                              -- 161: Amiga (pure positional)
+                                              OPTM_G_KBD + OPTM_G_STDSEL,                              -- 162: MEGA65 (semantic; default)
+                                              OPTM_G_SUBMENU,                                          -- 163: OSM-open key submenu block: "OSM: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 164: Headline "Key to open the menu"
+                                              OPTM_G_OSMKEY + OPTM_G_STDSEL,                           -- 165: Help (default opener)
+                                              OPTM_G_OSMKEY,                                           -- 166: F11
+                                              OPTM_G_OSMKEY,                                           -- 167: F13
+                                              OPTM_G_OSMKEY,                                           -- 168: MEGA + Run/Stop
+                                              OPTM_G_LINE,                                             -- 169: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 170: Close submenu / back to Settings
+                                              OPTM_G_LINE,                                             -- 171: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 172: Headline "Ports"
+                                              OPTM_G_SERIAL + OPTM_G_SINGLESEL,                        -- 173: Serial port on PMOD1 (single-select, default OFF)
+                                              OPTM_G_LINE,                                             -- 174: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 175: Close Settings
+                                              OPTM_G_LINE,                                             -- 176: Line
+                                              OPTM_G_FREEZE + OPTM_G_SINGLESEL,                        -- 177: Freeze: the cartridge button (momentary)
+                                              OPTM_G_LINE,                                             -- 178: Line
+                                              OPTM_G_About + OPTM_G_HELP,                              -- 179: About & Help (WHS(1))
+                                              OPTM_G_CLOSE,                                            -- 180: Close Menu
+                                              OPTM_G_LINE,                                             -- 181: Line
+                                              OPTM_G_TEXT                                              -- 182: Text: empty (the SD card status is painted on the bottom row)
                                            );
 
 -- M2M-UPSTREAM menu-rows: the layout word of every item (SEL_OPTM_ROWS):

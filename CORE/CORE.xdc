@@ -39,8 +39,27 @@
 ## crossings in amiga_sdram.vhd are timed as ordinary synchronous paths.
 ## (AExp timed the flicker-free fast leg here: set_case_analysis 1 on hr_core_speed_reg[0]/Q
 ## and main_clk on i_clk_fast/CLKOUT0.)
-set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
-create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+## Megamiga 0.7 NTSC (2026-10-21): clk.vhd's second MMCM is the NTSC one now (i_clk_ntsc,
+## 28.636364 MHz and its 4x twin 114.545455 MHz), and TWO BUFGMUX_CTRLs (i_bufgmux = the core
+## clock, i_bufgmux4x = the SDRAM's 4x clock) select PAL or NTSC with one register select
+## (amiga_cold_boot's ntsc_applied). The NTSC leg is the faster one, so it is timed: case
+## analysis 1 on both selects, main_clk on i_clk_ntsc/CLKOUT0 and its 4x twin main_clk4x on
+## i_clk_ntsc/CLKOUT1 (synchronous: same MMCM; until 0.7 the auto-derived native_clk4x_mmcm).
+## The PAL leg is 0.9 % slower, but its MMCM is another one, with other skew and - the
+## fractional multiplier 56.75 - more jitter: build ntsc-a met hold on the NTSC leg with
+## +0.011 ns on the SDRAM read data -> ide_board path and missed it by 0.003 ns on PAL. So the
+## router gets 0.05 ns more hold margin from the 4x clock into the core clock (those paths
+## have > 1 ns of setup slack), and the sign-off re-times the PAL leg (CORE/pal_leg.tcl,
+## build_bitstream.tcl / reroll_bitstream.tcl). Sign-off: both get_pins non-empty, main_clk
+## at 34.921 ns in the routed report.
+## (Until 0.7: set_case_analysis 0 on i_bufgmux/S and main_clk on i_clk_main/CLKOUT0.)
+#set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
+#create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+set_case_analysis 1 [get_pins CORE/clk_gen/i_bufgmux/S]
+set_case_analysis 1 [get_pins CORE/clk_gen/i_bufgmux4x/S]
+create_generated_clock -name main_clk   [get_pins CORE/clk_gen/i_clk_ntsc/CLKOUT0]
+create_generated_clock -name main_clk4x [get_pins CORE/clk_gen/i_clk_ntsc/CLKOUT1]
+set_clock_uncertainty -hold 0.050 -from [get_clocks main_clk4x] -to [get_clocks main_clk]
 # Add more clocks here, if needed
 
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here

@@ -30,6 +30,9 @@ set_param general.maxThreads $jobs
 # off before every route. The phys checkpoint of the first pass still carries
 # the margin of its place hook, so "phys" attempts switch it off too.
 source [file join [file dirname [file normalize [info script]]] impl_margin.tcl]
+# Megamiga 0.7 NTSC: the PAL leg's gate (pal_leg.tcl), checked after an attempt's results
+# are written (it changes the constraints of the open design)
+source [file join [file dirname [file normalize [info script]]] pal_leg.tcl]
 
 set b   [string tolower $board]
 set run CORE-${board}.runs/impl_1
@@ -50,8 +53,11 @@ proc signoff_gates {} {
     set gate {}
     # A500+ mode: the core clock is pinned to native (no flicker-free fast leg), and the
     # chipset -> SDRAM multicycle constraints need the controller's instance name.
-    if {[llength [get_pins -quiet {CORE/clk_gen/i_bufgmux/S}]] == 0} {
-        lappend gate "set_case_analysis target CORE/clk_gen/i_bufgmux/S missing"
+    # Megamiga 0.7 NTSC: both clock muxes (core clock, SDRAM 4x clock) are on the NTSC leg
+    foreach pin {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S} {
+        if {[llength [get_pins -quiet $pin]] == 0} {
+            lappend gate "set_case_analysis target $pin missing"
+        }
     }
     if {[llength [get_cells -quiet {CORE/i_amiga_sdram/i_sdram_ctrl/*}]] == 0} {
         lappend gate "multicycle target CORE/i_amiga_sdram/i_sdram_ctrl missing"
@@ -66,12 +72,13 @@ proc signoff_gates {} {
             lappend gate "$c is not a source of the CPU -> SDRAM multicycle in CORE.xdc"
         }
     }
-    foreach {clk want} {main_clk 35.242} {
+    # Megamiga 0.7: main_clk is timed on the NTSC leg (28.636364 MHz; PAL was 35.242 ns)
+    foreach {clk want} {main_clk 34.921} {
         set c [get_clocks -quiet $clk]
         if {[llength $c] == 0} {
             lappend gate "generated clock $clk missing"
         } elseif {[expr {abs([get_property PERIOD $c] - $want)}] > 0.05} {
-            lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (native 28.375 MHz)"
+            lappend gate "$clk period [get_property PERIOD $c] ns, expected ~$want ns (NTSC 28.636364 MHz)"
         }
     }
     return $gate
@@ -204,6 +211,14 @@ foreach a $attempts {
     if {$rc} {
         puts "$tag met timing, but writing the results failed ($mins min): [string map {\n " "} $err]"
         catch {close_design}
+        continue
+    }
+
+    set pal [pal_leg_gate]
+    if {[llength $pal] > 0} {
+        foreach g $pal { puts "$tag $g" }
+        puts "$tag fail on the PAL leg WNS=$::pal_wns WHS=$::pal_whs ($mins min)"
+        close_design
         continue
     }
 

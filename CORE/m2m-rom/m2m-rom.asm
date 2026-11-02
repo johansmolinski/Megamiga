@@ -10217,6 +10217,9 @@ SHR_RNOBJ       .BLOCK 8                        ; RENAME: the object
 ; characters) and its manual CRT/ROM load (one more OPTM_HEAP buffer of OPTM_DX
 ; + 2 = 25 words): demand 3242 + 9 + 4 + 25 = 3280, MENU_HEAP_SIZE 3296,
 ; headroom 16, release HEAP_SIZE -32.
+; Megamiga 0.7 NTSC: " NTSC (60 Hz)" at the end of the Display block of Settings (183 items,
+; +15 characters + 4 words) and the HDMI mode lines without "50 Hz" (-8 characters):
+; demand 3280 + 11 = 3291, MENU_HEAP_SIZE 3296 unchanged, headroom 5.
 MENU_HEAP_SIZE  .EQU 3296
 
 #ifndef RELEASE
