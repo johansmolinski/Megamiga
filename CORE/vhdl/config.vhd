@@ -13,6 +13,11 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity config is
+-- Megamiga, November 2026 (M2M-UPSTREAM config-board): the board, so that the menu can show
+-- what the board can do (the R3/R3A has no SDRAM); default: the boards with SDRAM
+generic (
+   G_BOARD     : string := "MEGA65_R6"
+);
 port (
    clk_i       : in std_logic;
 
@@ -819,6 +824,23 @@ constant OPTM_ITEMS        : string :=
    " Close Menu\n"          &  -- 180: Close Menu (was 212; the Line moved below it)
    "\n"                     &  -- 181: Line
    " \n" ;                     -- 182: Text: empty; SD_STATUS_STEP (m2m-rom.asm) paints the live status of both SD cards on the bottom row of the main menu
+-- Megamiga, November 2026: the menu as the board shows it - the R3/R3A has 4 MB of Zorro II
+-- Fast RAM in HyperRAM (amiga_mem_r3.vhd) instead of 8 MB in SDRAM; same length
+function f_items(b : string) return string is
+   variable s : string(1 to OPTM_ITEMS'length) := OPTM_ITEMS;
+   constant k : string := " Zorro II RAM 8 MB";
+begin
+   if b = "MEGA65_R3" then
+      for i in 1 to s'length - k'length + 1 loop
+         if s(i to i + k'length - 1) = k then
+            s(i + 14) := '4';
+         end if;
+      end loop;
+   end if;
+   return s;
+end function f_items;
+constant OPTM_ITEMS_B      : string := f_items(G_BOARD);
+
 -- also make sure that your group numbers are monotonic increasing (e.g. 1, 2, 3, 4, ...)
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_ADF0       : integer := 1;   -- mount ADF for df0 (manual CRT/ROM load 0)
@@ -937,12 +959,27 @@ type OPTM_AREC is record
    grp, items, mother, mask : natural;
 end record;
 type OPTM_ATYPE is array (natural range <>) of OPTM_AREC;
-constant OPTM_AVAIL : OPTM_ATYPE := (
+constant OPTM_AVAIL_SDRAM : OPTM_ATYPE := (
    -- the Zorro III boards and the graphics card need a 68020 or 68040
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 6), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 6), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 6),
    -- HRTmon: 68000 and 68020; the Action Replay III: 68000 only
    (OPTM_G_P1CART, 2, OPTM_G_P1CPU, 3), (OPTM_G_P1CART, 4, OPTM_G_P1CPU, 1)
 );
+-- Megamiga, November 2026: the R3/R3A has no SDRAM (doc/developers/r3.md). Always greyed out
+-- (mask 0 of a radio group that always has a selection): the 68040, 2 MB chip RAM, the Zorro
+-- III boards, the graphics card, both cartridges; Slow RAM only next to 512 KB chip RAM (chip
+-- and slow RAM share 1 MB of block RAM). mega65.vhd's prof_decode applies the same limits.
+constant OPTM_AVAIL_R3 : OPTM_ATYPE := (
+   (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0), (OPTM_G_P1CHIP, 4, OPTM_G_P1CHIP, 0),
+   (OPTM_G_P1SLOW, 2, OPTM_G_P1CHIP, 1),
+   (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
+   (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
+);
+function f_avail(b : string) return OPTM_ATYPE is
+begin
+   if b = "MEGA65_R3" then return OPTM_AVAIL_R3; else return OPTM_AVAIL_SDRAM; end if;
+end function f_avail;
+constant OPTM_AVAIL : OPTM_ATYPE := f_avail(G_BOARD);
 
 -- A headline gets a separator line drawn below it (M2M-UPSTREAM menu-rows): the
 -- separator is no menu item of its own, which saves an item per headline.
@@ -1196,6 +1233,7 @@ addr_decode : process(clk_i)
          return std_logic_vector(to_unsigned(character'pos(str(strpos)), 16));
       else
          return X"0000"; -- zero terminated strings
+
       end if;
    end function str2data;
 
@@ -1206,6 +1244,7 @@ addr_decode : process(clk_i)
          when 0 => return std_logic_vector(to_unsigned(dx + 2, 16));
          when 1 => return std_logic_vector(to_unsigned(dy + 2, 16));
          when others => return X"0000";
+
       end case;
    end function getDXDY;
 
@@ -1286,7 +1325,9 @@ begin
             when SEL_DIR_START         => data_o <= str2data(DIR_START, index);
             when SEL_CFG_FILE          => data_o <= str2data(CFG_FILE, index);
             when SEL_CORENAME          => data_o <= str2data(CORENAME, index);
-            when SEL_OPTM_ITEMS        => data_o <= str2data(OPTM_ITEMS, index);
+            -- Megamiga, November 2026: OPTM_ITEMS_B (the board's Fast RAM size). Original:
+            --when SEL_OPTM_ITEMS        => data_o <= str2data(OPTM_ITEMS, index);
+            when SEL_OPTM_ITEMS        => data_o <= str2data(OPTM_ITEMS_B, index);
             when SEL_OPTM_MOUNT_STR    => data_o <= str2data(OPTM_S_MOUNT, index);
             when SEL_OPTM_CRTROM_STR   => data_o <= str2data(OPTM_S_CRTROM, index);
             when SEL_OPTM_SAVING_STR   => data_o <= str2data(OPTM_S_SAVING, index);

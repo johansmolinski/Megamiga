@@ -3502,6 +3502,33 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     +0.004, LUTs 118239 (88.4 %); saved as `chipfix-b-save`. Bench `~/aexp-work/apidya`
     (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
     logs and Apidya loads on to track 143 with upstream's engine fix. Hardware test pending.
+  - **MEGA65 R3/R3A support (branch `r3` from chipfix, Minimig branch `r3`, 2026-11-03;
+    design and status: `doc/developers/r3.md`).** The R3 has no SDRAM. Measured first with
+    the Apidya bench (`~/aexp-work/hyperr3/bus`, a RAM model with N clocks of read latency):
+    Minimig wants chip data 2 core clocks (~70 ns) after the address (N = 3 crashes) and
+    makes chip accesses 141 ns apart, so chip RAM cannot be in HyperRAM (DRAM row access +
+    the device's own refresh doubling the latency unannounced) and 2 MB (456 tiles) does not
+    fit the 365 block RAM tiles: R3 = up to 1 MB chip RAM in block RAM, AGA selectable with
+    it. `amiga_mem_r3.vhd` (same ports as amiga_sdram minus the pins, + an Avalon master):
+    chip/slow RAM in 1 MB of block RAM (4 x 16-bit lanes, chip48 in sdram_ctrl's burst
+    order, slow RAM in the second half with 512 KB chip), the Kickstart loader into HyperRAM
+    (word $300000, 256 KB mirrored), Zorro II Fast RAM 4 MB (HyperRAM words $100000-
+    $2FFFFF), a 16 KB direct-mapped read cache (one-clock hits, critical word first,
+    write-through), the 68000's level DTACK and late write strobes, TG68K's one-clock ready.
+    cpu_wrapper: `kick_ram`/`kick_ovl` send every Kickstart read and the reset overlay
+    through ram* (minimig exports `ovl`). mega65.vhd: generate branches (no 68040, RTG
+    card/blitter, Zorro III, cartridges, IDE DMA; chip <= 1 MB, slow RAM only with 512 KB
+    chip), the RTG card's HyperRAM path reused. R3 board top brought up to date, CORE-R3.xpr
+    regenerated from R6, the SDRAM-only sign-off gates (build_bitstream, reroll, pal_leg)
+    skip R3. Menu: M2M exception 23 `config-board` (config.vhd gets G_BOARD): R3 greys out
+    68040, 2 MB chip, Zorro III, graphics card, cartridges, Slow RAM with 1 MB chip, and
+    shows "Zorro II RAM 4 MB". Benches: `~/aexp-work/r3mem` (unit; 11/11 mutants; found a hit
+    on a line still being filled), `~/aexp-work/r3e2e` (fx68k/TG68K + cpu_wrapper + the
+    netlist, a Kickstart booting through the overlay; found the 68000 write taken before
+    its strobes; overlay/route mutants fail), `~/aexp-work/r3cfg` (menu words). Builds:
+    r3-a WNS +0.152 WHS +0.014, 52.9K LUTs (40 %), 358.5/365 block RAM tiles, stopped by the
+    gates; r3-b stopped by pal_leg.tcl; r3-c OK: WNS +0.035, WHS +0.036 (PAL leg +6.791 /
+    +0.036), saved as `r3-c-save`. Hardware test pending (the user's R3 is on its way).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

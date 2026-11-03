@@ -27,7 +27,10 @@ entity main is
       G_VDNUM                 : natural;                    -- amount of virtual drives
       G_ADF_BASE_DF0          : std_logic_vector(21 downto 0);  -- df0 image HyperRAM word base
       G_ADF_BASE_DF1          : std_logic_vector(21 downto 0);  -- df1 image HyperRAM word base
-      G_ADF_BASE_DF2          : std_logic_vector(21 downto 0)   -- df2 image HyperRAM word base
+      G_ADF_BASE_DF2          : std_logic_vector(21 downto 0);  -- df2 image HyperRAM word base
+      -- Megamiga, November 2026: the MEGA65 R3/R3A (no SDRAM): the Kickstart is read through
+      -- cpu_wrapper's ram* port for every CPU (kick_ram), and there is no 68040
+      G_R3                    : boolean := false
    );
    port (
       clk_main_i              : in  std_logic;
@@ -446,6 +449,7 @@ architecture synthesis of main is
          cart_ar3       : in  std_logic;
          cart_freeze    : in  std_logic;
          cart_ovl       : out std_logic;
+         kick_ovl       : out std_logic;   -- Megamiga (R3): the Kickstart overlay
 
          -- physical-drive support (see minimig_m65.v / paula_floppy.v)
          fdd_ctrl          : out std_logic_vector(7 downto 0);
@@ -601,6 +605,8 @@ architecture synthesis of main is
          snoop_stb      : in  std_logic;
          snoop_addr     : in  std_logic_vector(20 downto 1);
          slowram_ena    : in  std_logic;
+         kick_ram       : in  std_logic;   -- Megamiga (R3): Kickstart through the ram* port
+         kick_ovl       : in  std_logic;
          cpu040_sel     : in  std_logic;
          dbg_addr       : out std_logic_vector(31 downto 0);
          dbg_state      : out std_logic_vector(7 downto 0);
@@ -629,7 +635,18 @@ architecture synthesis of main is
    -- Megamiga, October 2026 (branch cpu040, EXPERIMENTAL): the AP68040 core in place of
    -- TG68K when the 68020 is selected (cpu_wrapper.v): 1 = on the core clock, 2 = on its
    -- own clock (clk_cpu_i, 42.04 MHz, behind ap040_island); 0 = TG68K
-   constant C_CPU040       : integer := 2;
+   -- Megamiga, November 2026: no 68040 on the R3 (no SDRAM for its Fast RAM port). Original:
+   --constant C_CPU040       : integer := 2;
+   function f_cpu040(r3 : boolean) return integer is
+   begin
+      if r3 then return 0; else return 2; end if;
+   end function f_cpu040;
+   constant C_CPU040       : integer := f_cpu040(G_R3);
+   function f_sl(b : boolean) return std_logic is
+   begin
+      if b then return '1'; else return '0'; end if;
+   end function f_sl;
+   constant C_KICK_RAM     : std_logic := f_sl(G_R3);
    -- C_CPU040 = 2 only: 1 = the island's write buffer, 2 = also the AP68040's own speed-ups
    -- (posted stores, store buffer, forwarding, return stack, ...; MinimigAGA_TC64's set
    -- without copyback) - those did not close timing (builds cpu040-e/-f)
@@ -684,6 +701,7 @@ architecture synthesis of main is
    -- CPU <-> Fast RAM (cpu_wrapper's "ram*" port)
    signal cpu_fastramcfg   : std_logic_vector(2 downto 0);
    signal cart_ovl         : std_logic;   -- Megamiga: the AR3 chip RAM overlay (minimig -> cpu_wrapper)
+   signal kick_ovl         : std_logic;   -- Megamiga (R3): the Kickstart overlay (minimig -> cpu_wrapper)
    signal kbd_freeze       : std_logic;   -- Megamiga: CTRL+MEGA+HELP held
    signal cart_freeze      : std_logic;   -- Megamiga: the freeze button (combo or menu)
    signal cpu_cpucfg       : std_logic_vector(1 downto 0);
@@ -927,8 +945,10 @@ begin
    -- (cpu_wrapper.v autoconfig); 0 = no board. Latched at every CPU reset.
    -- Megamiga: 2 MB while the Action Replay III is plugged in (it decodes $400000-$47FFFF)
    --cpu_fastramcfg <= "011" when fast_ram_i = '1' else "000";
+   -- Megamiga, November 2026: 4 MB on R3 (HyperRAM words 100000-2FFFFF, amiga_mem_r3.vhd)
    cpu_fastramcfg <= "000" when fast_ram_i = '0' else
                      "001" when cart_ar3_i = '1' else
+                     "010" when G_R3 else
                      "011";
 
    -- cpu_wrapper's Zorro II mapping puts the 8 MB window $200000-$9FFFFF 1:1 onto
@@ -1055,6 +1075,8 @@ begin
          snoop_stb       => cpu_snoop_stb,
          snoop_addr      => ram_addr_o(20 downto 1),
          slowram_ena     => slow_ram_i,
+         kick_ram        => C_KICK_RAM,
+         kick_ovl        => kick_ovl,
          cpu040_sel      => cpu_040_i,
          dbg_addr        => dbg_cpu_addr_o,
          dbg_state       => dbg_cpu_state_o,
@@ -1484,6 +1506,7 @@ begin
          cart_ar3       => cart_ar3_i,
          cart_freeze    => cart_freeze,
          cart_ovl       => cart_ovl,
+         kick_ovl       => kick_ovl,
 
          -- Hardware Floppy: CIA-B taps out, real drive status in (the
          -- one-hot mask keeps every mux bit-identical when the feature is

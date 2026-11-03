@@ -401,6 +401,11 @@ signal main_ram_oe_n          : std_logic;
 -- below in the same clock domain (no CDC). main_fastram_en is the menu bit gated
 -- by the board: R3 has no SDRAM, so there the Amiga never sees the board.
 constant C_HAS_SDRAM          : boolean := G_BOARD /= "MEGA65_R3";
+function f_sdram_sl(b : string) return std_logic is
+begin
+   if b = "MEGA65_R3" then return '0'; else return '1'; end if;
+end function f_sdram_sl;
+constant C_SDRAM_SL           : std_logic := f_sdram_sl(G_BOARD);   -- C_HAS_SDRAM as a bit
 signal main_fastram_en        : std_logic;
 signal main_fram_sel          : std_logic;
 signal main_fram_we           : std_logic;
@@ -1462,6 +1467,11 @@ begin
       --main_z3_ram  <= main_osm_control_i(v_base + C_PROF_Z3) and main_osm_control_i(v_base + C_PROF_CPU_020);
       main_cpu_020 <= main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040);
       main_cpu_040 <= main_osm_control_i(v_base + C_PROF_CPU_040);
+      -- Megamiga, November 2026: no 68040 on the R3 (main.vhd builds no island there); a
+      -- 68040 profile runs the 68020 instead
+      if not C_HAS_SDRAM then
+         main_cpu_040 <= '0';
+      end if;
       -- Megamiga 0.7: both Zorro III boards are in the board SDRAM: R4+ only, like the Fast RAM
       --main_z3_ram  <= main_osm_control_i(v_base + C_PROF_Z3) and
       --                (main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040));
@@ -1481,12 +1491,18 @@ begin
       -- graphics and network card switches of the Zorro Boards section
       main_ide_none <= main_osm_control_i(v_base + C_PROF_HDC_NONE);
       main_rtg_card <= main_osm_control_i(v_base + C_PROF_GFX);
-      main_eth_card <= main_osm_control_i(v_base + C_PROF_NET);
-      if C_HAS_SDRAM then
-         main_fastram_en <= main_osm_control_i(v_base + C_PROF_FAST);
-      else
-         main_fastram_en <= '0';
+      if not C_HAS_SDRAM then                       -- Megamiga, November 2026: no RTG on R3
+         main_rtg_card <= '0';
       end if;
+      main_eth_card <= main_osm_control_i(v_base + C_PROF_NET);
+      -- Megamiga, November 2026: on R3 the Zorro II Fast RAM is 4 MB in HyperRAM
+      -- (amiga_mem_r3.vhd; main.vhd configures 4 MB there). Original:
+      --if C_HAS_SDRAM then
+      --   main_fastram_en <= main_osm_control_i(v_base + C_PROF_FAST);
+      --else
+      --   main_fastram_en <= '0';
+      --end if;
+      main_fastram_en <= main_osm_control_i(v_base + C_PROF_FAST);
 
       -- chipset radio: AGA / OCS explicitly, everything else is ECS
       if main_osm_control_i(v_base + C_PROF_CS_AGA) = '1' then
@@ -1505,9 +1521,20 @@ begin
       else
          main_chip_size <= "00";
       end if;
+      -- Megamiga, November 2026: on R3 chip and slow RAM share 1 MB of block RAM
+      -- (amiga_mem_r3.vhd): at most 1 MB chip RAM, and slow RAM only with 512 KB chip RAM
+      if not C_HAS_SDRAM and (main_osm_control_i(v_base + C_PROF_CHIP_2M) = '1' or
+                              main_osm_control_i(v_base + C_PROF_CHIP_1M) = '1') then
+         main_chip_size <= "01";
+         main_slow_ram  <= '0';
+      end if;
       -- Megamiga: the cartridge radio (None is the STDSEL default and the fall-through)
       main_cart_hrt_sel <= main_osm_control_i(v_base + C_PROF_CART_HRT);
       main_cart_ar3_sel <= main_osm_control_i(v_base + C_PROF_CART_AR3);
+      if not C_HAS_SDRAM then                       -- Megamiga, November 2026: no cartridges on R3
+         main_cart_hrt_sel <= '0';
+         main_cart_ar3_sel <= '0';
+      end if;
    end process prof_decode;
 
    -- Megamiga: the cartridge that should be plugged in. The Action Replay III only counts
@@ -1577,7 +1604,8 @@ begin
          G_VDNUM              => C_VDNUM,
          G_ADF_BASE_DF0       => C_HMAP_ADF_DF0(9 downto 0) & x"000",
          G_ADF_BASE_DF1       => C_HMAP_ADF_DF1(9 downto 0) & x"000",
-         G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000"
+         G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000",
+         G_R3                 => not C_HAS_SDRAM      -- Megamiga, November 2026
       )
       port map (
          clk_main_i           => main_clk,
@@ -1960,6 +1988,8 @@ begin
    -- is '0', so the board is never autoconfig'd); synthesis trims the controller.
    ---------------------------------------------------------------------------------------------
 
+   -- Megamiga, November 2026: the R3/R3A has no SDRAM - amiga_mem_r3 below instead
+   g_mem_sdram : if C_HAS_SDRAM generate
    i_amiga_sdram : entity work.amiga_sdram
       port map (
          clk_i          => main_clk,
@@ -2046,6 +2076,77 @@ begin
          sdram_dq_io    => sdram_dq_io
       ); -- i_amiga_sdram
 
+   else generate
+
+   ---------------------------------------------------------------------------------------------
+   -- Megamiga, November 2026: the memory of the MEGA65 R3/R3A (amiga_mem_r3.vhd): chip and
+   -- slow RAM in 1 MB of block RAM, the Kickstart and 4 MB of Zorro II Fast RAM in HyperRAM,
+   -- reached through the RTG card's HyperRAM path below (main_vram_avm_*: the clock-crossing
+   -- FIFO, the write combiner, the arbiter), which has no RTG card on R3.
+   -- Not on R3: the 68040's port, IDE DMA (the IDE board's fmap_* are 0: PIO), cartridges.
+   ---------------------------------------------------------------------------------------------
+   i_amiga_mem_r3 : entity work.amiga_mem_r3
+      port map (
+         clk_i          => main_clk,
+         rst_i          => main_rst,
+         ram_addr_i     => main_ram_addr,
+         ram_data_i     => main_ram_wrdata,
+         ram_data_o     => main_ram_rddata,
+         chip48_o       => main_chip48,
+         ram_bhe_n_i    => main_ram_bhe_n,
+         ram_ble_n_i    => main_ram_ble_n,
+         ram_we_n_i     => main_ram_we_n,
+         ram_oe_n_i     => main_ram_oe_n,
+         fram_sel_i     => main_sdram_fram_sel,
+         fram_state_i   => main_fram_state,
+         fram_addr_i    => main_fram_addr,
+         cpu_020_i      => main_cpu_020,
+         fram_uds_n_i   => main_fram_uds_n,
+         fram_lds_n_i   => main_fram_lds_n,
+         fram_data_i    => main_fram_wrdata,
+         fram_data_o    => main_sdram_rddata,
+         fram_ready_o   => main_sdram_ready,
+         cpu_reset_n_i  => not main_ide_rst,
+         scrub_i        => amiga_chip_scrub,
+         scrub_addr_i   => amiga_chip_scrub_addr,
+         qnice_clk_i    => qnice_clk_i,
+         qnice_rst_i    => qnice_rst_i,
+         qnice_addr_i   => qnice_dev_addr_i,
+         qnice_data_i   => qnice_dev_data_i,
+         qnice_ce_i     => qnice_kick_ce,
+         qnice_we_i     => qnice_dev_we_i,
+         qnice_wait_o   => qnice_kick_wait,
+         kick_busy_o    => main_kick_busy,
+         maint_idle_o   => main_maint_idle,
+         avm_write_o         => main_vram_avm_write,
+         avm_read_o          => main_vram_avm_read,
+         avm_address_o       => main_vram_avm_address,
+         avm_writedata_o     => main_vram_avm_writedata,
+         avm_byteenable_o    => main_vram_avm_byteenable,
+         avm_burstcount_o    => main_vram_avm_burstcount,
+         avm_readdata_i      => main_vram_avm_readdata,
+         avm_readdatavalid_i => main_vram_avm_readdatavalid,
+         avm_waitrequest_i   => main_vram_avm_waitrequest
+      ); -- i_amiga_mem_r3
+
+   main_fp_rdata  <= (others => '0');
+   main_fp_ack    <= main_fp_req;             -- (no 68040 on R3: never requests)
+   ide_dm_ack     <= ide_dm_req;              -- (fmap_* are 0: the IDE board refuses DMA)
+   main_cart_busy <= '0';
+
+   sdram_clk_o    <= '0';
+   sdram_cke_o    <= '0';
+   sdram_ras_n_o  <= '1';
+   sdram_cas_n_o  <= '1';
+   sdram_we_n_o   <= '1';
+   sdram_cs_n_o   <= '1';
+   sdram_ba_o     <= (others => '0');
+   sdram_a_o      <= (others => '0');
+   sdram_dqml_o   <= '1';
+   sdram_dqmh_o   <= '1';
+   sdram_dq_io    <= (others => 'Z');
+   end generate g_mem_sdram;
+
    ---------------------------------------------------------------------------------------------
    -- IDE board: RIPPLE-compatible Zorro II IDE controller, main_clk domain for the Amiga side
    --
@@ -2080,7 +2181,10 @@ begin
          ids_data_o              => main_ids_data,
          ids_last_o              => main_ids_last,
          ids_cons_i              => main_ids_cons,
-         fmap_z2_i               => main_fmap_z2,
+         -- Megamiga, November 2026: no IDE DMA on R3 (its memory port is the SDRAM's): the
+         -- board refuses every range there and lide.device copies with the CPU. Original:
+         --fmap_z2_i               => main_fmap_z2,
+         fmap_z2_i               => main_fmap_z2 and C_SDRAM_SL,
          fmap_ar3_i              => main_cart_ar3,
          fmap_z3_i               => main_fmap_z3,
          fmap_z3base_i           => main_fmap_z3base,
@@ -3902,6 +4006,8 @@ begin
    -- framework resets the HyperRAM side together with the core (reset_core_n)
    main_vram_rst <= main_reset_core_i or main_rst;
 
+   -- Megamiga, November 2026: on R3 amiga_mem_r3 drives main_vram_avm_* (no RTG card there)
+   g_rtg_vram : if C_HAS_SDRAM generate
    i_rtg_vram : entity work.rtg_vram
       port map (
          clk_i                 => main_clk,
@@ -3925,6 +4031,10 @@ begin
          avm_readdatavalid_i   => main_vram_avm_readdatavalid,
          avm_waitrequest_i     => main_vram_avm_waitrequest
       ); -- i_rtg_vram
+   else generate
+   main_vram_rddata <= (others => '1');
+   main_vram_ready  <= '0';
+   end generate g_rtg_vram;
 
    i_avm_fifo_vram : entity work.avm_fifo
       generic map (
@@ -3988,6 +4098,8 @@ begin
    -- the CPU path holds nothing for the board memory: FIFO output empty, combiner empty
    hr_vram_quiet <= hr_wcomb_idle and not (hr_vram_avm_write or hr_vram_avm_read);
 
+   -- Megamiga, November 2026: no RTG blitter on R3 (2 block RAM tiles; no RTG card there)
+   g_rtg_blitter : if C_HAS_SDRAM generate
    i_rtg_blitter : entity work.rtg_blitter
       port map (
          m_clk_i               => main_clk,
@@ -4012,6 +4124,17 @@ begin
          avm_readdatavalid_i   => hr_blt_avm_readdatavalid,
          avm_waitrequest_i     => hr_blt_avm_waitrequest
       ); -- i_rtg_blitter
+   else generate
+   main_blt_dout          <= (others => '0');
+   main_blt_busy          <= '0';
+   hr_wcomb_flush         <= '0';
+   hr_blt_avm_write       <= '0';
+   hr_blt_avm_read        <= '0';
+   hr_blt_avm_address     <= (others => '0');
+   hr_blt_avm_writedata   <= (others => '0');
+   hr_blt_avm_byteenable  <= (others => '0');
+   hr_blt_avm_burstcount  <= (others => '0');
+   end generate g_rtg_blitter;
 
    i_avm_arbit_rtg : entity work.avm_arbit
       generic map (

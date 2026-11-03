@@ -257,7 +257,7 @@ the dated facts.
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with TWENTY-TWO sanctioned
+- `M2M/` — the framework. **NEVER modify**, with TWENTY-THREE sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -418,7 +418,7 @@ the dated facts.
   `qnice_wrapper.vhd`, `framework.vhd`; the R4/R5/R6 tops make the SD pins
   bidirectional (XDC names unchanged) and pass the engine port (`sdhost_pkg`,
   two vectors) to the core; pull-ups in CORE.xdc; the old divider clock in
-  `common.xdc` is commented out. R3's top was not adapted.
+  `common.xdc` is commented out. R3's top was adapted on 2026-11-03 (branch `r3`).
   **Two slots at once** (2026-10-14): `sdslots.vhd` replaces the smart
   multiplexer `sdmux.vhd` (deleted, also from the four .xpr): one sdhost per
   slot (0 = bottom tray SD2_*, 1 = back slot SD_*), register 0xFF27
@@ -517,6 +517,10 @@ the dated facts.
   already released scaler output stage (black or repeated lines until a power
   cycle). Bench `CORE/sim/video/run_voc_reset.sh` (with red control). Added in
   the JS fork 2026-11-03.
+  (23) `config-board` — `M2M/vhdl/qnice_wrapper.vhd` passes `G_BOARD` to the core's
+  `config.vhd` (new generic, default `"MEGA65_R6"`), so the menu can follow the board: on the
+  R3/R3A (no SDRAM) the greyed-out rules and the Fast RAM label differ (`OPTM_AVAIL_R3`,
+  `f_items`). Added in the JS fork 2026-11-03 for the R3 port (doc/developers/r3.md).
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

@@ -291,7 +291,11 @@ begin
       ); -- QNICE_SOC
 
    -- Shell configuration file config.vhd
+   -- M2M-UPSTREAM config-board (Megamiga 2026-11-03): the core's config.vhd learns the board
    shell_cfg : entity work.config
+      generic map (
+         G_BOARD                 => G_BOARD
+      )
       port map (
          clk_i                   => clk_i,
          -- bits 27 .. 12:    select configuration data block; called "Selector" hereafter
