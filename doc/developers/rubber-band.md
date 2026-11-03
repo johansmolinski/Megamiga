@@ -1,6 +1,6 @@
 # Rubber banding: chip RAM in HyperRAM by pausing the Amiga
 
-Status: experiments (2026-11-03), nothing in the core yet. Goal: an R3/R3A Megamiga with
+Status: experiments (2026-11-03/04); `CORE/vhdl/chip_hr.vhd` exists but is in no build yet. Goal: an R3/R3A Megamiga with
 2 MB of chip RAM in HyperRAM (the R3 has no SDRAM; doc/developers/r3.md shows why chip RAM in
 HyperRAM fails when the Amiga runs in real time: Minimig wants read data ~70 ns after the
 address, HyperRAM needs 120-200 ns and doubles its latency without warning when it refreshes).
@@ -81,15 +81,58 @@ The R3 build with the core clock doubled (clk.vhd dividers 20/22: 56.75/57.27 MH
 gone when chip RAM leaves block RAM), TG68K internal (24, -0.79 ns), TG68K -> cache tags
 (-0.13 ns). Nothing in Agnus, Denise, Paula, the CIAs or fx68k.
 
+## Experiment 4: the real data path (`CORE/vhdl/chip_hr.vhd`, `chk.sh`)
+
+`chip_hr` is the first RTL for steps 2-4: the chipset port's memory behind a 16 KB 4-way cache
+(16-word lines, four 16-bit lanes so chip48 works) and two write-combining buffers, an Avalon
+master to the HyperRAM, and the gate (`go_o`) for the Amiga's next edge. It sees an access one
+clock after the Amiga edge that made it (k); edge k+1 always happens, k+2 only once the word is
+in the cache (a hit costs nothing: the tags are compared in the clock the address is seen and
+the cache RAM reads the current address in every clock). A miss fetches the whole line; the
+write buffers are flushed before a fill, so the fill sees every earlier write; a write to a
+cached line updates it.
+
+In the bench (`-DCHIPHR`) chip RAM is ONLY reached through `chip_hr` (the bench's memory array is
+the HyperRAM model: a read burst's first word after 8 clocks, then one per clock, a write burst
+after 6, 3 clocks of recovery; the scaler takes it for 45 clocks every 112), Minimig's read data
+comes straight from the cache, and the pacer runs the free clock at 2x. Against the run with
+direct memory:
+- Apidya loader, 1.2 s: identical (60 frames of pixel/write/read hashes), 2.000x clocks, lag 0.
+- DMA load, 1.2 s: identical (60 frames), 2.000x clocks, lag 0; 94.4 % cache hits, HyperRAM
+  busy 9.5 % for the Amiga next to 40 % for the scaler. (The first run deadlocked at frame 14:
+  two bugs in the bench's HyperRAM model - the first beat of an Avalon write burst comes with
+  the command; a command taken while waitrequest is low must win against a scaler burst.)
+- `dma.S` got a CPU phase between blits that reads a word right after writing it (32 fresh
+  lines), writes a cached word and reads it back, and writes four lines in a row before reading
+  them back - checked by the program and in the CPU-read hash.
+- Mutants (`mut.py`): k+2 not held for a miss, no flush before a fill, no cache update on a write
+  hit, a line valid one clock early, the high byte enable lost when merging: all differ; a write
+  that found no buffer not held: only reachable when a flush takes longer than a 68000 write
+  cycle - with a slow HyperRAM write (`slowwr.sh`, HR_WLAT 40) the real chip_hr stays identical
+  and that mutant differs. 6/6.
+- Vivado out of context (`~/aexp-work/pause/ooc`), 57.27 MHz: WNS +9.55 ns, 567 LUTs (246 as
+  LUT RAM), 4 block RAM tiles.
+
 ## The boundary (to design)
 
-Everything that crosses between the paused Amiga and the real-time world needs care:
-- into the Amiga, levels (joystick, mouse, keys held) are fine; pulses and handshakes (the
-  QNICE host channel, keyboard events, the floppy engine's SD reads, the IDE/network/shared
-  folder boards' back ends, serial receive, RTC) must be held until the Amiga takes them;
-- out of the Amiga: video (pixels with ce_pix -> a FIFO, read in real time; the analog 15 kHz
-  output needs exact timing), audio (samples -> FIFO), serial transmit, the floppy motor/step
-  lines of the real drive, LEDs;
-- the real floppy drive (Hardware Floppy) spins in real time: its flux front end stays
-  outside, Paula sees it through a FIFO;
-- the chipset port and the CPU's ram* port go to the memory controller outside.
+Inventory of `main.vhd`'s ports (the Amiga = everything inside it):
+
+| Kind | Examples | Under pausing |
+|---|---|---|
+| Settings, static levels | profile, chipset, chip size, filters, mounted disks, board enables | safe as they are |
+| Real-time levels the Amiga samples | joystick, pots, keyboard scan (key_num/pressed), RTC | mostly safe; the keyboard scan visits each key briefly - check that a pause cannot hide a key |
+| Handshakes / pulses into the Amiga | the floppy engine's SD reads (adf_avm_*), IDE/network/shared-folder ready + data, the IDE data stream (ids_*), the CPU's ram* ready (TG68K: one-clock pulse) | adapters that count Amiga edges (a pulse lasts until the Amiga took an edge); toggle handshakes (fp_*, dm_*) are already safe |
+| Real-time outputs | video (ce, RGB, syncs, blanks, field), audio | FIFOs read in real time (video: ~1 line, cheap) |
+| Real-time serial/drive timing | UART RX/TX bit timing, the real floppy drive (step pulses, index, flux FIFO) | stay real-time: a UART that samples in real time and hands bytes over; the Hardware Floppy either pins the Amiga to 1x while active or gets its own re-timing |
+| Memory | chipset port (chip_hr), the CPU's ram* port (Fast RAM / Kickstart) | outside, in the free-running domain |
+
+## Next steps
+
+1. The gated Amiga clock in the FPGA: a second BUFGCTRL next to the core clock's (same MMCM
+   outputs, same PAL/NTSC select, CE = the gate), so gated and ungated domains have matched
+   delays; a timing build to see what crossing paths cost.
+2. The domain split in main.vhd/mega65.vhd along the inventory above: edge-counting adapters for
+   the handshakes, video and audio FIFOs read in real time, the real-time UART and floppy.
+3. chip_hr on the real HyperRAM path (avm_fifo CDC, arbiter priority against the scaler), the
+   pacer, the core at 2x (audio filter and TG68K paths to fix, chip RAM leaves block RAM).
+4. AGA load in the bench (fetch modes, chip48) and a 68020 variant.
