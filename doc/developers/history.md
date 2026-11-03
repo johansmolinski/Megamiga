@@ -3469,7 +3469,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     red control (template behaviour) FAILS. Build `aexp-b3-b` (REF ntsc-b, incremental
     synthesis + implementation; also the first bitstream of the merged main with ntsc,
     fpbg, apidya, lfnfix and arosdiag): WNS +0.082, WHS +0.004, firmware 32558/32768;
-    saved for firmware patches as `aexp-b3-b-save`. Hardware test pending.
+    saved for firmware patches as `aexp-b3-b-save`. Hardware (2026-11-03, in build r3-r6b of
+    branch r3, which contains it): Apidya loads and plays, a long reset press keeps HDMI,
+    PAL/NTSC and RTG modes switch.
   - **Upstream MiSTer Minimig-AGA chipset fixes (branch `chipfix` from aexp-b3, Minimig
     branch `chipfix` from develop 672af1f, 2026-11-03).** MiSTer-devel/Minimig-AGA_MiSTer
     had 85 commits since the release our submodule is based on (20260603, eb7a26e; four
@@ -3501,7 +3503,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     declined, "Change is too high", incremental implementation used): WNS +0.008, WHS
     +0.004, LUTs 118239 (88.4 %); saved as `chipfix-b-save`. Bench `~/aexp-work/apidya`
     (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
-    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware test pending.
+    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware (2026-11-03,
+    build r3-r6b of branch r3): 68020/68040 Workbench, joystick, AR3 freezer, menu unchanged;
+    AGA titles and Kickstart 1.2 with slow RAM not tested yet.
   - **MEGA65 R3/R3A support (branch `r3` from chipfix, Minimig branch `r3`, 2026-11-03;
     design and status: `doc/developers/r3.md`).** The R3 has no SDRAM. Measured first with
     the Apidya bench (`~/aexp-work/hyperr3/bus`, a RAM model with N clocks of read latency):
@@ -3531,7 +3535,8 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     +0.036), saved as `r3-c-save`. The first R6 build of the branch missed by 5.4 ns: generate
     labels renamed instances CORE.xdc constrains; the instances are unconditional again and
     C_HAS_SDRAM selects outputs. r3-r6b (R6): WNS +0.116, WHS +0.004; r3-d (R3): WNS +0.035,
-    WHS +0.036 (`r3-d-save`). Hardware test pending (the user's R3 is on its way).
+    WHS +0.036 (`r3-d-save`). R6 hardware with r3-r6b: as before (see the two entries above).
+    R3 hardware test pending (the user's R3 is on its way).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
