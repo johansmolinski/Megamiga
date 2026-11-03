@@ -460,6 +460,35 @@ signal main_fram_rtg          : std_logic;
 signal main_sdram_fram_sel    : std_logic;
 signal main_sdram_rddata      : std_logic_vector(15 downto 0);
 signal main_sdram_ready       : std_logic;
+-- Megamiga, November 2026 (R3): the outputs of amiga_sdram, rtg_vram and rtg_blitter, and of
+-- amiga_mem_r3, before C_HAS_SDRAM selects (the instances keep their names on every board)
+signal sd_ram_rddata, sd_fram_rddata                 : std_logic_vector(15 downto 0);
+signal sd_chip48                                     : std_logic_vector(47 downto 0);
+signal sd_fram_ready, sd_kick_wait, sd_kick_busy     : std_logic;
+signal sd_maint_idle, sd_cart_busy, sd_fp_ack        : std_logic;
+signal sd_dm_ack                                     : std_logic;
+signal sd_fp_rdata                                   : std_logic_vector(127 downto 0);
+signal r3_ram_rddata, r3_fram_rddata                 : std_logic_vector(15 downto 0) := (others => '0');
+signal r3_chip48                                     : std_logic_vector(47 downto 0) := (others => '0');
+signal r3_fram_ready, r3_kick_wait, r3_kick_busy     : std_logic := '0';
+signal r3_maint_idle                                 : std_logic := '1';
+signal r3_avm_write, r3_avm_read                     : std_logic := '0';
+signal r3_avm_address                                : std_logic_vector(31 downto 0) := (others => '0');
+signal r3_avm_writedata                              : std_logic_vector(15 downto 0) := (others => '0');
+signal r3_avm_byteenable                             : std_logic_vector(1 downto 0) := (others => '0');
+signal r3_avm_burstcount                             : std_logic_vector(7 downto 0) := (others => '0');
+signal rtg_avm_write, rtg_avm_read                   : std_logic;
+signal rtg_avm_address                               : std_logic_vector(31 downto 0);
+signal rtg_avm_writedata                             : std_logic_vector(15 downto 0);
+signal rtg_avm_byteenable                            : std_logic_vector(1 downto 0);
+signal rtg_avm_burstcount                            : std_logic_vector(7 downto 0);
+signal blt_dout                                      : std_logic_vector(15 downto 0);
+signal blt_busy, blt_flush                           : std_logic;
+signal blt_avm_write, blt_avm_read                   : std_logic;
+signal blt_avm_address                               : std_logic_vector(31 downto 0);
+signal blt_avm_writedata                             : std_logic_vector(15 downto 0);
+signal blt_avm_byteenable                            : std_logic_vector(1 downto 0);
+signal blt_avm_burstcount                            : std_logic_vector(7 downto 0);
 signal main_vram_rddata       : std_logic_vector(15 downto 0);
 signal main_vram_ready        : std_logic;
 signal main_vram_rst          : std_logic;
@@ -1988,8 +2017,10 @@ begin
    -- is '0', so the board is never autoconfig'd); synthesis trims the controller.
    ---------------------------------------------------------------------------------------------
 
-   -- Megamiga, November 2026: the R3/R3A has no SDRAM - amiga_mem_r3 below instead
-   g_mem_sdram : if C_HAS_SDRAM generate
+   -- Megamiga, November 2026: the R3/R3A has no SDRAM - amiga_mem_r3 below serves the Amiga
+   -- there; amiga_sdram stays instantiated under its name on every board (CORE.xdc and the
+   -- sign-off gates find it by that name) and its outputs are selected by C_HAS_SDRAM (on R3
+   -- they are unused, synthesis trims the controller)
    i_amiga_sdram : entity work.amiga_sdram
       port map (
          clk_i          => main_clk,
@@ -1998,8 +2029,8 @@ begin
          c7m_i          => main_c7m,
          ram_addr_i     => main_ram_addr,
          ram_data_i     => main_ram_wrdata,
-         ram_data_o     => main_ram_rddata,
-         chip48_o       => main_chip48,
+         ram_data_o     => sd_ram_rddata,
+         chip48_o       => sd_chip48,
          ram_bhe_n_i    => main_ram_bhe_n,
          ram_ble_n_i    => main_ram_ble_n,
          ram_we_n_i     => main_ram_we_n,
@@ -2011,8 +2042,8 @@ begin
          fram_uds_n_i   => main_fram_uds_n,
          fram_lds_n_i   => main_fram_lds_n,
          fram_data_i    => main_fram_wrdata,
-         fram_data_o    => main_sdram_rddata,
-         fram_ready_o   => main_sdram_ready,
+         fram_data_o    => sd_fram_rddata,
+         fram_ready_o   => sd_fram_ready,
          cpu_reset_n_i  => not main_ide_rst,
          cpu_cacr_i     => main_cpu_cacr,
          fp_req_i       => main_fp_req,
@@ -2021,15 +2052,15 @@ begin
          fp_addr_i      => main_fp_addr,
          fp_be_i        => main_fp_be,
          fp_data_i      => main_fp_wdata,
-         fp_data_o      => main_fp_rdata,
-         fp_ack_o       => main_fp_ack,
+         fp_data_o      => sd_fp_rdata,
+         fp_ack_o       => sd_fp_ack,
          dm_req_i       => ide_dm_req,
          dm_we_i        => ide_dm_we,
          dm_line_i      => ide_dm_line,
          dm_addr_i      => ide_dm_addr,
          dm_be_i        => ide_dm_be,
          dm_data_i      => ide_dm_wdata,
-         dm_ack_o       => ide_dm_ack,
+         dm_ack_o       => sd_dm_ack,
          scrub_i        => amiga_chip_scrub,
          scrub_addr_i   => amiga_chip_scrub_addr,
          qnice_clk_i    => qnice_clk_i,
@@ -2038,17 +2069,17 @@ begin
          qnice_data_i   => qnice_dev_data_i,
          qnice_ce_i     => qnice_kick_ce,
          qnice_we_i     => qnice_dev_we_i,
-         qnice_wait_o   => qnice_kick_wait,
+         qnice_wait_o   => sd_kick_wait,
          qnice_kick_1mb_i => qnice_kick_1mb,
-         kick_busy_o    => main_kick_busy,
+         kick_busy_o    => sd_kick_busy,
          pause_i        => main_sdram_pause,
-         maint_idle_o   => main_maint_idle,
+         maint_idle_o   => sd_maint_idle,
          qnice_ar3_ce_i => qnice_ar3_ce,
          cart_init_i    => main_cart_init,
          cart_type_i    => main_cart_type,
          cart_aga_i     => main_chipset(1),                -- "10" = AGA
          cart_chip_i    => main_chip_size,
-         cart_busy_o    => main_cart_busy,
+         cart_busy_o    => sd_cart_busy,
          -- Megamiga: the floppy port is unused - the ADF images are read from the SD card
          -- (adf_sd.vhd) and the IDE boot ROM is in block RAM (flp_bram.vhd), so its half of
          -- SDRAM bank 0 (column bit 9 = 1) is free
@@ -2076,7 +2107,7 @@ begin
          sdram_dq_io    => sdram_dq_io
       ); -- i_amiga_sdram
 
-   else generate
+   g_mem_r3 : if not C_HAS_SDRAM generate
 
    ---------------------------------------------------------------------------------------------
    -- Megamiga, November 2026: the memory of the MEGA65 R3/R3A (amiga_mem_r3.vhd): chip and
@@ -2091,8 +2122,8 @@ begin
          rst_i          => main_rst,
          ram_addr_i     => main_ram_addr,
          ram_data_i     => main_ram_wrdata,
-         ram_data_o     => main_ram_rddata,
-         chip48_o       => main_chip48,
+         ram_data_o     => r3_ram_rddata,
+         chip48_o       => r3_chip48,
          ram_bhe_n_i    => main_ram_bhe_n,
          ram_ble_n_i    => main_ram_ble_n,
          ram_we_n_i     => main_ram_we_n,
@@ -2104,8 +2135,8 @@ begin
          fram_uds_n_i   => main_fram_uds_n,
          fram_lds_n_i   => main_fram_lds_n,
          fram_data_i    => main_fram_wrdata,
-         fram_data_o    => main_sdram_rddata,
-         fram_ready_o   => main_sdram_ready,
+         fram_data_o    => r3_fram_rddata,
+         fram_ready_o   => r3_fram_ready,
          cpu_reset_n_i  => not main_ide_rst,
          scrub_i        => amiga_chip_scrub,
          scrub_addr_i   => amiga_chip_scrub_addr,
@@ -2115,37 +2146,34 @@ begin
          qnice_data_i   => qnice_dev_data_i,
          qnice_ce_i     => qnice_kick_ce,
          qnice_we_i     => qnice_dev_we_i,
-         qnice_wait_o   => qnice_kick_wait,
-         kick_busy_o    => main_kick_busy,
-         maint_idle_o   => main_maint_idle,
-         avm_write_o         => main_vram_avm_write,
-         avm_read_o          => main_vram_avm_read,
-         avm_address_o       => main_vram_avm_address,
-         avm_writedata_o     => main_vram_avm_writedata,
-         avm_byteenable_o    => main_vram_avm_byteenable,
-         avm_burstcount_o    => main_vram_avm_burstcount,
+         qnice_wait_o   => r3_kick_wait,
+         kick_busy_o    => r3_kick_busy,
+         maint_idle_o   => r3_maint_idle,
+         avm_write_o         => r3_avm_write,
+         avm_read_o          => r3_avm_read,
+         avm_address_o       => r3_avm_address,
+         avm_writedata_o     => r3_avm_writedata,
+         avm_byteenable_o    => r3_avm_byteenable,
+         avm_burstcount_o    => r3_avm_burstcount,
          avm_readdata_i      => main_vram_avm_readdata,
          avm_readdatavalid_i => main_vram_avm_readdatavalid,
          avm_waitrequest_i   => main_vram_avm_waitrequest
       ); -- i_amiga_mem_r3
 
-   main_fp_rdata  <= (others => '0');
-   main_fp_ack    <= main_fp_req;             -- (no 68040 on R3: never requests)
-   ide_dm_ack     <= ide_dm_req;              -- (fmap_* are 0: the IDE board refuses DMA)
-   main_cart_busy <= '0';
+   end generate g_mem_r3;
 
-   sdram_clk_o    <= '0';
-   sdram_cke_o    <= '0';
-   sdram_ras_n_o  <= '1';
-   sdram_cas_n_o  <= '1';
-   sdram_we_n_o   <= '1';
-   sdram_cs_n_o   <= '1';
-   sdram_ba_o     <= (others => '0');
-   sdram_a_o      <= (others => '0');
-   sdram_dqml_o   <= '1';
-   sdram_dqmh_o   <= '1';
-   sdram_dq_io    <= (others => 'Z');
-   end generate g_mem_sdram;
+   -- Megamiga, November 2026: SDRAM (R4-R6) or the R3 memory
+   main_ram_rddata   <= sd_ram_rddata  when C_HAS_SDRAM else r3_ram_rddata;
+   main_chip48       <= sd_chip48      when C_HAS_SDRAM else r3_chip48;
+   main_sdram_rddata <= sd_fram_rddata when C_HAS_SDRAM else r3_fram_rddata;
+   main_sdram_ready  <= sd_fram_ready  when C_HAS_SDRAM else r3_fram_ready;
+   qnice_kick_wait   <= sd_kick_wait   when C_HAS_SDRAM else r3_kick_wait;
+   main_kick_busy    <= sd_kick_busy   when C_HAS_SDRAM else r3_kick_busy;
+   main_maint_idle   <= sd_maint_idle  when C_HAS_SDRAM else r3_maint_idle;
+   main_fp_rdata     <= sd_fp_rdata    when C_HAS_SDRAM else (others => '0');
+   main_fp_ack       <= sd_fp_ack      when C_HAS_SDRAM else main_fp_req;   -- (no 68040 on R3)
+   ide_dm_ack        <= sd_dm_ack      when C_HAS_SDRAM else ide_dm_req;    -- (no IDE DMA on R3)
+   main_cart_busy    <= sd_cart_busy   when C_HAS_SDRAM else '0';
 
    ---------------------------------------------------------------------------------------------
    -- IDE board: RIPPLE-compatible Zorro II IDE controller, main_clk domain for the Amiga side
@@ -4006,8 +4034,8 @@ begin
    -- framework resets the HyperRAM side together with the core (reset_core_n)
    main_vram_rst <= main_reset_core_i or main_rst;
 
-   -- Megamiga, November 2026: on R3 amiga_mem_r3 drives main_vram_avm_* (no RTG card there)
-   g_rtg_vram : if C_HAS_SDRAM generate
+   -- Megamiga, November 2026: on R3 amiga_mem_r3 drives main_vram_avm_* (no RTG card there,
+   -- rtg_vram is trimmed)
    i_rtg_vram : entity work.rtg_vram
       port map (
          clk_i                 => main_clk,
@@ -4021,20 +4049,22 @@ begin
          data_o                => main_vram_rddata,
          ready_o               => main_vram_ready,
          inval_i               => main_blt_busy,
-         avm_write_o           => main_vram_avm_write,
-         avm_read_o            => main_vram_avm_read,
-         avm_address_o         => main_vram_avm_address,
-         avm_writedata_o       => main_vram_avm_writedata,
-         avm_byteenable_o      => main_vram_avm_byteenable,
-         avm_burstcount_o      => main_vram_avm_burstcount,
+         avm_write_o           => rtg_avm_write,
+         avm_read_o            => rtg_avm_read,
+         avm_address_o         => rtg_avm_address,
+         avm_writedata_o       => rtg_avm_writedata,
+         avm_byteenable_o      => rtg_avm_byteenable,
+         avm_burstcount_o      => rtg_avm_burstcount,
          avm_readdata_i        => main_vram_avm_readdata,
          avm_readdatavalid_i   => main_vram_avm_readdatavalid,
          avm_waitrequest_i     => main_vram_avm_waitrequest
       ); -- i_rtg_vram
-   else generate
-   main_vram_rddata <= (others => '1');
-   main_vram_ready  <= '0';
-   end generate g_rtg_vram;
+   main_vram_avm_write      <= rtg_avm_write      when C_HAS_SDRAM else r3_avm_write;
+   main_vram_avm_read       <= rtg_avm_read       when C_HAS_SDRAM else r3_avm_read;
+   main_vram_avm_address    <= rtg_avm_address    when C_HAS_SDRAM else r3_avm_address;
+   main_vram_avm_writedata  <= rtg_avm_writedata  when C_HAS_SDRAM else r3_avm_writedata;
+   main_vram_avm_byteenable <= rtg_avm_byteenable when C_HAS_SDRAM else r3_avm_byteenable;
+   main_vram_avm_burstcount <= rtg_avm_burstcount when C_HAS_SDRAM else r3_avm_burstcount;
 
    i_avm_fifo_vram : entity work.avm_fifo
       generic map (
@@ -4098,8 +4128,8 @@ begin
    -- the CPU path holds nothing for the board memory: FIFO output empty, combiner empty
    hr_vram_quiet <= hr_wcomb_idle and not (hr_vram_avm_write or hr_vram_avm_read);
 
-   -- Megamiga, November 2026: no RTG blitter on R3 (2 block RAM tiles; no RTG card there)
-   g_rtg_blitter : if C_HAS_SDRAM generate
+   -- Megamiga, November 2026: no RTG blitter on R3 (2 block RAM tiles; no RTG card there):
+   -- its outputs are replaced by idle values there, so synthesis trims it
    i_rtg_blitter : entity work.rtg_blitter
       port map (
          m_clk_i               => main_clk,
@@ -4107,34 +4137,32 @@ begin
          m_wr_i                => main_blt_wr,
          m_rs_i                => main_blt_rs,
          m_data_i              => main_blt_din,
-         m_data_o              => main_blt_dout,
-         m_busy_o              => main_blt_busy,
+         m_data_o              => blt_dout,
+         m_busy_o              => blt_busy,
          h_clk_i               => hr_clk_i,
          h_rst_i               => hr_rst_i,
          h_quiet_i             => hr_vram_quiet,
-         h_flush_o             => hr_wcomb_flush,
+         h_flush_o             => blt_flush,
          h_busy_o              => open,
-         avm_write_o           => hr_blt_avm_write,
-         avm_read_o            => hr_blt_avm_read,
-         avm_address_o         => hr_blt_avm_address,
-         avm_writedata_o       => hr_blt_avm_writedata,
-         avm_byteenable_o      => hr_blt_avm_byteenable,
-         avm_burstcount_o      => hr_blt_avm_burstcount,
+         avm_write_o           => blt_avm_write,
+         avm_read_o            => blt_avm_read,
+         avm_address_o         => blt_avm_address,
+         avm_writedata_o       => blt_avm_writedata,
+         avm_byteenable_o      => blt_avm_byteenable,
+         avm_burstcount_o      => blt_avm_burstcount,
          avm_readdata_i        => hr_blt_avm_readdata,
          avm_readdatavalid_i   => hr_blt_avm_readdatavalid,
          avm_waitrequest_i     => hr_blt_avm_waitrequest
       ); -- i_rtg_blitter
-   else generate
-   main_blt_dout          <= (others => '0');
-   main_blt_busy          <= '0';
-   hr_wcomb_flush         <= '0';
-   hr_blt_avm_write       <= '0';
-   hr_blt_avm_read        <= '0';
-   hr_blt_avm_address     <= (others => '0');
-   hr_blt_avm_writedata   <= (others => '0');
-   hr_blt_avm_byteenable  <= (others => '0');
-   hr_blt_avm_burstcount  <= (others => '0');
-   end generate g_rtg_blitter;
+   main_blt_dout         <= blt_dout           when C_HAS_SDRAM else (others => '0');
+   main_blt_busy         <= blt_busy           when C_HAS_SDRAM else '0';
+   hr_wcomb_flush        <= blt_flush          when C_HAS_SDRAM else '0';
+   hr_blt_avm_write      <= blt_avm_write      when C_HAS_SDRAM else '0';
+   hr_blt_avm_read       <= blt_avm_read       when C_HAS_SDRAM else '0';
+   hr_blt_avm_address    <= blt_avm_address    when C_HAS_SDRAM else (others => '0');
+   hr_blt_avm_writedata  <= blt_avm_writedata  when C_HAS_SDRAM else (others => '0');
+   hr_blt_avm_byteenable <= blt_avm_byteenable when C_HAS_SDRAM else (others => '0');
+   hr_blt_avm_burstcount <= blt_avm_burstcount when C_HAS_SDRAM else (others => '0');
 
    i_avm_arbit_rtg : entity work.avm_arbit
       generic map (

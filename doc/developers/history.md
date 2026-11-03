@@ -3528,7 +3528,10 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     its strobes; overlay/route mutants fail), `~/aexp-work/r3cfg` (menu words). Builds:
     r3-a WNS +0.152 WHS +0.014, 52.9K LUTs (40 %), 358.5/365 block RAM tiles, stopped by the
     gates; r3-b stopped by pal_leg.tcl; r3-c OK: WNS +0.035, WHS +0.036 (PAL leg +6.791 /
-    +0.036), saved as `r3-c-save`. Hardware test pending (the user's R3 is on its way).
+    +0.036), saved as `r3-c-save`. The first R6 build of the branch missed by 5.4 ns: generate
+    labels renamed instances CORE.xdc constrains; the instances are unconditional again and
+    C_HAS_SDRAM selects outputs. r3-r6b (R6): WNS +0.116, WHS +0.004; r3-d (R3): WNS +0.035,
+    WHS +0.036 (`r3-d-save`). Hardware test pending (the user's R3 is on its way).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
