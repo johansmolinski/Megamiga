@@ -3505,7 +3505,10 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
     logs and Apidya loads on to track 143 with upstream's engine fix. Hardware (2026-11-03,
     build r3-r6b of branch r3): 68020/68040 Workbench, joystick, AR3 freezer, menu unchanged;
-    AGA titles and Kickstart 1.2 with slow RAM not tested yet.
+    Kickstart 1.2 with slow RAM not tested yet. AGA: Solve et Coagula (Moods Plateau, 2014)
+    runs on the 68020; on the 68040 it degrades into graphics chaos and crashes - the same on
+    aexp-b3-b without these fixes, so an older 68040 issue, not a regression. Turrican II AGA
+    (AmigaVision) returns to the menu, not compared yet.
   - **MEGA65 R3/R3A support (branch `r3` from chipfix, Minimig branch `r3`, 2026-11-03;
     design and status: `doc/developers/r3.md`).** The R3 has no SDRAM. Measured first with
     the Apidya bench (`~/aexp-work/hyperr3/bus`, a RAM model with N clocks of read latency):
