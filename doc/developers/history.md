@@ -3469,7 +3469,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     red control (template behaviour) FAILS. Build `aexp-b3-b` (REF ntsc-b, incremental
     synthesis + implementation; also the first bitstream of the merged main with ntsc,
     fpbg, apidya, lfnfix and arosdiag): WNS +0.082, WHS +0.004, firmware 32558/32768;
-    saved for firmware patches as `aexp-b3-b-save`. Hardware test pending.
+    saved for firmware patches as `aexp-b3-b-save`. Hardware (2026-11-03, in build r3-r6b of
+    branch r3, which contains it): Apidya loads and plays, a long reset press keeps HDMI,
+    PAL/NTSC and RTG modes switch.
   - **Upstream MiSTer Minimig-AGA chipset fixes (branch `chipfix` from aexp-b3, Minimig
     branch `chipfix` from develop 672af1f, 2026-11-03).** MiSTer-devel/Minimig-AGA_MiSTer
     had 85 commits since the release our submodule is based on (20260603, eb7a26e; four
@@ -3501,7 +3503,12 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     declined, "Change is too high", incremental implementation used): WNS +0.008, WHS
     +0.004, LUTs 118239 (88.4 %); saved as `chipfix-b-save`. Bench `~/aexp-work/apidya`
     (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
-    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware test pending.
+    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware (2026-11-03,
+    build r3-r6b of branch r3): 68020/68040 Workbench, joystick, AR3 freezer, menu unchanged;
+    Kickstart 1.2 with slow RAM not tested yet. AGA: Solve et Coagula (Moods Plateau, 2014)
+    runs on the 68020; on the 68040 it degrades into graphics chaos and crashes - the same on
+    aexp-b3-b without these fixes, so an older 68040 issue, not a regression. Turrican II AGA
+    (AmigaVision) returns to the menu - on aexp-b3-b too, so not a regression either.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
