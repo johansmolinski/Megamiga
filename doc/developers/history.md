@@ -3496,6 +3496,12 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     Akiko, A2065, the MiSTer DDR3 controller, real floppy/SNAC, drive sounds, zero floppy
     drives, the throttle; planned separately: the cycle-exact 68EC020 (c55ecd9, 09226f7) as
     a "faithful A1200" CPU choice, and the SDRAM/TG68K timing restructures.
+    Vivado needs upstream c1f14c3's local reg in a NAMED block (`bplxor_blk`; build
+    chipfix-a failed on it). Build `chipfix-b` (REF aexp-b3-b; incremental synthesis
+    declined, "Change is too high", incremental implementation used): WNS +0.008, WHS
+    +0.004, LUTs 118239 (88.4 %); saved as `chipfix-b-save`. Bench `~/aexp-work/apidya`
+    (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
+    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware test pending.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
