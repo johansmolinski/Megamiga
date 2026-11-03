@@ -3466,7 +3466,10 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     `mmcm_rst <= cfg_rst`. M2M exception 22 `hdmi-clock-reset`; applies cleanly next
     to the 65 MHz slot of exception 19. Bench `CORE/sim/video/run_voc_reset.sh`
     (upstream's, + a ghdl path): Megamiga's file PASS (long press, 42-case sweep), the
-    red control (template behaviour) FAILS.
+    red control (template behaviour) FAILS. Build `aexp-b3-b` (REF ntsc-b, incremental
+    synthesis + implementation; also the first bitstream of the merged main with ntsc,
+    fpbg, apidya, lfnfix and arosdiag): WNS +0.082, WHS +0.004, firmware 32558/32768;
+    saved for firmware patches as `aexp-b3-b-save`. Hardware test pending.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
