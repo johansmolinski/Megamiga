@@ -257,7 +257,7 @@ the dated facts.
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with TWENTY-ONE sanctioned
+- `M2M/` — the framework. **NEVER modify**, with TWENTY-TWO sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -509,6 +509,14 @@ the dated facts.
   says so on the screen at the start; a new file gets it at its first save. This
   replaces the "menu grew at its end" case of cfg-strings (such a file has another
   signature). Added in the JS fork 2026-10-18/19.
+  (22) `hdmi-clock-reset` — taken over from upstream AExp (`b6f2d98`, WIP-V2-B3,
+  AExp issue #39): in `video_out_clock.vhd` a reset (`rsti`) takes the
+  video-mode-change route - backup clock first, RESET_WAIT, then reset and
+  reprogram the MMCM after the release; `mmcm_rst <= cfg_rst` (template: `cfg_rst
+  or rsti`). Before, a long reset press stopped the HDMI pixel clock under the
+  already released scaler output stage (black or repeated lines until a power
+  cycle). Bench `CORE/sim/video/run_voc_reset.sh` (with red control). Added in
+  the JS fork 2026-11-03.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

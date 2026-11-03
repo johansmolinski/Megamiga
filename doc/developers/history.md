@@ -3442,6 +3442,31 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
     only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
     animation is garbled on HDMI only (VGA is fine).
+  - **Upstream AExp WIP-V2-B3 taken over (branch `aexp-b3` from main 3115ea3,
+    2026-11-03).** Upstream develop 8f454d4 (Beta 3) has two code changes; everything
+    else since the last sync (b110b18) is comment-only (461c510, 0b579fb), AExp help
+    texts (d16d6ec), the version tag (c039f0d) or already here (the line doubler
+    f4b5fdb, M2M exception 20). (1) #40, Apidya (748f162): sy2002's own version of the
+    fix above. It observes Paula's DMA instead of the engine session: every data word
+    of a frame is answered with {dmaen, dsklen}; `dma_cont` (the last word of a frame
+    still had >= 2 words to store) and `sync_unread` (Paula answered 0 at this frame's
+    first sync word) together keep `sector_next` on the sector. Upstream's bench
+    `tb_adf_rotation.vhd` (the real engine against a cycle-level Paula receiver model)
+    run with ghdl: Megamiga's fix 0cf240b passed step/tiny/sync3/abort but FAILED
+    `rotation_throttle` (1086-word DMAs at the real FIFO drain pace: served 0 3 ...,
+    expected 0 2 ...), like the engine without any fix; its per-session `strm_cont`
+    was cleared when the FIFO throttle split one DMA into two sessions. 0cf240b is
+    reverted and 748f162 applied (only its header-comment hunk by hand; Megamiga's
+    `avm_rderr_i` stays): all five cells PASS. `CORE/sim/floppy/run_adf_rotation.sh`
+    runs them (nvc if installed, else ghdl; ~70 s). (2) #39 (b6f2d98): a long reset
+    press could leave HDMI black or with repeated lines until a power cycle - `rsti`
+    reset the HDMI MMCM while the glitch-free mux still selected it, and the scaler's
+    output stage (reset by `hr_rst`) ran on a stopped/unlocked clock. Now `rsti` takes
+    the video-mode-change route (backup clock, RESET_WAIT, then reset and reprogram);
+    `mmcm_rst <= cfg_rst`. M2M exception 22 `hdmi-clock-reset`; applies cleanly next
+    to the 65 MHz slot of exception 19. Bench `CORE/sim/video/run_voc_reset.sh`
+    (upstream's, + a ghdl path): Megamiga's file PASS (long press, 42-case sweep), the
+    red control (template behaviour) FAILS.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
