@@ -3442,6 +3442,66 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
     only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
     animation is garbled on HDMI only (VGA is fine).
+  - **Upstream AExp WIP-V2-B3 taken over (branch `aexp-b3` from main 3115ea3,
+    2026-11-03).** Upstream develop 8f454d4 (Beta 3) has two code changes; everything
+    else since the last sync (b110b18) is comment-only (461c510, 0b579fb), AExp help
+    texts (d16d6ec), the version tag (c039f0d) or already here (the line doubler
+    f4b5fdb, M2M exception 20). (1) #40, Apidya (748f162): sy2002's own version of the
+    fix above. It observes Paula's DMA instead of the engine session: every data word
+    of a frame is answered with {dmaen, dsklen}; `dma_cont` (the last word of a frame
+    still had >= 2 words to store) and `sync_unread` (Paula answered 0 at this frame's
+    first sync word) together keep `sector_next` on the sector. Upstream's bench
+    `tb_adf_rotation.vhd` (the real engine against a cycle-level Paula receiver model)
+    run with ghdl: Megamiga's fix 0cf240b passed step/tiny/sync3/abort but FAILED
+    `rotation_throttle` (1086-word DMAs at the real FIFO drain pace: served 0 3 ...,
+    expected 0 2 ...), like the engine without any fix; its per-session `strm_cont`
+    was cleared when the FIFO throttle split one DMA into two sessions. 0cf240b is
+    reverted and 748f162 applied (only its header-comment hunk by hand; Megamiga's
+    `avm_rderr_i` stays): all five cells PASS. `CORE/sim/floppy/run_adf_rotation.sh`
+    runs them (nvc if installed, else ghdl; ~70 s). (2) #39 (b6f2d98): a long reset
+    press could leave HDMI black or with repeated lines until a power cycle - `rsti`
+    reset the HDMI MMCM while the glitch-free mux still selected it, and the scaler's
+    output stage (reset by `hr_rst`) ran on a stopped/unlocked clock. Now `rsti` takes
+    the video-mode-change route (backup clock, RESET_WAIT, then reset and reprogram);
+    `mmcm_rst <= cfg_rst`. M2M exception 22 `hdmi-clock-reset`; applies cleanly next
+    to the 65 MHz slot of exception 19. Bench `CORE/sim/video/run_voc_reset.sh`
+    (upstream's, + a ghdl path): Megamiga's file PASS (long press, 42-case sweep), the
+    red control (template behaviour) FAILS. Build `aexp-b3-b` (REF ntsc-b, incremental
+    synthesis + implementation; also the first bitstream of the merged main with ntsc,
+    fpbg, apidya, lfnfix and arosdiag): WNS +0.082, WHS +0.004, firmware 32558/32768;
+    saved for firmware patches as `aexp-b3-b-save`. Hardware test pending.
+  - **Upstream MiSTer Minimig-AGA chipset fixes (branch `chipfix` from aexp-b3, Minimig
+    branch `chipfix` from develop 672af1f, 2026-11-03).** MiSTer-devel/Minimig-AGA_MiSTer
+    had 85 commits since the release our submodule is based on (20260603, eb7a26e; four
+    were already backported in October: b013ce3, 5578afd, 06f30af, d16cd84). Taken over
+    (cherry-picked with `-x`, upstream authors kept, then one commit of dated provenance
+    comments with the original lines): Gary decodes the custom registers only at $DFxxxx
+    and keeps the mirror at $C00000-$D7FFFF where no slow RAM is (74d6ce0, 56ba962; our
+    shared folder, Gayle and IDE boards are decoded in cpu_wrapper and never reach Gary);
+    VPOSR/VHPOSR's vertical part one colour clock late (2764b51, Hybris; the #232
+    DMA-grid change and its revert cancel out and are left out); OCS lores off-grid fetch
+    ownership and live BPLCON1 scroll (7f93ed1, cfcc0dc, 3c8a0ed, 3c5d2ea, Absolute
+    Inebriation); CIA timers start two E clocks after START (2bddf21, Risky Woods); AGA
+    35/70 ns bits of DIWHIGH, SPRxCTL and HBSTRT/HBSTOP (61d3f02, 16227ac, 4ab0d5f Flink,
+    430209e); a BPLxPT write right before its DMA fetch is lost (e187420); FMODE 1-3
+    bitplanes start at the right pixel (f3ab2c1, Turrican 2 AGA); a CPU write to a blitter
+    register waits during a BLTPRI blit (8813609 without its ddram_ctrl part, Deep Core);
+    the final D write of a blit before the CPU on AGA (6e84afe, Charlie J Cool); BPLAM up
+    to the last window pixel (c1f14c3); no opposite joystick directions (69fb350). Ported
+    by hand: f1af4fe, TG68K's skipped reads (CLR/Scc from the 68010 on) no longer go out on
+    the chip bus - reading a write-only register writes $FFFF into it, so CLR.W INTREQ
+    raised every interrupt request; our older chip bus FSM answers `skipreq` with ready
+    without a bus cycle. Conflicts: our June split of hdiwstrt/hdiwstop (Vivado
+    multi-driven) kept, with upstream's new fine bits next to bit 8. Not taken: CD32/CDTV/
+    Akiko, A2065, the MiSTer DDR3 controller, real floppy/SNAC, drive sounds, zero floppy
+    drives, the throttle; planned separately: the cycle-exact 68EC020 (c55ecd9, 09226f7) as
+    a "faithful A1200" CPU choice, and the SDRAM/TG68K timing restructures.
+    Vivado needs upstream c1f14c3's local reg in a NAMED block (`bplxor_blk`; build
+    chipfix-a failed on it). Build `chipfix-b` (REF aexp-b3-b; incremental synthesis
+    declined, "Change is too high", incremental implementation used): WNS +0.008, WHS
+    +0.004, LUTs 118239 (88.4 %); saved as `chipfix-b-save`. Bench `~/aexp-work/apidya`
+    (fedora, OCS A500 + fx68k, 10 s): the aexp-b3 tree and chipfix give byte-identical
+    logs and Apidya loads on to track 143 with upstream's engine fix. Hardware test pending.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

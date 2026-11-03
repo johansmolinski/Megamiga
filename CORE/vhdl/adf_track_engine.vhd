@@ -64,7 +64,14 @@
 --     is announced write-protected): drain_commit is only set for a drain owned by a simulated
 --     drive, and it gates the sync hunt, so a physical-unit drain can never decode at all.
 --   * Rotation continuation (track_prev / track_valid / sector_next) is PER UNIT: two drives
---     stepping and reading in alternation must not inherit each other's sector position.
+--     stepping and reading in alternation must not inherit each other's sector position. A
+--     sector whose sync a running DMA never reached, because the DMA expired in the two
+--     preamble words of its frame, is served again instead of skipped (dma_cont and
+--     sync_unread, see ST_STREAM_DATA): a real disk brings it under the head once more,
+--     and a loader that re-arms after DSKBLK expects it. MiSTer's ReadTrack advances past
+--     such a sector; this is a deliberate deviation from the reference (upstream AExp
+--     748f162, WIP-V2-B3, issue #40; it replaces Megamiga's first fix 0cf240b, which
+--     missed DMAs split by the FIFO throttle).
 --   * The 0x1nnn drive-status announce carries per-unit nibbles: each simulated drive's
 --     present/writable from its own mount status, the physical unit's presence from the real
 --     disk-change latch.
@@ -366,11 +373,20 @@ architecture synthesis of adf_track_engine is
    signal delay_cnt    : natural range 0 to G_POLL_DELAY := 0;
    signal word_cnt     : unsigned(9 downto 0);          -- stream/pop word index
    signal word_total   : unsigned(9 downto 0);          -- words to stream/pop in this frame
-   -- Megamiga, October 2026 (Apidya): Paula's DMA length left at w2 of a sector frame, and
-   -- whether that frame continues a running read session (see ST_STREAM_DATA)
-   signal frame_len    : unsigned(13 downto 0) := (others => '0');
-   signal strm_cont    : std_logic := '0';
    signal hdr_cnt      : unsigned(1 downto 0);          -- w1/w2 sub-count
+
+   -- Rotation continuation across the end of a read DMA, observed on the
+   -- io channel: while Paula's read DMA is running, every data word of a
+   -- sector frame is answered with {dmaen, dsklen[14:0]}, the length still
+   -- to store before that word, and with 0 once trackrd has dropped.
+   -- dma_cont: at the last word of the previous frame the DMA still had at
+   -- least two words to go, so it carried over into this frame. sync_unread:
+   -- at this frame's first sync word (k = 2) Paula was no longer reading,
+   -- so the DMA ended in the two preamble words and never saw the sync.
+   -- Both together mean that the sector was not read, and the frame end in
+   -- ST_STREAM_DATA serves it again instead of advancing past it.
+   signal dma_cont     : std_logic := '0';
+   signal sync_unread  : std_logic := '0';
 
    -- captured Paula state
    signal status       : std_logic_vector(15 downto 0);
@@ -1185,7 +1201,6 @@ begin
                               -- validator; belt-and-braces for the clamp below)
                               serve_unit  <= v_serve;
                               adf_stream  <= '1';
-                              strm_cont   <= '0';     -- first sector frame of a session
                               state_after <= ST_SERVE;
                            else
                               adf_stream  <= '0';
@@ -1664,8 +1679,7 @@ begin
                         secbuf_raddr <= f_buf_idx(to_unsigned(0, 10));   -- prime word 0
                         hdr_cnt      <= "01";
                         xfer         <= XF_STROBE; -- w2
-                     when others =>                -- w2: {dmaen, dsklen}
-                        frame_len <= unsigned(xfer_resp(13 downto 0));
+                     when others =>                -- w2: {dmaen, dsklen} - discarded
                         word_cnt <= (others => '0');
                         if sector = 10 then
                            word_total <= to_unsigned(C_MFM_SECTOR_WORDS + C_MFM_GAP_WORDS, 10);
@@ -1681,23 +1695,46 @@ begin
                   end case;
                end if;
 
-            -- push the MFM words (Paula ignores anything beyond dsklen - harmless)
+            -- push the MFM words (Paula stores nothing beyond dsklen; the frame
+            -- end below decides where the rotation continues)
             when ST_STREAM_DATA =>
                if xfer_done = '1' then
+                  if word_cnt = 2 then
+                     -- the first sync word: Paula answers 0 when its read DMA
+                     -- is no longer running (length expired in the preamble,
+                     -- or aborted), {dmaen, dsklen} otherwise
+                     if xfer_resp = x"0000" then
+                        sync_unread <= '1';
+                     else
+                        sync_unread <= '0';
+                     end if;
+                  end if;
                   if word_cnt = word_total - 1 then
-                     -- Megamiga, October 2026 (Apidya): a running DMA that had at most two
-                     -- words left at w2 ended in this sector's preamble, before its sync -
-                     -- it did not read the sector. Paula re-arms the next DMA only at a
-                     -- later poll, so advancing here would skip the sector for that DMA
-                     -- (a loader asking for 0x21E words per sector then sees only every
-                     -- other sector of the track, forever). A real disk would still bring
-                     -- this sector under the head, so serve it again.
-                     if strm_cont = '1' and frame_len <= 2 then
+                     -- Rotation continuation. A DMA that carried over from
+                     -- the previous frame and expired in this sector's
+                     -- preamble, before its sync, has not read the sector.
+                     -- Paula arms the next DMA only at a later poll, so
+                     -- advancing here would skip the sector for that DMA; a
+                     -- real disk brings it under the head again. A loader
+                     -- that reads one sector per DMA with DSKLEN 0x21E (the
+                     -- sector after its first sync plus one word, Apidya)
+                     -- would otherwise see every other sector of the track,
+                     -- forever. A DMA that starts inside this frame consumes
+                     -- the sync, so the counter advances as usual, and a
+                     -- re-served frame ends with Paula idle, so two stays
+                     -- never chain.
+                     if dma_cont = '1' and sync_unread = '1' then
                         sector_next(to_integer(serve_unit)) <= sector;
                      else
                         sector_next(to_integer(serve_unit)) <= (sector + 1) mod 11;
                      end if;
-                     strm_cont   <= '1';
+                     -- the last word: with two or more words still to store,
+                     -- the DMA carries over into the next frame
+                     if unsigned(xfer_resp(13 downto 0)) >= 2 then
+                        dma_cont <= '1';
+                     else
+                        dma_cont <= '0';
+                     end if;
                      state_after <= ST_SERVE;      -- next sector (re-checks status first)
                      io_fpga_o   <= '0';
                      delay_cnt   <= C_GAP_DELAY;
@@ -1903,6 +1940,7 @@ begin
             phys_rd_en_o <= '0';
             phys_stream  <= '0';
             adf_stream   <= '0';
+            dma_cont     <= '0';
             sig_state    <= SG_IDLE;              -- freeze a torn signature
             state        <= ST_IDLE;
             delay_cnt    <= G_POLL_DELAY;
