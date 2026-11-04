@@ -227,9 +227,23 @@ constant (2056-2057 main_clk), no underflow (lowest out-FIFO level 654 at 42 %).
 busy for 400 us): one underflow, input words skipped, no output word lost or repeated, latency
 back to 2057 afterwards. Mutants: 7/7 killed.
 
+Builds:
+- `rb-a` (R3, 1135 / 22 = 51.59 MHz): only TG68K's register file -> ALU path (41 logic levels)
+  failed after routing (-0.580 ns, 17 endpoints); the post-route phys_opt made it +0.003.
+- `rb-b` (R3, 49.35 MHz, REF rb-a): OK, WNS +0.065 (amiga_clk +0.183 before the post-route
+  phys_opt), WHS +0.002; 54.2K LUTs, 121/365 block RAM tiles. Checkpoint `rb-b-save`.
+- `r6rb-a` (`~/aexp-work/r6rb/mk.sh`: this tree on the R6 with C_HAS_SDRAM false, the SDRAM
+  pins idle, the R3 menu and sign-off gates): OK, WNS +0.077 (amiga_clk -0.040 on 3 TG68K
+  endpoints before the post-route phys_opt), WHS +0.051. Checkpoint `r6rb-a-save`;
+  `~/aexp-builds/Megamiga-r6rb-a-diag` = the same with the IDE_DIAG firmware: once a second a
+  line `IDE` + 14 words on the debug UART (115200, `~/aexp-work/uartlog.py`); word 12 =
+  underflows (bits 31:16) and the lowest out-FIFO level since reset (12:0), word 13 = chip_hr's
+  line fills.
+
 ## Next steps
 
-1. Build `rb-a` (R3), then the same design on the R6 for a hardware test before the R3 arrives.
-2. Statistics for the hardware test: underflows, the lowest out-FIFO level, chip_hr's miss and
-   flush counts, readable by the firmware.
-3. Arbiter priority of chip_hr against the scaler in the framework's HyperRAM arbiter.
+1. Hardware test of r6rb-a on the R6: boot, Workbench on 68000/68020, AGA with 2 MB chip RAM,
+   audio, serial; the diag variant for underflows and the lowest FIFO level.
+2. Arbiter priority of chip_hr against the scaler in the framework's HyperRAM arbiter, if the
+   FIFO level gets low.
+3. TG68K's 41-level path is the only one near the edge at 49.35 MHz.
