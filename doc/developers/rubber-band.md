@@ -121,6 +121,14 @@ direct memory:
   checks per read). It catches a chip48 word-order mutant at its first read.
 - `regress.sh` runs all of it (OCS and AGA against the references, the mutants, slow writes).
 
+## Experiment 6: real-time video out (`rtv.sh`)
+
+Every Amiga clock writes the video state (pixel enable, RGB, syncs) into a 4096-entry FIFO; the
+free-running clock reads one entry every second clock - exactly 28.375 MHz real time - once 1024
+are in. With chip_hr at 2x on the DMA loads (OCS and AGA, 1.2 s): no underflow, no overflow,
+fill 1025..2597 entries, and the real-time stream's 60 per-frame hashes equal the Amiga-time
+ones. (In hardware only pixel clocks need storing: a few hundred entries.)
+
 ## Experiment 5: the gated clock in the FPGA (build `r3-gate`)
 
 A copy of the r3 tree (`~/aexp-work/r3gate/src`) with a BUFGCE in parallel to the core clock's
