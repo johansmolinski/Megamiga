@@ -140,6 +140,22 @@ pauses on top (`-DADFOUT -DRPAUSE=64`). Apidya loader, 3 s: the same 12 sector f
 same order as the reference, no exception. (The answer arrives at a different Amiga time than in
 the reference, as it would from a real card - the engine paces Paula itself.)
 
+## Experiment 8: the 68020, and the A1200 with 2 MB chip RAM (`chk020.sh`, `chk2m.sh`)
+
+`-DCPU020`: cpu_wrapper with TG68K (ghdl netlist) on Minimig's CPU pins as main.vhd wires it,
+68020 mode, no turbo modes, the 68020 config in amiga_config. The same programs (68000 code):
+
+| Load | Variant | Result |
+|---|---|---|
+| OCS DMA load | random latency + pauses | identical, 60 frames, 1.48x clocks |
+| OCS DMA load | chip_hr at 2x | identical, 94.4 % hits, lag 0, 5.5 M words checked, 0 bad |
+| AGA DMA load | random latency + pauses | identical, 60 frames, 1.46x clocks |
+| AGA DMA load | chip_hr at 2x | identical, 94.9 % hits, lag 0, 5.2 M words checked, 0 bad |
+| A1200: 68020 + AGA + 2 MB chip RAM, the load above 1 MB (`dma_aga2m.S`) | chip_hr at 2x | identical, lag 0, 0 bad; real-time video FIFO: no underflow |
+
+In the 2 MB run the chipset port is above 1 MB in 1.8 M Amiga clocks of reads and 0.9 M of
+writes (the cache counts equal the 512 KB run: the load moved by a multiple of the cache size).
+
 ## Experiment 5: the gated clock in the FPGA (build `r3-gate`)
 
 A copy of the r3 tree (`~/aexp-work/r3gate/src`) with a BUFGCE in parallel to the core clock's
