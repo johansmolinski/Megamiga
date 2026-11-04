@@ -3509,6 +3509,19 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     runs on the 68020; on the 68040 it degrades into graphics chaos and crashes - the same on
     aexp-b3-b without these fixes, so an older 68040 issue, not a regression. Turrican II AGA
     (AmigaVision) returns to the menu - on aexp-b3-b too, so not a regression either.
+  - **The opposite-directions filter taken out again (branch `mousefix` from main, Minimig
+    63f1c27, 2026-11-04).** The user: the DB9 mouse moved fine horizontally but jerkily
+    vertically since some build; 0.6.4 was fine. Bisected on the R6: aexp-b3-b fine,
+    chipfix-b broken. Cause: upstream 69fb350 (userio.v, picked above) releases left while
+    right is held and up while down is held. On the MEGA65 those are the raw DB9 pins, and
+    the `dmouse` counters decode a real mouse's quadrature from them - X from bits 0 and 2,
+    Y from bits 1 and 3 - so the filter overwrote the Y phases depending on X. The
+    user also pointed out that a dance mat presses opposite directions on purpose, and the
+    core has no keyboard joystick, so the filter has nothing to protect against: `joy1`/
+    `joy2` take the raw lines again (MiSTer's version kept as a comment). Build
+    `mousefix-b` (REF chipfix-b): WNS +0.018, WHS +0.004; hardware: mouse fine in both
+    directions. Upstream issue MiSTer-devel/Minimig-AGA_MiSTer#296 (and a comment on #293,
+    a MEGA65 user's DB9 mouse jitter report closed as "not the Mega65 repository").
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
