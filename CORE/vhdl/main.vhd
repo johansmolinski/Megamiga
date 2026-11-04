@@ -30,7 +30,10 @@ entity main is
       G_ADF_BASE_DF2          : std_logic_vector(21 downto 0);  -- df2 image HyperRAM word base
       -- Megamiga, November 2026: the MEGA65 R3/R3A (no SDRAM): the Kickstart is read through
       -- cpu_wrapper's ram* port for every CPU (kick_ram), and there is no 68040
-      G_R3                    : boolean := false
+      G_R3                    : boolean := false;
+      -- Megamiga, November 2026: rubber banding on R3 (chip RAM in HyperRAM words 200000-2FFFFF,
+      -- so the Zorro II Fast RAM is 2 MB there)
+      G_RB                    : boolean := false
    );
    port (
       clk_main_i              : in  std_logic;
@@ -370,7 +373,14 @@ entity main is
       uart_rxd_i              : in  std_logic;
       uart_txd_o              : out std_logic;
       uart_cts_n_i            : in  std_logic;
-      uart_rts_n_o            : out std_logic
+      uart_rts_n_o            : out std_logic;
+
+      -- Megamiga, November 2026 (rubber banding): Paula's output before the filters and the
+      -- master volume, with the filters' clock enable; mega65.vhd replays them in real time and
+      -- filters there (audio_filters.vhd does not close timing at the rubber band's clock)
+      aud_raw_l_o             : out std_logic_vector(14 downto 0);
+      aud_raw_r_o             : out std_logic_vector(14 downto 0);
+      aud_ce_o                : out std_logic
    );
 end entity main;
 
@@ -947,7 +957,7 @@ begin
    --cpu_fastramcfg <= "011" when fast_ram_i = '1' else "000";
    -- Megamiga, November 2026: 4 MB on R3 (HyperRAM words 100000-2FFFFF, amiga_mem_r3.vhd)
    cpu_fastramcfg <= "000" when fast_ram_i = '0' else
-                     "001" when cart_ar3_i = '1' else
+                     "001" when cart_ar3_i = '1' or G_RB else
                      "010" when G_R3 else
                      "011";
 
@@ -1674,6 +1684,10 @@ begin
    ---------------------------------------------------------------------------
 
    pwr_led_o <= pwr_led;
+
+   aud_raw_l_o <= aud_ldata;
+   aud_raw_r_o <= aud_rdata;
+   aud_ce_o    <= aud_ce;
 
    -- Both channels are time-multiplexed through each IIR on this enable pair,
    -- so every channel updates at the 7.09 MHz rate the coefficients expect

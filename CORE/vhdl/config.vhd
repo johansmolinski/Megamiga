@@ -12,6 +12,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library work;
+use work.globals.all;     -- Megamiga, November 2026: C_R3_RUBBER
+
 entity config is
 -- Megamiga, November 2026 (M2M-UPSTREAM config-board): the board, so that the menu can show
 -- what the board can do (the R3/R3A has no SDRAM); default: the boards with SDRAM
@@ -833,7 +836,11 @@ begin
    if b = "MEGA65_R3" then
       for i in 1 to s'length - k'length + 1 loop
          if s(i to i + k'length - 1) = k then
-            s(i + 14) := '4';
+            if C_R3_RUBBER then
+               s(i + 14) := '2';                   -- rubber banding: chip RAM takes 2 MB of it
+            else
+               s(i + 14) := '4';
+            end if;
          end if;
       end loop;
    end if;
@@ -975,8 +982,16 @@ constant OPTM_AVAIL_R3 : OPTM_ATYPE := (
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
    (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
 );
+-- With rubber banding (C_R3_RUBBER, chip RAM in HyperRAM) 2 MB chip RAM and Slow RAM next to any
+-- chip RAM size are back.
+constant OPTM_AVAIL_R3_RB : OPTM_ATYPE := (
+   (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0),
+   (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
+   (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
+);
 function f_avail(b : string) return OPTM_ATYPE is
 begin
+   if b = "MEGA65_R3" and C_R3_RUBBER then return OPTM_AVAIL_R3_RB; end if;
    if b = "MEGA65_R3" then return OPTM_AVAIL_R3; else return OPTM_AVAIL_SDRAM; end if;
 end function f_avail;
 constant OPTM_AVAIL : OPTM_ATYPE := f_avail(G_BOARD);

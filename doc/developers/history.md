@@ -3540,6 +3540,24 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     C_HAS_SDRAM selects outputs. r3-r6b (R6): WNS +0.116, WHS +0.004; r3-d (R3): WNS +0.035,
     WHS +0.036 (`r3-d-save`). R6 hardware with r3-r6b: as before (see the two entries above).
     R3 hardware test pending (the user's R3 is on its way).
+  - **R3 rubber banding: 2 MB chip RAM in HyperRAM (branch `r3`, 2026-11-04; design, benches
+    and builds: `doc/developers/rubber-band.md`).** After the experiments (pause safety, chip_hr's
+    data path for OCS/AGA/68020/A1200, 2x never behind real time, real-time video, the handshake
+    rule) the FPGA design: `C_R3_RUBBER` (globals.vhd) puts the Amiga and everything in
+    mega65.vhd that talks to it on `amiga_clk`, a BUFGCE-gated copy of the free-running `rb_clk`
+    (clk.vhd CLKOUT3, 1135/23 = 49.35 MHz = 1.74 x PAL); the framework's real-time interface goes
+    through `rb_bridge.vhd` (an in-FIFO of real-time inputs that paces the Amiga, an out-FIFO that
+    replays video, raw audio, LEDs and the serial port 2048 clocks later) and `rb_audio.vhd`
+    (main.vhd's filters and volume in real time); settings/RTC/resets via cdc_stable and 2-FF
+    synchronizers. `chip_hr.vhd` serves chip RAM (HyperRAM words 200000-2FFFFF) and slow RAM
+    (340000-37FFFF) through its own avm_fifo into the RTG blitter's arbiter port; Zorro II Fast
+    RAM 2 MB; the menu allows 2 MB chip and slow RAM with any chip size again. ide_board's
+    diagnostics words 12/13 carry the underflow count, the lowest out-FIFO level and chip_hr's
+    line fills (IDE_DIAG firmware: debug UART). Bench `~/aexp-work/rbbridge` (rb_bridge, 7/7
+    mutants); it found that an underflow left the latency permanently high (fixed: the in-FIFO's
+    backlog is dropped while the reader re-primes). Build rb-a (51.59 MHz): only TG68K's 41-level
+    register-file path failed (-0.580), closed by the post-route phys_opt with +0.003 - too thin,
+    so the clock went down to 49.35 MHz (rb-b).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

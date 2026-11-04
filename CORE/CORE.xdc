@@ -214,6 +214,24 @@ create_generated_clock -name cpu_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT2]
 set_max_delay -datapath_only -from [get_clocks cpu_clk] -to [get_clocks main_clk] 20.000
 set_max_delay -datapath_only -from [get_clocks main_clk] -to [get_clocks cpu_clk] 20.000
 
+## Megamiga, November 2026: rubber banding on R3 (doc/developers/rubber-band.md, C_R3_RUBBER).
+## The Amiga and everything that talks to it run on amiga_clk = clk.vhd CLKOUT3 of the PAL MMCM
+## (49.35 MHz), through a BUFG (rb_clk, free running) and a BUFGCE (the Amiga's gated clock) -
+## static timing sees one clock on both, the gate is an ordinary synchronous CE. Every path
+## between it and the framework's clocks is a CDC: rb_bridge's XPM FIFOs, cdc_stable words, 2-FF
+## synchronizers (ASYNC_REG), the avm_fifo/axi_fifo Gray pointers, and the QNICE/HyperRAM/Ethernet
+## crossings that main_clk had before. Bounded skew, no phase relationship (main_clk's NTSC leg
+## comes from the other MMCM; with C_R3_RUBBER false the output is unused and so is the clock).
+create_generated_clock -name amiga_clk [get_pins CORE/clk_gen/i_clk_main/CLKOUT3]
+set_max_delay -datapath_only -from [get_clocks amiga_clk] -to [get_clocks main_clk]  15.000
+set_max_delay -datapath_only -from [get_clocks main_clk]  -to [get_clocks amiga_clk] 15.000
+set_max_delay -datapath_only -from [get_clocks amiga_clk] -to [get_clocks qnice_clk] 15.000
+set_max_delay -datapath_only -from [get_clocks qnice_clk] -to [get_clocks amiga_clk] 15.000
+set_max_delay -datapath_only -from [get_clocks amiga_clk] -to [get_clocks hr_clk]    10.000
+set_max_delay -datapath_only -from [get_clocks hr_clk]    -to [get_clocks amiga_clk] 10.000
+set_max_delay -datapath_only -from [get_clocks amiga_clk] -to [get_clocks eth_clk50] 10.000
+set_max_delay -datapath_only -from [get_clocks eth_clk50] -to [get_clocks amiga_clk] 10.000
+
 ## M2M-UPSTREAM sd-host (Megamiga 2026-10-14): the native 4-bit SD bus needs pull-ups on CMD and
 ## DAT0..DAT3 of both slots (the lines float between transfers; in SPI mode they are harmless).
 ## Port names are the SPI ones of the board XDCs: mosi = CMD, miso = DAT0, reset = DAT3.

@@ -2,7 +2,7 @@
 -- Megamiga (Amiga for MEGA65, fork of AExp)
 --
 -- chip_hr: chip RAM in HyperRAM for a PAUSABLE Amiga (rubber banding, doc/developers/rubber-band.md).
--- EXPERIMENTAL: not in any build yet, verified in the pause bench (~/aexp-work/pause).
+-- Verified in the pause bench (~/aexp-work/pause); used by the R3 build with rubber banding (mega65.vhd C_RB).
 --
 -- The Amiga (Minimig + CPU) runs on a gated copy of this module's clock: it takes an edge only
 -- while the gate (BUFGCE CE) is high. a_edge_i tells this module, at every clock edge, whether the

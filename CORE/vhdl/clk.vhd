@@ -56,6 +56,13 @@ library xpm;
 use xpm.vcomponents.all;
 
 entity clk is
+   generic (
+      -- Megamiga, November 2026 (rubber banding, doc/developers/rubber-band.md): the Amiga
+      -- runs on amiga_clk_o, a BUFGCE-gated copy of the free-running rb_clk_o (CLKOUT3 of
+      -- the PAL MMCM, 1135 MHz / 23 = 49.347826 MHz = 1.74 x PAL, 1.72 x NTSC); gate_i is its
+      -- CE. Without rubber banding amiga_clk_o is main_clk_o (the same net).
+      G_RB            : boolean := false
+   );
    port (
       sys_clk_i       : in  std_logic;   -- expects 100 MHz
 
@@ -73,7 +80,13 @@ entity clk is
       -- core's speed-ups; with them 42.04 MHz missed by 1.8 ns and 37.83 MHz by ~2.7 ns
       -- (they lengthen the branch-redirect paths), so they are off (C_CPU040_FAST = 1).
       -- for the design: cpu_wrapper's ap040_island crosses to it with synchronizers
-      cpu_clk_o       : out std_logic
+      cpu_clk_o       : out std_logic;
+      -- Megamiga (rubber banding, G_RB): the free-running clock, the Amiga's gated copy of it
+      -- (CE = gate_i, decided before the edge) and rb_clk_o's reset
+      gate_i          : in  std_logic := '1';
+      rb_clk_o        : out std_logic;
+      rb_rst_o        : out std_logic;
+      amiga_clk_o     : out std_logic
    );
 end entity clk;
 
@@ -96,6 +109,9 @@ signal ntsc_locked        : std_logic;
 signal main_clk_mmcm      : std_logic;
 signal native_clk4x_mmcm  : std_logic;
 signal cpu_clk_mmcm       : std_logic;   -- Megamiga (cpu040): the AP68040's clock
+signal rb_clk_mmcm        : std_logic;   -- Megamiga (rubber banding): the free-running clock
+signal main_clk           : std_logic;   -- main_clk_o
+signal rb_clk             : std_logic;   -- rb_clk_o
 
 begin
 
@@ -130,12 +146,17 @@ begin
          CLKOUT2_DIVIDE       => 27,         -- Megamiga (cpu040): 42.037037 MHz, the AP68040
          CLKOUT2_PHASE        => 0.000,
          CLKOUT2_DUTY_CYCLE   => 0.500,
-         CLKOUT2_USE_FINE_PS  => FALSE
+         CLKOUT2_USE_FINE_PS  => FALSE,
+         CLKOUT3_DIVIDE       => 23,         -- Megamiga (rubber banding): 49.347826 MHz
+         CLKOUT3_PHASE        => 0.000,
+         CLKOUT3_DUTY_CYCLE   => 0.500,
+         CLKOUT3_USE_FINE_PS  => FALSE
       )
       port map (
          -- Output clocks
          CLKOUT1             => native_clk4x_mmcm,
          CLKOUT2             => cpu_clk_mmcm,
+         CLKOUT3             => rb_clk_mmcm,
          CLKFBOUT            => main_fb_mmcm,
          CLKOUT0             => native_clk_mmcm,
          -- Input clock control
@@ -273,8 +294,48 @@ begin
    main_clk_bufg : BUFG
       port map (
          I => main_clk_mmcm,
-         O => main_clk_o
+         O => main_clk
       );
+
+   main_clk_o <= main_clk;
+
+   -- Megamiga, November 2026 (rubber banding): the free-running clock and the Amiga's gated
+   -- copy of it, two global buffers on the same MMCM output (the experiment r3-gate: a BUFGCE
+   -- in parallel to a BUFG). Static timing sees ONE clock on both, so every path between the
+   -- Amiga and the logic on rb_clk is an ordinary synchronous path.
+   g_band : if G_RB generate
+      rb_clk_bufg : BUFG
+         port map (
+            I => rb_clk_mmcm,
+            O => rb_clk
+         );
+
+      amiga_clk_bufgce : BUFGCE
+         port map (
+            I  => rb_clk_mmcm,
+            CE => gate_i,
+            O  => amiga_clk_o
+         );
+
+      i_xpm_cdc_async_rst_rb : xpm_cdc_async_rst
+         generic map (
+            RST_ACTIVE_HIGH => 1,
+            DEST_SYNC_FF    => 6
+         )
+         port map (
+            src_arst  => not (main_locked and ntsc_locked),
+            dest_clk  => rb_clk,
+            dest_arst => rb_rst_o
+         );
+   end generate g_band;
+
+   g_no_rb : if not G_RB generate
+      rb_clk      <= '0';
+      rb_rst_o    <= '1';
+      amiga_clk_o <= main_clk;
+   end generate g_no_rb;
+
+   rb_clk_o <= rb_clk;
 
    -------------------------------------
    -- Reset generation
@@ -290,7 +351,7 @@ begin
          -- toggling before the select can ever choose it (load-bearing: BUFGMUX_CTRL would
          -- otherwise forward a dead clock on the first PAL->NTSC switch).
          src_arst  => not (main_locked and ntsc_locked),   -- 1-bit input: Source reset signal.
-         dest_clk  => main_clk_o,        -- 1-bit input: Destination clock.
+         dest_clk  => main_clk,          -- 1-bit input: Destination clock.
          dest_arst => main_rst_o         -- 1-bit output: src_rst synchronized to the destination clock domain.
                                          -- This output is registered.
       );

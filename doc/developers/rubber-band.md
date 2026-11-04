@@ -1,6 +1,6 @@
 # Rubber banding: chip RAM in HyperRAM by pausing the Amiga
 
-Status: experiments (2026-11-03/04); `CORE/vhdl/chip_hr.vhd` exists but is in no build yet. Goal: an R3/R3A Megamiga with
+Status: experiments (2026-11-03/04), then the FPGA design for R3 (2026-11-04, see "The FPGA design"). Goal: an R3/R3A Megamiga with
 2 MB of chip RAM in HyperRAM (the R3 has no SDRAM; doc/developers/r3.md shows why chip RAM in
 HyperRAM fails when the Amiga runs in real time: Minimig wants read data ~70 ns after the
 address, HyperRAM needs 120-200 ns and doubles its latency without warning when it refreshes).
@@ -178,12 +178,58 @@ Inventory of `main.vhd`'s ports (the Amiga = everything inside it):
 | Real-time serial/drive timing | UART RX/TX bit timing, the real floppy drive (step pulses, index, flux FIFO) | stay real-time: a UART that samples in real time and hands bytes over; the Hardware Floppy either pins the Amiga to 1x while active or gets its own re-timing |
 | Memory | chipset port (chip_hr), the CPU's ram* port (Fast RAM / Kickstart) | outside, in the free-running domain |
 
+## The FPGA design (R3, `C_R3_RUBBER` in globals.vhd, November 2026)
+
+The boundary turned out simpler than the inventory above suggested: instead of adapters per
+handshake, the boundary sits at the framework. Everything in mega65.vhd that talks to the
+Amiga moves into the Amiga's clock domain with it - the memory (amiga_mem_r3 for the Kickstart and
+the Fast RAM), the IDE board and its sector engine, the network card, the shared folder, the
+floppy engine's SD buffer, the Hardware Floppy's core side, the cold-boot logic - so their
+handshakes with the Amiga stay synchronous. Their other sides (QNICE, HyperRAM, the SD
+controllers, the Ethernet MAC, the floppy's 50 MHz front-end) already crossed clock domains with
+synchronizers, Gray-coded FIFOs or cdc_stable, and those work with a gated clock as long as it
+keeps ticking - it does, it averages real time. Only the framework's real-time interface needs
+the bridge.
+
+- Clocks (clk.vhd, `G_RB`): CLKOUT3 of the PAL MMCM, 1135 MHz / 23 = 49.35 MHz, through a BUFG
+  (`rb_clk`, free running: chip_hr, the gate) and a BUFGCE (`amiga_clk`, the Amiga and its
+  peripherals). That is 1.74 x PAL and 1.72 x NTSC - not 2x: TG68K's register file -> ALU path
+  (41 logic levels) needs ~20 ns; build rb-a at 1135 / 22 = 51.59 MHz met timing only after
+  the post-route phys_opt, by 3 ps. 1.5x already kept up in experiment 2. The rate need not
+  be a multiple of anything, because both FIFOs below are dual-clock. CORE.xdc names the clock
+  `amiga_clk` and bounds its crossings like main_clk's.
+- `rb_bridge.vhd`: the in-FIFO (main_clk -> rb_clk) carries a word of real-time inputs per
+  main_clk (keyboard scan, joysticks, pots, serial RXD/CTS); the Amiga takes one word per edge,
+  and the gate only opens when the word for the next edge exists - that is the pacer, and the
+  Amiga at Amiga time a sees the inputs of real time a. The out-FIFO (rb_clk -> main_clk)
+  carries a word of real-time outputs per Amiga edge (video incl. its clock enables, Paula's
+  raw audio and the filters' enable, the LEDs, osm_block, serial TXD/RTS), read one per
+  main_clk once 2048 are in. So every output - pixel timing, audio samples, UART bit cells -
+  is replayed exactly, 2048 clocks (72 us) after the Amiga made it, and the Amiga may fall up
+  to 2048 clocks behind before anything shows. An underflow stops the reader until 2048 words
+  are in again and throws the in-FIFO's backlog away, so the latency returns to 2048.
+- `rb_audio.vhd`: main.vhd's audio filters and volume, in real time on the replayed Paula output
+  (the IIR fails timing at the fast clock, experiment 3).
+- The framework's settings, the RTC and the resets reach the Amiga's domain through cdc_stable
+  (whole words) and two-flop synchronizers.
+- chip_hr on rb_clk; chip RAM at HyperRAM words 200000-2FFFFF, slow RAM 340000-37FFFF; Zorro II
+  Fast RAM shrinks to 2 MB (100000-1FFFFF); the Kickstart stays at 300000. Its Avalon master
+  crosses to hr_clk through its own avm_fifo and takes the RTG blitter's arbiter port (no
+  blitter on R3). The cold-boot scrub (two words) goes through chip_hr.
+- Menu (config.vhd): 2 MB chip RAM and slow RAM with any chip size are available again on R3;
+  the Fast RAM line reads 2 MB.
+
+Bench `~/aexp-work/rbbridge` (`run.sh`, `mut.py`): rb_bridge with a dual-clock FIFO model, a fake
+Amiga on the gated clock that checks every input word arrives in order, random chip_go pauses.
+No pauses / 30 % / 42 % busy (bursts up to 400 clocks) / 10 % in bursts of up to 2000: every
+input word once and in order, every output word once and in order, input-to-output latency
+constant (2056-2057 main_clk), no underflow (lowest out-FIFO level 654 at 42 %). An overload (70 %
+busy for 400 us): one underflow, input words skipped, no output word lost or repeated, latency
+back to 2057 afterwards. Mutants: 7/7 killed.
+
 ## Next steps
 
-1. (done as a timing experiment, see above) the gated clock: a BUFGCE next to the core
-   clock's BUFG.
-2. The domain split in main.vhd/mega65.vhd along the inventory above: edge-counting adapters for
-   the handshakes, video and audio FIFOs read in real time, the real-time UART and floppy.
-3. chip_hr on the real HyperRAM path (avm_fifo CDC, arbiter priority against the scaler), the
-   pacer, the core at 2x (audio filter and TG68K paths to fix, chip RAM leaves block RAM).
-4. AGA load in the bench (fetch modes, chip48) and a 68020 variant.
+1. Build `rb-a` (R3), then the same design on the R6 for a hardware test before the R3 arrives.
+2. Statistics for the hardware test: underflows, the lowest out-FIFO level, chip_hr's miss and
+   flush counts, readable by the firmware.
+3. Arbiter priority of chip_hr against the scaler in the framework's HyperRAM arbiter.
