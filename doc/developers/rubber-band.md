@@ -129,6 +129,17 @@ are in. With chip_hr at 2x on the DMA loads (OCS and AGA, 1.2 s): no underflow, 
 fill 1025..2597 entries, and the real-time stream's 60 per-frame hashes equal the Amiga-time
 ones. (In hardware only pixel clocks need storing: a few hundred entries.)
 
+## Experiment 7: a handshake across the boundary (`adfout.sh`)
+
+The rule for every synchronous interface between the gated Amiga and the free-running side: the
+free side samples the Amiga's outputs, and changes the Amiga's inputs, only at clock edges the
+Amiga takes (gate_en); between those edges it works on its own. Test: the floppy engine's ADF
+reads (Avalon, one outstanding read, the engine waits for readdatavalid) go to a model outside
+the Amiga that answers after a random 1..64 free clocks, like an SD card, with random Amiga
+pauses on top (`-DADFOUT -DRPAUSE=64`). Apidya loader, 3 s: the same 12 sector frames in the
+same order as the reference, no exception. (The answer arrives at a different Amiga time than in
+the reference, as it would from a real card - the engine paces Paula itself.)
+
 ## Experiment 5: the gated clock in the FPGA (build `r3-gate`)
 
 A copy of the r3 tree (`~/aexp-work/r3gate/src`) with a BUFGCE in parallel to the core clock's
