@@ -112,6 +112,23 @@ direct memory:
   and that mutant differs. 6/6.
 - Vivado out of context (`~/aexp-work/pause/ooc`), 57.27 MHz: WNS +9.55 ns, 567 LUTs (246 as
   LUT RAM), 4 block RAM tiles.
+- AGA (`dma_aga.S`, the bench's chipset set to AGA): lores 8 bitplanes, FMODE $F (64-bit
+  bitplane and sprite fetches), all planes filled, 8 x 32 palette colours: identical to the
+  reference, 94.9 % hits, lag 0. (In Minimig only the sprite DMA takes chip48; the test
+  programs' sprites never arm, so the video cannot see wrong chip48 words - hence the check below.)
+- Direct check: a shadow memory written like the direct model; at every Amiga edge from a
+  read's k+2 on, chip_hr's read word and its three chip48 words must equal it (about two
+  checks per read). It catches a chip48 word-order mutant at its first read.
+- `regress.sh` runs all of it (OCS and AGA against the references, the mutants, slow writes).
+
+## Experiment 5: the gated clock in the FPGA (build `r3-gate`)
+
+A copy of the r3 tree (`~/aexp-work/r3gate/src`) with a BUFGCE in parallel to the core clock's
+BUFG, fed from the same PAL/NTSC BUFGMUX_CTRL output, its CE a register (always 1 here);
+amiga_clk, the CPU phase process, cpu_wrapper (fx68k, TG68K) and Minimig run on it, everything
+else on the ungated clock, so every path between Minimig/CPU and main.vhd, the memory and the
+boards is a gated <-> ungated crossing. R3 build (REF r3-d): OK, WNS +0.035 ns (unchanged),
+WHS +0.000 ns; the worst hold path is in the framework's reset debouncer, not at the gate.
 
 ## The boundary (to design)
 
@@ -128,9 +145,8 @@ Inventory of `main.vhd`'s ports (the Amiga = everything inside it):
 
 ## Next steps
 
-1. The gated Amiga clock in the FPGA: a second BUFGCTRL next to the core clock's (same MMCM
-   outputs, same PAL/NTSC select, CE = the gate), so gated and ungated domains have matched
-   delays; a timing build to see what crossing paths cost.
+1. (done as a timing experiment, see above) the gated clock: a BUFGCE next to the core
+   clock's BUFG.
 2. The domain split in main.vhd/mega65.vhd along the inventory above: edge-counting adapters for
    the handshakes, video and audio FIFOs read in real time, the real-time UART and floppy.
 3. chip_hr on the real HyperRAM path (avm_fifo CDC, arbiter priority against the scaler), the
