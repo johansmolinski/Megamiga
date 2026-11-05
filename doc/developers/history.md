@@ -3558,6 +3558,66 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     backlog is dropped while the reader re-primes). Build rb-a (51.59 MHz): only TG68K's 41-level
     register-file path failed (-0.580), closed by the post-route phys_opt with +0.003 - too thin,
     so the clock went down to 49.35 MHz (rb-b).
+    Then 4 MB Fast RAM again (the user: "Move kick and slow to free up for 4 MB Fast"): the
+    Kickstart into 512 KB of the block RAM the chip RAM left (`amiga_mem_r3` `G_KICK_BRAM`, 128
+    tiles; registered address and output, answered two clocks after it is taken, no cache), chip
+    RAM to HyperRAM words 300000-3FFFFF, slow RAM into the chip RAM's upper half (380000-3BFFFF,
+    so only next to 512 KB or 1 MB chip RAM: prof_decode + menu), Zorro II back to 4 MB
+    (100000-2FFFFF); other chipset-port banks read 0 and write nothing (strobes masked before
+    chip_hr). All 8 MB of HyperRAM in use. Bench `~/aexp-work/r3mem` gained `G_KBRAM` (Kickstart
+    checked through CPU reads, no Avalon access to its old words): 12/12 runs, 19/19 mutants.
+    Builds rb-d (R3; rb-c had crashed Vivado in incremental synthesis): WNS +0.089, WHS +0.002,
+    249/365 tiles; r6rb-b (R6 test): WNS +0.073, WHS +0.040.
+    Hardware test on the R6 the same day (details in rubber-band.md, "Hardware test on the R6"):
+    boot, 2 MB chip + 4 MB fast (`avail`, AmigaTestKit 4 passes clean), SysInfo 6.7 MB/s. Workbench
+    after SetPatch (AGA FMODE 3) showed one 16-pixel column in four plus snow: chip48 must be HELD
+    from the read's edge k+2 like sdram_ctrl.v (Denise takes it half a 7 MHz cycle later), and
+    mega65.vhd must not mask it with the current address's ch_valid - fixed in r6rb-d (both), the
+    pause bench now models and checks the hold. Then VGA blackouts / the CRT's top lines shaking
+    while Workbench drew (HDMI fine): out-FIFO underflows - the Amiga fell behind real time during
+    blits (a chip RAM miss cost ~1 us on the hardware, 0.83 us with the framework arbiter
+    round-robin; a 4x deeper FIFO did not help). Measured with diagnostics builds r6rb-e..j (a
+    stream checker, a gated-clock edge check: 0 mismatches, max lag, wait clocks and misses on the
+    IDE board's diag UART line - whose last two words are the debug word; reading one word too
+    early first hid the underflows). Remedy (the user: "Go ahead with prefetch and
+    fill-before-write-back"): chip_hr's tagged next-line prefetch and demand fills that pass
+    unrelated write-backs; misses -79 % in the pause bench with a slow HyperRAM model; new unit
+    bench `~/aexp-work/chiphr` (7/10 mutants killed, the rest analysed). The rb_bridge FIFOs are
+    16K deep now (G_DELAY 8192, 283 tiles). Test builds r6rb-k (scaler first) and r6rb-l
+    (round-robin) failed: Vivado built the tags from 6,144 flip-flops (a second write address),
+    +23K LUTs, unroutable / WNS -2.4 ns, and tag writes depended on the late chipset address.
+    Restructured (per-way LUT RAM written only at f_way/f_set, victim invalidated one clock after
+    the issue, write-through in the validation clock, v_wpost by the last clock's hit, demand
+    exclusion at the request; chip_hr OOC 25,464 -> 2,710 LUTs); benches identical, unit-bench
+    mutants `pause/pfmut2` 11/14 killed. Rebuilt as r6rb-m (scaler first) and r6rb-n
+    (round-robin): HW misses while drawing 200K/s -> 13-34K/s, underflows 456/789 -> 74/175,
+    but the CRT shook "as bad" - any underflow re-primes the reader. So the lead: G_DELAY 3/4 of
+    the FIFO depth (the rb_bridge bench: at 94 % the latency never recovers after an underflow,
+    up to 81 % it does), builds r6rb-o (16K, 433 us) and r6rb-p (32K, 866 us), lag per 1.36 s
+    window on the diag line. r6rb-o still shook and stayed 165 us behind afterwards: a bug in
+    rb_bridge's re-prime (the reader restarted with part of the in-FIFO backlog left, the latency
+    grew with every underflow - at any ratio, 50 % included). Fixed (out-FIFO filled only to
+    G_DELAY while priming, restart only with the backlog gone; bench 9/9 mutants), G_DELAY =
+    depth - 512: r6rb-q (559 us), r6rb-r (1.14 ms). A Workbench-like load for the pause bench
+    (`dma_wb.S`, `wbperf.sh` at 1.74 x) reproduces the underflows and says 1.14 ms suffices for
+    it. On the way the user found the DB9 mouse's jerky vertical axis on main: the
+    chipset backport's opposite-direction filter, fixed separately (main 0e0b573).
+    2026-11-05: r6rb-r (1.14 ms) and r6rb-s (+ a 16-bpp scaler) still shook. rb_bridge's lag
+    statistic now counts the words a re-prime discards (the "virtual lag": the lead the Amiga would
+    have needed; r6rb-t). The cause, found in the pause bench (lag per 20 ms frame): Workbench's
+    outlines are blitter line draws that miss on every pixel, and the 160 KB of bitplanes a frame
+    push those rows out of the 16 KB cache - 128 KB brings the lag from ~1.0 to ~0.13 ms a frame.
+    A 128 KB first level missed timing (r6rb-u/-v/-w: the 1024-deep tag lookup in the clock the
+    chipset address arrives; on the way a stale-tag bug and a 16K-LUT flip-flop blow-up were
+    fixed); r6rb-x (that at 1.67 x) closed. The design kept: chip_hr's 16 KB first level as it was
+    plus a 128 KB SECOND level (G_L2_BITS; tags read at registered addresses, data in block RAM,
+    a copy in ~6 clocks instead of ~1 us of HyperRAM, write-backs update it), unit bench
+    `tb_chip_hr2` + mutants `pause/pfmut4`. With 32K FIFOs the block RAM was full (r6rb-y
+    unroutable); with 16K (559 us): r6rb-z, WNS +0.042, 315 tiles - on the R6 the user could no
+    longer make the CRT shake (0 underflows, largest virtual lag 342 us), and an AGA demo part that
+    always slowed down runs at full speed. The pause bench's `regress.sh` had failed since
+    11-04 on test-script filters (fixed: PASS). Chip RAM writers checked (only chip_hr writes its
+    HyperRAM words). Branch `r3-wip`, to be merged once verified on a real R3.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

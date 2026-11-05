@@ -836,11 +836,7 @@ begin
    if b = "MEGA65_R3" then
       for i in 1 to s'length - k'length + 1 loop
          if s(i to i + k'length - 1) = k then
-            if C_R3_RUBBER then
-               s(i + 14) := '2';                   -- rubber banding: chip RAM takes 2 MB of it
-            else
-               s(i + 14) := '4';
-            end if;
+            s(i + 14) := '4';
          end if;
       end loop;
    end if;
@@ -982,10 +978,10 @@ constant OPTM_AVAIL_R3 : OPTM_ATYPE := (
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
    (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
 );
--- With rubber banding (C_R3_RUBBER, chip RAM in HyperRAM) 2 MB chip RAM and Slow RAM next to any
--- chip RAM size are back.
+-- With rubber banding (C_R3_RUBBER, chip RAM in HyperRAM) 2 MB chip RAM is back, and Slow RAM
+-- next to 512 KB or 1 MB chip RAM (it takes the upper half of the chip RAM's 2 MB of HyperRAM).
 constant OPTM_AVAIL_R3_RB : OPTM_ATYPE := (
-   (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0),
+   (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0), (OPTM_G_P1SLOW, 2, OPTM_G_P1CHIP, 3),
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
    (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
 );

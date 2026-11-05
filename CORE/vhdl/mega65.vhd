@@ -449,7 +449,18 @@ signal rb_a_out               : std_logic_vector(C_RB_OUT_W - 1 downto 0);
 signal rb_rt_out              : std_logic_vector(C_RB_OUT_W - 1 downto 0);
 signal rb_rt_valid            : std_logic;
 signal rb_under               : unsigned(15 downto 0);
-signal rb_minlvl              : unsigned(12 downto 0);
+-- the FIFOs and the lag budget: in-level + out-level = G_DELAY, also after an underflow (rb_bridge
+-- restarts the reader only with the backlog gone, 2026-11-04), so the depth needs only a margin
+-- above it. 2026-11-04: 8192 of 16K still underflowed in Workbench with the prefetch (bursts of
+-- blitter misses at the top of the field)
+constant C_RB_DEPTH_LOG2      : natural := 14;
+constant C_RB_DELAY           : natural := 2 ** C_RB_DEPTH_LOG2 - 512;   -- 15872 = 559 us
+signal rb_minlvl              : unsigned(C_RB_DEPTH_LOG2 downto 0);
+signal rb_stall               : unsigned(31 downto 0) := (others => '0');   -- rb_clk clocks with chip_hr's go = '0'
+signal rb_lagmax              : unsigned(23 downto 0);
+signal rb_lagclr              : std_logic := '0';
+signal rb_lagwin              : unsigned(25 downto 0) := (others => '0');   -- 1.36 s windows
+signal rb_lagsnap             : unsigned(15 downto 0) := (others => '0');   -- the last window's max lag / 16
 signal a_video_ce             : std_logic;
 signal a_video_ce_ovl         : std_logic;
 signal a_video_red            : std_logic_vector(7 downto 0);
@@ -486,6 +497,11 @@ signal ch_ram_oe_n            : std_logic;
 signal ch_ram_rddata          : std_logic_vector(15 downto 0);
 signal ch_chip48              : std_logic_vector(47 downto 0);
 signal ch_hr_addr             : std_logic_vector(22 downto 1);   -- the HyperRAM word
+signal ch_valid               : std_logic;                       -- a chip or slow RAM bank
+signal ch_hr_we_n             : std_logic;
+signal ch_hr_oe_n             : std_logic;
+signal ch_hr_rddata           : std_logic_vector(15 downto 0);
+signal ch_hr_chip48           : std_logic_vector(47 downto 0);
 signal ch_avm_write           : std_logic;
 signal ch_avm_read            : std_logic;
 signal ch_avm_address         : std_logic_vector(31 downto 0);
@@ -506,6 +522,7 @@ signal hr_ch_avm_readdatavalid : std_logic;
 signal hr_ch_avm_waitrequest  : std_logic;
 signal ch_n_read              : unsigned(31 downto 0);
 signal ch_n_miss              : unsigned(31 downto 0);
+signal ch_n_pfhit            : unsigned(31 downto 0);
 signal ch_n_flush             : unsigned(31 downto 0);
 -- ide_board's diagnostics counters 12/13 (IDE_DIAG firmware: on the debug UART): the CPU's
 -- address/state/stall, or with rubber banding the underflows, the lowest out-FIFO level since the
@@ -1671,10 +1688,14 @@ begin
       end if;
       -- Megamiga, November 2026: on R3 chip and slow RAM share 1 MB of block RAM
       -- (amiga_mem_r3.vhd): at most 1 MB chip RAM, and slow RAM only with 512 KB chip RAM
-      -- (rubber banding: chip RAM in HyperRAM, up to 2 MB, slow RAM with any size)
+      -- (rubber banding: chip RAM in HyperRAM, up to 2 MB; slow RAM shares the chip RAM's 2 MB of
+      -- HyperRAM, so only with up to 1 MB chip RAM)
       if not C_HAS_SDRAM and not C_RB and (a_osm(v_base + C_PROF_CHIP_2M) = '1' or
                               a_osm(v_base + C_PROF_CHIP_1M) = '1') then
          main_chip_size <= "01";
+         main_slow_ram  <= '0';
+      end if;
+      if C_RB and a_osm(v_base + C_PROF_CHIP_2M) = '1' then
          main_slow_ram  <= '0';
       end if;
       -- Megamiga: the cartridge radio (None is the STDSEL default and the fall-through)
@@ -1754,8 +1775,7 @@ begin
          G_ADF_BASE_DF0       => C_HMAP_ADF_DF0(9 downto 0) & x"000",
          G_ADF_BASE_DF1       => C_HMAP_ADF_DF1(9 downto 0) & x"000",
          G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000",
-         G_R3                 => not C_HAS_SDRAM,     -- Megamiga, November 2026
-         G_RB                 => C_RB
+         G_R3                 => not C_HAS_SDRAM      -- Megamiga, November 2026
       )
       port map (
          clk_main_i           => amiga_clk,
@@ -2059,8 +2079,10 @@ begin
          G_RB         => C_RB,
          G_IN_W       => C_RB_IN_W,
          G_OUT_W      => C_RB_OUT_W,
-         G_DELAY      => 2048,
-         G_DEPTH_LOG2 => 12
+         -- 2026-11-04: 2048 / 12 (72 us) underflowed on the R6 test in Workbench (blitter work
+         -- in the vertical blank: VGA blackouts, the CRT's top lines shaking); then 8192 / 14
+         G_DELAY      => C_RB_DELAY,
+         G_DEPTH_LOG2 => C_RB_DEPTH_LOG2
       )
       port map (
          main_clk_i   => main_clk,
@@ -2077,7 +2099,9 @@ begin
          rt_out_o     => rb_rt_out,
          rt_valid_o   => rb_rt_valid,
          rt_under_o   => rb_under,
-         rt_minlvl_o  => rb_minlvl
+         rt_minlvl_o  => rb_minlvl,
+         rb_lagmax_o  => rb_lagmax,
+         rb_lagclr_i  => rb_lagclr
       ); -- i_rb_bridge
 
    -- the replayed outputs: video and audio stop (no clock enables) while the reader primes
@@ -2118,6 +2142,27 @@ begin
          audio_right_o => rt_audio_r
       ); -- i_rb_audio
 
+   -- Diagnostics (2026-11-04): the clocks the Amiga waits for chip RAM (rb_clk, wraps)
+   p_stall : process (rb_clk)
+   begin
+      if rising_edge(rb_clk) then
+         if rb_chip_go = '0' then
+            rb_stall <= rb_stall + 1;
+         end if;
+         -- the largest lag (in-FIFO level, main_clk clocks) of the last 2**26 rb_clk clocks
+         rb_lagwin <= rb_lagwin + 1;
+         rb_lagclr <= '0';
+         if rb_lagwin = 0 then
+            if rb_lagmax(23 downto 20) /= 0 then               -- in units of 16 clocks, saturated
+               rb_lagsnap <= (others => '1');
+            else
+               rb_lagsnap <= rb_lagmax(19 downto 4);
+            end if;
+            rb_lagclr  <= '1';
+         end if;
+      end if;
+   end process p_stall;
+
    i_cdc_rb_stat : entity work.cdc_stable
       generic map (
          G_DATA_SIZE    => 29,
@@ -2126,13 +2171,22 @@ begin
       port map (
          src_clk_i                => main_clk,
          src_data_i(28 downto 13) => std_logic_vector(rb_under),
-         src_data_i(12 downto 0)  => std_logic_vector(rb_minlvl),
+         src_data_i(12 downto 0)  => std_logic_vector(rb_minlvl(C_RB_DEPTH_LOG2 downto C_RB_DEPTH_LOG2 - 12)),
          dst_clk_i                => amiga_clk,
          dst_data_o               => a_rb_stat
       ); -- i_cdc_rb_stat
 
-   main_dbg_word <= a_rb_stat(28 downto 13) & "000" & a_rb_stat(12 downto 0) &
-                    std_logic_vector(ch_n_miss) when C_RB else
+   -- The IDE board's diagnostics firmware (IDE_DIAG) shows this as the UART line's last two words
+   -- (dcnt(12), dcnt(13)); ~/aexp-work/rbstat.py turns them into rates:
+   --   word 12: clocks the Amiga waited for chip RAM / 256 (24 bits) | underflows (low 8 bits)
+   --   word 13: chip_hr's misses / 4 (16 bits) | the largest lag of the last 1.36 s window, in
+   --            main_clk clocks (16 bits; an underflow at C_RB_DELAY) (until r6rb-n: reads of
+   --            prefetched lines / 4)
+   -- rb_stall and chip_hr's counters are rb_clk counters and amiga_clk is a gated copy of rb_clk,
+   -- so no CDC; the underflows come from main_clk through i_cdc_rb_stat.
+   main_dbg_word <= std_logic_vector(rb_stall(31 downto 8)) & a_rb_stat(20 downto 13) &
+                    std_logic_vector(ch_n_miss(17 downto 2)) & std_logic_vector(rb_lagsnap)
+                    when C_RB else
                     main_dbg_cpu_addr & main_dbg_cpu_state & main_dbg_cpu_stall;
 
    main_audio_left_o  <= rt_audio_l when C_RB else a_flt_audio_l;
@@ -2419,6 +2473,9 @@ begin
    -- Not on R3: the 68040's port, IDE DMA (the IDE board's fmap_* are 0: PIO), cartridges.
    ---------------------------------------------------------------------------------------------
    i_amiga_mem_r3 : entity work.amiga_mem_r3
+      generic map (
+         G_KICK_BRAM    => C_RB                    -- rubber banding: chip RAM takes its HyperRAM words
+      )
       port map (
          clk_i          => amiga_clk,
          rst_i          => amiga_rst,
@@ -2468,13 +2525,16 @@ begin
    -- Megamiga, November 2026: rubber banding - chip and slow RAM in HyperRAM (chip_hr.vhd on the
    -- free-running rb_clk, behind a 16 KB 4-way cache, doc/developers/rubber-band.md). It stops the
    -- Amiga's clock (rb_chip_go) while a read waits for its word. amiga_mem_r3's block RAM above has
-   -- no reader then and is trimmed. HyperRAM words (16 bits):
+   -- no reader then and is trimmed; the Kickstart is in block RAM (amiga_mem_r3 G_KICK_BRAM).
+   -- HyperRAM words (16 bits), all 8 MB:
    --   000000-0FFFFF  the scaler's framebuffer
-   --   100000-1FFFFF  Zorro II Fast RAM, 2 MB (amiga_mem_r3, main.vhd G_RB)
-   --   200000-2FFFFF  chip RAM, 2 MB    (banks 0000-0011 of the banked address)
-   --   300000-33FFFF  Kickstart         (amiga_mem_r3)
-   --   340000-37FFFF  slow RAM, 512 KB  (bank 1000)
-   --   380000-3FFFFF  everything else on the chipset port (never used)
+   --   100000-2FFFFF  Zorro II Fast RAM, 4 MB (amiga_mem_r3)
+   --   300000-3FFFFF  chip RAM, 2 MB    (banks 0000-0011 of the banked address)
+   --   380000-3BFFFF  slow RAM, 512 KB  (bank 1000: the upper half of the chip RAM's words, so
+   --                                     only with up to 1 MB chip RAM - prof_decode)
+   -- Any other bank on the chipset port (the Kickstart's: its reads go through cpu_wrapper's
+   -- ram* port, 1 MB Kickstart, cartridges: none on R3) reads 0 and writes nothing, as
+   -- amiga_mem_r3's block RAM did.
    ---------------------------------------------------------------------------------------------
    g_chip_hr : if C_RB generate
       -- the cold-boot scrub owns the port while amiga_chip_scrub (the Amiga is in reset then)
@@ -2485,13 +2545,25 @@ begin
       ch_ram_we_n   <= '0'                          when amiga_chip_scrub = '1' else main_ram_we_n;
       ch_ram_oe_n   <= '1'                          when amiga_chip_scrub = '1' else main_ram_oe_n;
 
-      ch_hr_addr <= "10" & ch_ram_addr(20 downto 1)          when ch_ram_addr(22 downto 21) = "00" else
-                    "1101" & ch_ram_addr(18 downto 1)        when ch_ram_addr(22 downto 19) = "1000" else
+      ch_valid   <= '1' when ch_ram_addr(22 downto 21) = "00" or ch_ram_addr(22 downto 19) = "1000" else '0';
+      ch_hr_addr <= "11"   & ch_ram_addr(20 downto 1)        when ch_ram_addr(22 downto 21) = "00" else
                     "1110" & ch_ram_addr(18 downto 1);
+      ch_hr_we_n <= ch_ram_we_n or not ch_valid;
+      ch_hr_oe_n <= ch_ram_oe_n or not ch_valid;
+      ch_ram_rddata <= ch_hr_rddata when ch_valid = '1' else (others => '0');
+      -- chip48 NOT masked: chip_hr holds it from a read until the next one (as sdram_ctrl.v does),
+      -- and Denise takes it half a 7 MHz cycle after the read, when ch_ram_addr already shows the
+      -- next slot (the CPU in Kickstart or Fast RAM: ch_valid '0'). A mask on the current address
+      -- zeroed the three words behind the first of every 64-bit fetch (R6 test r6rb-b/-c,
+      -- 2026-11-04: Workbench after SetPatch, FMODE 3). Only Denise reads it, after its own
+      -- bitplane/sprite fetches, which are always chip RAM.
+      ch_chip48     <= ch_hr_chip48;
 
       i_chip_hr : entity work.chip_hr
          generic map (
-            G_SET_BITS  => 7,                       -- 16 KB, 4 ways
+            G_SET_BITS  => 7,                       -- 16 KB, 4 ways (a bigger first level misses timing)
+            G_L2_BITS   => 10,                      -- + 128 KB second level (16 KB lost Workbench's
+                                                    -- line blits to the bitplane stream: rubber-band.md)
             G_BASE_WORD => 0                        -- ch_hr_addr is the HyperRAM word
          )
          port map (
@@ -2503,10 +2575,10 @@ begin
             ram_data_i          => ch_ram_wrdata,
             ram_bhe_n_i         => ch_ram_bhe_n,
             ram_ble_n_i         => ch_ram_ble_n,
-            ram_we_n_i          => ch_ram_we_n,
-            ram_oe_n_i          => ch_ram_oe_n,
-            ram_data_o          => ch_ram_rddata,
-            chip48_o            => ch_chip48,
+            ram_we_n_i          => ch_hr_we_n,
+            ram_oe_n_i          => ch_hr_oe_n,
+            ram_data_o          => ch_hr_rddata,
+            chip48_o            => ch_hr_chip48,
             avm_write_o         => ch_avm_write,
             avm_read_o          => ch_avm_read,
             avm_address_o       => ch_avm_address,
@@ -2518,6 +2590,7 @@ begin
             avm_waitrequest_i   => ch_avm_waitrequest,
             n_read_o            => ch_n_read,
             n_miss_o            => ch_n_miss,
+            n_pfhit_o           => ch_n_pfhit,
             n_flush_o           => ch_n_flush
          ); -- i_chip_hr
 
@@ -2560,6 +2633,7 @@ begin
    g_no_chip_hr : if not C_RB generate
       rb_chip_go           <= '1';
       ch_n_miss            <= (others => '0');
+      ch_n_pfhit           <= (others => '0');
       ch_ram_rddata        <= (others => '0');
       ch_chip48            <= (others => '0');
       hr_ch_avm_write      <= '0';

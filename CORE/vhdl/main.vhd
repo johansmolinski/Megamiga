@@ -30,10 +30,7 @@ entity main is
       G_ADF_BASE_DF2          : std_logic_vector(21 downto 0);  -- df2 image HyperRAM word base
       -- Megamiga, November 2026: the MEGA65 R3/R3A (no SDRAM): the Kickstart is read through
       -- cpu_wrapper's ram* port for every CPU (kick_ram), and there is no 68040
-      G_R3                    : boolean := false;
-      -- Megamiga, November 2026: rubber banding on R3 (chip RAM in HyperRAM words 200000-2FFFFF,
-      -- so the Zorro II Fast RAM is 2 MB there)
-      G_RB                    : boolean := false
+      G_R3                    : boolean := false
    );
    port (
       clk_main_i              : in  std_logic;
@@ -955,9 +952,10 @@ begin
    -- (cpu_wrapper.v autoconfig); 0 = no board. Latched at every CPU reset.
    -- Megamiga: 2 MB while the Action Replay III is plugged in (it decodes $400000-$47FFFF)
    --cpu_fastramcfg <= "011" when fast_ram_i = '1' else "000";
-   -- Megamiga, November 2026: 4 MB on R3 (HyperRAM words 100000-2FFFFF, amiga_mem_r3.vhd)
+   -- Megamiga, November 2026: 4 MB on R3 (HyperRAM words 100000-2FFFFF, amiga_mem_r3.vhd; also
+   -- with rubber banding, where the Kickstart moved to block RAM to make room for the chip RAM)
    cpu_fastramcfg <= "000" when fast_ram_i = '0' else
-                     "001" when cart_ar3_i = '1' or G_RB else
+                     "001" when cart_ar3_i = '1' else
                      "010" when G_R3 else
                      "011";
 

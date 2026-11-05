@@ -23,8 +23,15 @@
 --                                  runs dry (an underflow: the reader stops, rt_valid_o goes low,
 --                                  and it waits for G_DELAY words again; counted in rt_under_o).
 --                                  While the reader waits, the in-FIFO's backlog is thrown away
---                                  (the Amiga skips those input words), so after the underflow
---                                  the Amiga is back at real time and the latency at G_DELAY.
+--                                  (the Amiga skips those input words), the Amiga fills the
+--                                  out-FIFO only up to G_DELAY, and the reader starts again only
+--                                  when the backlog is gone: so after the underflow the Amiga is
+--                                  back at real time and the latency at G_DELAY. (Until
+--                                  2026-11-04 the reader started as soon as the out-FIFO held
+--                                  G_DELAY words, which the unblocked Amiga wrote faster than the
+--                                  backlog was thrown away: the rest of the backlog stayed, the
+--                                  latency grew with every underflow, until the out-FIFO was
+--                                  full and the in-FIFO overflowed - R6 test r6rb-o.)
 --
 -- So in the steady state in-level + out-level = G_DELAY: when the Amiga is fast the in-FIFO is
 -- empty and the out-FIFO holds G_DELAY words; a stretch of slow memory moves words from the one to
@@ -78,7 +85,13 @@ entity rb_bridge is
 
       -- statistics (main_clk): underflows since reset, the lowest out-FIFO level while reading
       rt_under_o   : out unsigned(15 downto 0);
-      rt_minlvl_o  : out unsigned(G_DEPTH_LOG2 downto 0)
+      rt_minlvl_o  : out unsigned(G_DEPTH_LOG2 downto 0);
+      -- statistics (rb_clk): the largest lag of the Amiga behind real time (in clocks; an underflow
+      -- happens when it passes G_DELAY): the in-FIFO level, plus, while the reader waits after an
+      -- underflow, the words discarded since then (the lag the Amiga would have without the
+      -- re-prime: the lead it would have needed); rb_lagclr_i = '1' starts a new maximum
+      rb_lagmax_o  : out unsigned(23 downto 0);
+      rb_lagclr_i  : in  std_logic := '0'
    );
 end entity rb_bridge;
 
@@ -94,6 +107,7 @@ begin
       rt_valid_o  <= '1';
       rt_under_o  <= (others => '0');
       rt_minlvl_o <= (others => '0');
+      rb_lagmax_o <= (others => '0');
    end generate g_wire;
 
    g_band : if G_RB generate
@@ -107,6 +121,7 @@ begin
       signal i_wr_en    : std_logic;
       signal i_rd_en    : std_logic;
       signal i_rd_count : std_logic_vector(G_DEPTH_LOG2 downto 0);
+      signal i_wr_count : std_logic_vector(G_DEPTH_LOG2 downto 0);   -- (main_clk)
       signal i_dout     : std_logic_vector(G_IN_W - 1 downto 0);
 
       -- out-FIFO
@@ -141,6 +156,9 @@ begin
       signal valid_r    : std_logic := '0';
       signal under      : unsigned(15 downto 0) := (others => '0');
       signal minlvl     : unsigned(G_DEPTH_LOG2 downto 0) := (others => '1');
+      signal lagmax     : unsigned(23 downto 0) := (others => '0');
+      signal disc_n     : unsigned(23 downto 0) := (others => '0');   -- discarded in this re-prime
+      signal vlag       : unsigned(23 downto 0) := (others => '0');
 
    begin
 
@@ -157,12 +175,32 @@ begin
       begin
          if rising_edge(rb_clk_i) then
             gate_d  <= gate;
+            -- the virtual lag (registered: a clock late, which does not matter for a maximum): a
+            -- discarded word counts while chip_go_i holds the Amiga, not while only the pace does
+            -- (the Amiga would have taken that word)
+            if prime_s = '0' then
+               disc_n <= (others => '0');
+            elsif discard = '1' and gate = '0' and chip_go_i = '0' and i_empty = '0' and
+                  state = S_RUN and disc_n /= x"FFFFFF" then
+               disc_n <= disc_n + 1;
+            end if;
+            if i_rd_busy = '0' then
+               vlag <= resize(unsigned(i_rd_count), 24) + disc_n;
+            end if;
+            if rb_lagclr_i = '1' then
+               lagmax <= (others => '0');
+            elsif state = S_RUN and vlag > lagmax then
+               lagmax <= vlag;
+            end if;
             prime_m <= not reading;
             prime_s <= prime_m;
             -- room for the next edge: the level counts lag the pops by a clock or two, hence
             -- the margins (an edge at this clock and one at the next must both find a word)
-            if unsigned(i_rd_count) >= 4 and i_rd_busy = '0' and
-               unsigned(o_wr_count) < C_DEPTH - 16 and o_wr_busy = '0' then
+            -- (while the reader waits the out-FIFO is filled only up to G_DELAY: the latency after
+            -- the restart is G_DELAY; the 8 words cover the edges in flight)
+            if unsigned(i_rd_count) >= 4 and i_rd_busy = '0' and o_wr_busy = '0' and
+               ((prime_s = '0' and unsigned(o_wr_count) < C_DEPTH - 16) or
+                (prime_s = '1' and unsigned(o_wr_count) < G_DELAY + 8)) then
                pace_ok <= '1';
             else
                pace_ok <= '0';
@@ -186,6 +224,7 @@ begin
                rst_edges <= (others => '0');
                a_rst     <= '1';
                pace_ok   <= '0';
+               lagmax    <= (others => '0');
             end if;
          end if;
       end process p_gate;
@@ -217,7 +256,7 @@ begin
             READ_MODE           => "fwft",
             RELATED_CLOCKS      => 0,
             SIM_ASSERT_CHK      => 0,
-            USE_ADV_FEATURES    => "0400",          -- rd_data_count
+            USE_ADV_FEATURES    => "0404",          -- rd_data_count, wr_data_count
             WAKEUP_TIME         => 0,
             WRITE_DATA_WIDTH    => G_IN_W,
             WR_DATA_COUNT_WIDTH => G_DEPTH_LOG2 + 1
@@ -248,7 +287,7 @@ begin
             sbiterr       => open,
             underflow     => open,
             wr_ack        => open,
-            wr_data_count => open
+            wr_data_count => i_wr_count
          ); -- i_in_fifo
 
       -------------------------------------------------------------------------------------------
@@ -322,7 +361,9 @@ begin
                out_r <= o_dout;
             end if;
             if reading = '0' then
-               if o_rd_busy = '0' and unsigned(o_rd_count) >= G_DELAY then
+               -- the out-FIFO holds G_DELAY words and the in-FIFO's backlog is gone
+               if o_rd_busy = '0' and unsigned(o_rd_count) >= G_DELAY and
+                  i_wr_busy = '0' and unsigned(i_wr_count) <= 16 then
                   reading <= '1';
                end if;
             else
@@ -346,6 +387,7 @@ begin
       rt_valid_o  <= valid_r;
       rt_under_o  <= under;
       rt_minlvl_o <= minlvl;
+      rb_lagmax_o <= lagmax;
    end generate g_band;
 
 end architecture synthesis;

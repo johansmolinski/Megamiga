@@ -40,6 +40,13 @@
 -- and are written into the HyperRAM. A word of the first 256 KB also goes to the second 256 KB,
 -- so a 256 KB Kickstart (1.x) is mirrored like on real hardware. No 1 MB Kickstart on R3.
 --
+-- G_KICK_BRAM (rubber banding, mega65.vhd C_RB): the Kickstart is in 512 KB of block RAM here
+-- instead (128 tiles, free once the chip RAM moved to HyperRAM), so its HyperRAM words go to the
+-- chip RAM and the Zorro II RAM can have 4 MB. The loader writes the block RAM (the mirror too);
+-- a CPU read of the Kickstart bypasses the cache and is answered two clocks after it is taken
+-- (registered address, block RAM, registered output: the 128 tiles spread over the die). The CPU
+-- port never writes the Kickstart (cpu_wrapper sends only reads there).
+--
 -- Cold-boot scrub (amiga_cold_boot.vhd): zero words in chip RAM at scrub_addr_i while scrub_i.
 --
 -- Not on R3 (inputs ignored, outputs idle): the 68040 port, IDE DMA, the cartridges.
@@ -58,6 +65,7 @@ entity amiga_mem_r3 is
    generic (
       G_CACHE_BITS   : natural := 13;                        -- 2**13 words = 16 KB read cache
       G_KICK_WORD    : natural := 16#300000#;                -- HyperRAM word of the Kickstart
+      G_KICK_BRAM    : boolean := false;                     -- the Kickstart in block RAM instead
       G_CHIP_BITS    : natural := 19                         -- block RAM words: 2**19 = 1 MB
    );
    port (
@@ -160,7 +168,8 @@ architecture synthesis of amiga_mem_r3 is
    attribute ram_style of tags : signal is "distributed";
    signal valid     : std_logic_vector(C_LINES - 1 downto 0) := (others => '0');
 
-   type t_state is (S_IDLE, S_WRITE, S_FILLREQ, S_FILL, S_FILLEND, S_LOAD, S_LOAD2);
+   type t_state is (S_IDLE, S_WRITE, S_FILLREQ, S_FILL, S_FILLEND, S_LOAD, S_LOAD2, S_KICK1,
+                    S_KICK2);
    signal state     : t_state := S_IDLE;
    signal hr_word   : unsigned(21 downto 0);                  -- the CPU access in HyperRAM
    signal line      : natural range 0 to C_LINES - 1;
@@ -185,6 +194,17 @@ architecture synthesis of amiga_mem_r3 is
    signal avm_write : std_logic := '0';
    signal avm_read  : std_logic := '0';
    signal watchdog  : unsigned(11 downto 0) := (others => '0');
+
+   -- G_KICK_BRAM: the Kickstart block RAM (256K words)
+   type t_kick is array (0 to 2 ** 18 - 1) of std_logic_vector(7 downto 0);
+   signal is_kick   : std_logic;                              -- the CPU access is a Kickstart read
+   signal from_k    : std_logic := '0';                       -- the answer is k_q
+   signal k_ra      : unsigned(17 downto 0) := (others => '0');
+   signal k_we      : std_logic := '0';
+   signal k_wa      : unsigned(17 downto 0) := (others => '0');
+   signal k_wd      : std_logic_vector(15 downto 0) := (others => '0');
+   signal k_rd      : std_logic_vector(15 downto 0) := (others => '0');
+   signal k_q       : std_logic_vector(15 downto 0) := (others => '0');
 
 begin
 
@@ -346,6 +366,27 @@ begin
    line    <= to_integer(hr_word(G_CACHE_BITS - 1 downto 4));
    tag     <= std_logic_vector(hr_word(21 downto G_CACHE_BITS));
    hit     <= '1' when valid(line) = '1' and tags(line) = tag else '0';
+   is_kick <= '1' when G_KICK_BRAM and fram_addr_i(24 downto 23) /= "01" else '0';
+
+   -- G_KICK_BRAM: one write port (the loader), one read port (registered address, registered
+   -- output)
+   g_kick_mem : if G_KICK_BRAM generate
+      signal k_hi, k_lo : t_kick;
+      attribute ram_style of k_hi : signal is "block";
+      attribute ram_style of k_lo : signal is "block";
+   begin
+      p_kick_ram : process (clk_i)
+      begin
+         if rising_edge(clk_i) then
+            if k_we = '1' then
+               k_hi(to_integer(k_wa)) <= k_wd(15 downto 8);
+               k_lo(to_integer(k_wa)) <= k_wd(7 downto 0);
+            end if;
+            k_rd <= k_hi(to_integer(k_ra)) & k_lo(to_integer(k_ra));
+            k_q  <= k_rd;
+         end if;
+      end process p_kick_ram;
+   end generate g_kick_mem;
 
    -- cache data: one write port (fill, write-through update), one read port (the CPU address)
    p_cache_ram : process (clk_i)
@@ -362,7 +403,7 @@ begin
       end if;
    end process p_cache_ram;
 
-   fram_data_o      <= c_rd when from_c = '1' else data;
+   fram_data_o      <= c_rd when from_c = '1' else k_q when from_k = '1' else data;
    fram_ready_o     <= ready;
    avm_write_o      <= avm_write;
    avm_read_o       <= avm_read;
@@ -375,6 +416,7 @@ begin
    begin
       if rising_edge(clk_i) then
          c_we     <= "00";
+         k_we     <= '0';
          v_answer := false;
 
          -- the handshake: TG68K takes ready in the one clock it is high and presents its next
@@ -393,7 +435,19 @@ begin
 
          case state is
             when S_IDLE =>
-               if l_mirror = '1' then                               -- the 256 KB mirror
+               if G_KICK_BRAM and l_mirror = '1' then               -- the 256 KB mirror
+                  k_we     <= '1';
+                  k_wa     <= l_word + 16#20000#;
+                  k_wd     <= l_data;
+                  l_mirror <= '0';
+               elsif G_KICK_BRAM and f_rd_en = '1' then             -- a Kickstart word
+                  l_word   <= unsigned(f_dout(33 downto 16));
+                  l_data   <= f_dout(15 downto 0);
+                  l_mirror <= not f_dout(33);                       -- in the first 256 KB
+                  k_we     <= '1';
+                  k_wa     <= unsigned(f_dout(33 downto 16));
+                  k_wd     <= f_dout(15 downto 0);
+               elsif l_mirror = '1' then                            -- the 256 KB mirror
                   avm_address_o    <= std_logic_vector(to_unsigned(G_KICK_WORD, 32) +
                                                        resize(l_word, 32) + 16#20000#);
                   avm_writedata_o  <= l_data;
@@ -419,7 +473,10 @@ begin
                elsif fram_sel_i = '1' and served = '0' and
                      (fram_state_i /= "11" or fram_uds_n_i = '0' or fram_lds_n_i = '0') then
                   watchdog <= (others => '0');
-                  if fram_state_i = "11" then                       -- write: through
+                  if is_kick = '1' then                             -- the Kickstart (block RAM)
+                     k_ra  <= unsigned(fram_addr_i(18 downto 1));
+                     state <= S_KICK1;
+                  elsif fram_state_i = "11" then                    -- write: through
                      avm_address_o    <= std_logic_vector(resize(hr_word, 32));
                      avm_writedata_o  <= fram_data_i;
                      avm_byteenable_o <= (not fram_uds_n_i) & (not fram_lds_n_i);
@@ -433,6 +490,7 @@ begin
                      state <= S_WRITE;
                   elsif hit = '1' then                              -- c_rd shows the word in
                      from_c   <= '1';                               -- the clock after this edge
+                     from_k   <= '0';
                      v_answer := true;
                   else                                              -- miss: fetch the line
                      avm_address_o    <= std_logic_vector(resize(hr_word(21 downto 4) & "0000", 32));
@@ -448,11 +506,21 @@ begin
                   end if;
                end if;
 
+            when S_KICK1 =>                                         -- the block RAM reads k_ra
+               state <= S_KICK2;
+
+            when S_KICK2 =>                                         -- k_q shows the word in the
+               from_c   <= '0';                                     -- clock after this edge
+               from_k   <= '1';
+               v_answer := true;
+               state    <= S_IDLE;
+
             when S_WRITE =>                                         -- posted: done once taken
                if avm_waitrequest_i = '0' then
                   avm_write <= '0';
                   v_answer  := true;
                   from_c    <= '0';
+                  from_k    <= '0';
                   state     <= S_IDLE;
                end if;
 
@@ -473,6 +541,7 @@ begin
                      data     <= avm_readdata_i;
                      v_answer := true;
                      from_c   <= '0';
+                     from_k   <= '0';
                      f_given  <= '1';
                   end if;
                   if f_idx = 15 then                                -- line complete
@@ -484,6 +553,7 @@ begin
                      data     <= (others => '1');
                      v_answer := true;
                      from_c   <= '0';
+                     from_k   <= '0';
                   end if;
                   state <= S_IDLE;
                end if;
@@ -520,6 +590,8 @@ begin
             avm_write <= '0';
             avm_read  <= '0';
             l_mirror  <= '0';
+            k_we      <= '0';
+            from_k    <= '0';
             valid     <= (others => '0');
          end if;
       end if;
