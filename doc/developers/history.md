@@ -3522,6 +3522,121 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     `mousefix-b` (REF chipfix-b): WNS +0.018, WHS +0.004; hardware: mouse fine in both
     directions. Upstream issue MiSTer-devel/Minimig-AGA_MiSTer#296 (and a comment on #293,
     a MEGA65 user's DB9 mouse jitter report closed as "not the Mega65 repository").
+  - **MEGA65 R3/R3A support (branch `r3` from chipfix, Minimig branch `r3`, 2026-11-03;
+    design and status: `doc/developers/r3.md`).** The R3 has no SDRAM. Measured first with
+    the Apidya bench (`~/aexp-work/hyperr3/bus`, a RAM model with N clocks of read latency):
+    Minimig wants chip data 2 core clocks (~70 ns) after the address (N = 3 crashes) and
+    makes chip accesses 141 ns apart, so chip RAM cannot be in HyperRAM (DRAM row access +
+    the device's own refresh doubling the latency unannounced) and 2 MB (456 tiles) does not
+    fit the 365 block RAM tiles: R3 = up to 1 MB chip RAM in block RAM, AGA selectable with
+    it. `amiga_mem_r3.vhd` (same ports as amiga_sdram minus the pins, + an Avalon master):
+    chip/slow RAM in 1 MB of block RAM (4 x 16-bit lanes, chip48 in sdram_ctrl's burst
+    order, slow RAM in the second half with 512 KB chip), the Kickstart loader into HyperRAM
+    (word $300000, 256 KB mirrored), Zorro II Fast RAM 4 MB (HyperRAM words $100000-
+    $2FFFFF), a 16 KB direct-mapped read cache (one-clock hits, critical word first,
+    write-through), the 68000's level DTACK and late write strobes, TG68K's one-clock ready.
+    cpu_wrapper: `kick_ram`/`kick_ovl` send every Kickstart read and the reset overlay
+    through ram* (minimig exports `ovl`). mega65.vhd: generate branches (no 68040, RTG
+    card/blitter, Zorro III, cartridges, IDE DMA; chip <= 1 MB, slow RAM only with 512 KB
+    chip), the RTG card's HyperRAM path reused. R3 board top brought up to date, CORE-R3.xpr
+    regenerated from R6, the SDRAM-only sign-off gates (build_bitstream, reroll, pal_leg)
+    skip R3. Menu: M2M exception 23 `config-board` (config.vhd gets G_BOARD): R3 greys out
+    68040, 2 MB chip, Zorro III, graphics card, cartridges, Slow RAM with 1 MB chip, and
+    shows "Zorro II RAM 4 MB". Benches: `~/aexp-work/r3mem` (unit; 11/11 mutants; found a hit
+    on a line still being filled), `~/aexp-work/r3e2e` (fx68k/TG68K + cpu_wrapper + the
+    netlist, a Kickstart booting through the overlay; found the 68000 write taken before
+    its strobes; overlay/route mutants fail), `~/aexp-work/r3cfg` (menu words). Builds:
+    r3-a WNS +0.152 WHS +0.014, 52.9K LUTs (40 %), 358.5/365 block RAM tiles, stopped by the
+    gates; r3-b stopped by pal_leg.tcl; r3-c OK: WNS +0.035, WHS +0.036 (PAL leg +6.791 /
+    +0.036), saved as `r3-c-save`. The first R6 build of the branch missed by 5.4 ns: generate
+    labels renamed instances CORE.xdc constrains; the instances are unconditional again and
+    C_HAS_SDRAM selects outputs. r3-r6b (R6): WNS +0.116, WHS +0.004; r3-d (R3): WNS +0.035,
+    WHS +0.036 (`r3-d-save`). R6 hardware with r3-r6b: as before (see the two entries above).
+    R3 hardware test pending (the user's R3 is on its way).
+  - **R3 rubber banding: 2 MB chip RAM in HyperRAM (branch `r3`, 2026-11-04; design, benches
+    and builds: `doc/developers/rubber-band.md`).** After the experiments (pause safety, chip_hr's
+    data path for OCS/AGA/68020/A1200, 2x never behind real time, real-time video, the handshake
+    rule) the FPGA design: `C_R3_RUBBER` (globals.vhd) puts the Amiga and everything in
+    mega65.vhd that talks to it on `amiga_clk`, a BUFGCE-gated copy of the free-running `rb_clk`
+    (clk.vhd CLKOUT3, 1135/23 = 49.35 MHz = 1.74 x PAL); the framework's real-time interface goes
+    through `rb_bridge.vhd` (an in-FIFO of real-time inputs that paces the Amiga, an out-FIFO that
+    replays video, raw audio, LEDs and the serial port 2048 clocks later) and `rb_audio.vhd`
+    (main.vhd's filters and volume in real time); settings/RTC/resets via cdc_stable and 2-FF
+    synchronizers. `chip_hr.vhd` serves chip RAM (HyperRAM words 200000-2FFFFF) and slow RAM
+    (340000-37FFFF) through its own avm_fifo into the RTG blitter's arbiter port; Zorro II Fast
+    RAM 2 MB; the menu allows 2 MB chip and slow RAM with any chip size again. ide_board's
+    diagnostics words 12/13 carry the underflow count, the lowest out-FIFO level and chip_hr's
+    line fills (IDE_DIAG firmware: debug UART). Bench `~/aexp-work/rbbridge` (rb_bridge, 7/7
+    mutants); it found that an underflow left the latency permanently high (fixed: the in-FIFO's
+    backlog is dropped while the reader re-primes). Build rb-a (51.59 MHz): only TG68K's 41-level
+    register-file path failed (-0.580), closed by the post-route phys_opt with +0.003 - too thin,
+    so the clock went down to 49.35 MHz (rb-b).
+    Then 4 MB Fast RAM again (the user: "Move kick and slow to free up for 4 MB Fast"): the
+    Kickstart into 512 KB of the block RAM the chip RAM left (`amiga_mem_r3` `G_KICK_BRAM`, 128
+    tiles; registered address and output, answered two clocks after it is taken, no cache), chip
+    RAM to HyperRAM words 300000-3FFFFF, slow RAM into the chip RAM's upper half (380000-3BFFFF,
+    so only next to 512 KB or 1 MB chip RAM: prof_decode + menu), Zorro II back to 4 MB
+    (100000-2FFFFF); other chipset-port banks read 0 and write nothing (strobes masked before
+    chip_hr). All 8 MB of HyperRAM in use. Bench `~/aexp-work/r3mem` gained `G_KBRAM` (Kickstart
+    checked through CPU reads, no Avalon access to its old words): 12/12 runs, 19/19 mutants.
+    Builds rb-d (R3; rb-c had crashed Vivado in incremental synthesis): WNS +0.089, WHS +0.002,
+    249/365 tiles; r6rb-b (R6 test): WNS +0.073, WHS +0.040.
+    Hardware test on the R6 the same day (details in rubber-band.md, "Hardware test on the R6"):
+    boot, 2 MB chip + 4 MB fast (`avail`, AmigaTestKit 4 passes clean), SysInfo 6.7 MB/s. Workbench
+    after SetPatch (AGA FMODE 3) showed one 16-pixel column in four plus snow: chip48 must be HELD
+    from the read's edge k+2 like sdram_ctrl.v (Denise takes it half a 7 MHz cycle later), and
+    mega65.vhd must not mask it with the current address's ch_valid - fixed in r6rb-d (both), the
+    pause bench now models and checks the hold. Then VGA blackouts / the CRT's top lines shaking
+    while Workbench drew (HDMI fine): out-FIFO underflows - the Amiga fell behind real time during
+    blits (a chip RAM miss cost ~1 us on the hardware, 0.83 us with the framework arbiter
+    round-robin; a 4x deeper FIFO did not help). Measured with diagnostics builds r6rb-e..j (a
+    stream checker, a gated-clock edge check: 0 mismatches, max lag, wait clocks and misses on the
+    IDE board's diag UART line - whose last two words are the debug word; reading one word too
+    early first hid the underflows). Remedy (the user: "Go ahead with prefetch and
+    fill-before-write-back"): chip_hr's tagged next-line prefetch and demand fills that pass
+    unrelated write-backs; misses -79 % in the pause bench with a slow HyperRAM model; new unit
+    bench `~/aexp-work/chiphr` (7/10 mutants killed, the rest analysed). The rb_bridge FIFOs are
+    16K deep now (G_DELAY 8192, 283 tiles). Test builds r6rb-k (scaler first) and r6rb-l
+    (round-robin) failed: Vivado built the tags from 6,144 flip-flops (a second write address),
+    +23K LUTs, unroutable / WNS -2.4 ns, and tag writes depended on the late chipset address.
+    Restructured (per-way LUT RAM written only at f_way/f_set, victim invalidated one clock after
+    the issue, write-through in the validation clock, v_wpost by the last clock's hit, demand
+    exclusion at the request; chip_hr OOC 25,464 -> 2,710 LUTs); benches identical, unit-bench
+    mutants `pause/pfmut2` 11/14 killed. Rebuilt as r6rb-m (scaler first) and r6rb-n
+    (round-robin): HW misses while drawing 200K/s -> 13-34K/s, underflows 456/789 -> 74/175,
+    but the CRT shook "as bad" - any underflow re-primes the reader. So the lead: G_DELAY 3/4 of
+    the FIFO depth (the rb_bridge bench: at 94 % the latency never recovers after an underflow,
+    up to 81 % it does), builds r6rb-o (16K, 433 us) and r6rb-p (32K, 866 us), lag per 1.36 s
+    window on the diag line. r6rb-o still shook and stayed 165 us behind afterwards: a bug in
+    rb_bridge's re-prime (the reader restarted with part of the in-FIFO backlog left, the latency
+    grew with every underflow - at any ratio, 50 % included). Fixed (out-FIFO filled only to
+    G_DELAY while priming, restart only with the backlog gone; bench 9/9 mutants), G_DELAY =
+    depth - 512: r6rb-q (559 us), r6rb-r (1.14 ms). A Workbench-like load for the pause bench
+    (`dma_wb.S`, `wbperf.sh` at 1.74 x) reproduces the underflows and says 1.14 ms suffices for
+    it. On the way the user found the DB9 mouse's jerky vertical axis on main: the
+    chipset backport's opposite-direction filter, fixed separately (main 0e0b573).
+    2026-11-05: r6rb-r (1.14 ms) and r6rb-s (+ a 16-bpp scaler) still shook. rb_bridge's lag
+    statistic now counts the words a re-prime discards (the "virtual lag": the lead the Amiga would
+    have needed; r6rb-t). The cause, found in the pause bench (lag per 20 ms frame): Workbench's
+    outlines are blitter line draws that miss on every pixel, and the 160 KB of bitplanes a frame
+    push those rows out of the 16 KB cache - 128 KB brings the lag from ~1.0 to ~0.13 ms a frame.
+    A 128 KB first level missed timing (r6rb-u/-v/-w: the 1024-deep tag lookup in the clock the
+    chipset address arrives; on the way a stale-tag bug and a 16K-LUT flip-flop blow-up were
+    fixed); r6rb-x (that at 1.67 x) closed. The design kept: chip_hr's 16 KB first level as it was
+    plus a 128 KB SECOND level (G_L2_BITS; tags read at registered addresses, data in block RAM,
+    a copy in ~6 clocks instead of ~1 us of HyperRAM, write-backs update it), unit bench
+    `tb_chip_hr2` + mutants `pause/pfmut4`. With 32K FIFOs the block RAM was full (r6rb-y
+    unroutable); with 16K (559 us): r6rb-z, WNS +0.042, 315 tiles - on the R6 the user could no
+    longer make the CRT shake (0 underflows, largest virtual lag 342 us), and an AGA demo part that
+    always slowed down runs at full speed. The pause bench's `regress.sh` had failed since
+    11-04 on test-script filters (fixed: PASS). Chip RAM writers checked (only chip_hr writes its
+    HyperRAM words). Branch `r3-wip` (99eef7f, Minimig aec6ab6). R3 build `rb-e` (REF rb-d,
+    no incremental synthesis): WNS +0.108, WHS +0.002, 57.8K LUTs, 315 tiles. On the real R3
+    (2026-11-06, over JTAG): Workbench from an HD partition, picture on VGA and HDMI, VGA steady
+    while Workbench draws, AmigaVision and the user's reference AGA demo fine. Once, on the first
+    AmigaVision start after the JTAG load, a Software Failure #8000000B (Line-F) and after
+    choosing Debug a dead menu (QNICE no longer serving the IDE: HD LED on after a reset); after
+    a long reset it never came back - open. Merged into main (Minimig: r3-wip into develop).
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,

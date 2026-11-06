@@ -19,16 +19,25 @@ proc pal_leg_gate {} {
     set gate {}
     set ::pal_wns ""
     set ::pal_whs ""
-    foreach pin {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S} {
+    # Megamiga, November 2026: the R3 has no SDRAM, so no 4x clock (its mux is trimmed): only
+    # the core clock's leg is timed there
+    set r3 [expr {$::board eq "R3"}]
+    set muxes {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S}
+    if {$r3} { set muxes {CORE/clk_gen/i_bufgmux/S} }
+    foreach pin $muxes {
         if {[llength [get_pins -quiet $pin]] == 0} {
             return [list "PAL leg: $pin missing"]
         }
     }
     set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux/S]
-    set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux4x/S]
     create_generated_clock -name pal_main [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
-    create_generated_clock -name pal_4x   [get_pins CORE/clk_gen/i_clk_main/CLKOUT1]
-    foreach {a b} {pal_main pal_main pal_main pal_4x pal_4x pal_main pal_4x pal_4x} {
+    set pairs {pal_main pal_main}
+    if {!$r3} {
+        set_case_analysis 0 [get_pins CORE/clk_gen/i_bufgmux4x/S]
+        create_generated_clock -name pal_4x   [get_pins CORE/clk_gen/i_clk_main/CLKOUT1]
+        set pairs {pal_main pal_main pal_main pal_4x pal_4x pal_main pal_4x pal_4x}
+    }
+    foreach {a b} $pairs {
         foreach {d t} {setup max hold min} {
             set p [get_timing_paths -quiet -from [get_clocks $a] -to [get_clocks $b] -delay_type $t -max_paths 1]
             if {[llength $p] == 0} { continue }

@@ -401,6 +401,134 @@ signal main_ram_oe_n          : std_logic;
 -- below in the same clock domain (no CDC). main_fastram_en is the menu bit gated
 -- by the board: R3 has no SDRAM, so there the Amiga never sees the board.
 constant C_HAS_SDRAM          : boolean := G_BOARD /= "MEGA65_R3";
+function f_sdram_sl(b : string) return std_logic is
+begin
+   if b = "MEGA65_R3" then return '0'; else return '1'; end if;
+end function f_sdram_sl;
+constant C_SDRAM_SL           : std_logic := f_sdram_sl(G_BOARD);   -- C_HAS_SDRAM as a bit
+
+-- Megamiga, November 2026: rubber banding on R3 (doc/developers/rubber-band.md): up to 2 MB chip
+-- RAM in HyperRAM behind chip_hr.vhd. The Amiga - main.vhd and everything in this file that talks
+-- to it - runs on amiga_clk, a gated copy of the free-running rb_clk (clk.vhd); its real-time I/O
+-- goes through rb_bridge.vhd's FIFOs, the framework's main_clk signals reach it synchronized.
+-- Without rubber banding amiga_clk is main_clk, amiga_rst is main_rst and every bridge is a wire.
+constant C_RB_ENABLE          : boolean := C_R3_RUBBER;   -- globals.vhd
+constant C_RB                 : boolean := C_RB_ENABLE and not C_HAS_SDRAM;
+signal amiga_clk              : std_logic;               -- the Amiga's clock (gated with C_RB)
+signal amiga_rst              : std_logic;
+signal rb_clk                 : std_logic;               -- the free-running clock (C_RB)
+signal rb_rst                 : std_logic;
+signal rb_gate                : std_logic;               -- the Amiga takes the next rb_clk edge
+signal rb_edge                : std_logic;               -- ... this one (= rb_gate)
+signal rb_chip_go             : std_logic;
+-- the framework's main_clk signals in the Amiga's clock domain
+signal a_osm                  : std_logic_vector(255 downto 0);
+signal a_rtc                  : std_logic_vector(64 downto 0);
+signal a_reset_m2m            : std_logic;
+signal a_reset_core           : std_logic;
+signal a_pause                : std_logic;
+signal rb_meta_rst            : std_logic_vector(2 downto 0) := (others => '0');
+signal rb_sync_rst            : std_logic_vector(2 downto 0) := (others => '0');
+-- the real-time inputs, a word per main_clk: key number 7, key pressed 1, joysticks 2 x 5
+-- (up, down, left, right, fire), pots 4 x 8, serial RXD and CTS
+constant C_RB_IN_W            : natural := 52;
+signal rb_rt_in               : std_logic_vector(C_RB_IN_W - 1 downto 0);
+signal rb_a_in                : std_logic_vector(C_RB_IN_W - 1 downto 0);
+signal a_kb_key_num           : integer range 0 to 79;
+signal a_kb_key_pressed_n     : std_logic;
+signal a_joy_1                : std_logic_vector(4 downto 0);
+signal a_joy_2                : std_logic_vector(4 downto 0);
+signal a_pots                 : std_logic_vector(31 downto 0);
+signal a_uart_rxd             : std_logic;
+signal a_uart_cts_n           : std_logic;
+-- the real-time outputs, a word per Amiga clock: video 32 (ce, ce_ovl, R, G, B, vs, hs, hblank,
+-- vblank, fl, 60 Hz), Paula's raw audio 32 (left, right, the filters' ce, power LED), LEDs 3,
+-- osm_block, serial TXD and RTS
+constant C_RB_OUT_W           : natural := 70;
+signal rb_a_out               : std_logic_vector(C_RB_OUT_W - 1 downto 0);
+signal rb_rt_out              : std_logic_vector(C_RB_OUT_W - 1 downto 0);
+signal rb_rt_valid            : std_logic;
+signal rb_under               : unsigned(15 downto 0);
+-- the FIFOs and the lag budget: in-level + out-level = G_DELAY, also after an underflow (rb_bridge
+-- restarts the reader only with the backlog gone, 2026-11-04), so the depth needs only a margin
+-- above it. 2026-11-04: 8192 of 16K still underflowed in Workbench with the prefetch (bursts of
+-- blitter misses at the top of the field)
+constant C_RB_DEPTH_LOG2      : natural := 14;
+constant C_RB_DELAY           : natural := 2 ** C_RB_DEPTH_LOG2 - 512;   -- 15872 = 559 us
+signal rb_minlvl              : unsigned(C_RB_DEPTH_LOG2 downto 0);
+signal rb_stall               : unsigned(31 downto 0) := (others => '0');   -- rb_clk clocks with chip_hr's go = '0'
+signal rb_lagmax              : unsigned(23 downto 0);
+signal rb_lagclr              : std_logic := '0';
+signal rb_lagwin              : unsigned(25 downto 0) := (others => '0');   -- 1.36 s windows
+signal rb_lagsnap             : unsigned(15 downto 0) := (others => '0');   -- the last window's max lag / 16
+signal a_video_ce             : std_logic;
+signal a_video_ce_ovl         : std_logic;
+signal a_video_red            : std_logic_vector(7 downto 0);
+signal a_video_green          : std_logic_vector(7 downto 0);
+signal a_video_blue           : std_logic_vector(7 downto 0);
+signal a_video_vs             : std_logic;
+signal a_video_hs             : std_logic;
+signal a_video_hblank         : std_logic;
+signal a_video_vblank         : std_logic;
+signal a_video_fl             : std_logic;
+signal a_flt_audio_l          : signed(15 downto 0);     -- main.vhd's filtered audio
+signal a_flt_audio_r          : signed(15 downto 0);
+signal a_aud_raw_l            : std_logic_vector(14 downto 0);
+signal a_aud_raw_r            : std_logic_vector(14 downto 0);
+signal a_aud_ce               : std_logic;
+signal a_osm_block            : std_logic;
+signal a_uart_txd             : std_logic;
+signal a_uart_rts_n           : std_logic;
+signal rt_vid60               : std_logic;
+signal rt_fdd_led             : std_logic;
+signal rt_adf_any_dirty       : std_logic;
+signal rt_hd_led              : std_logic;
+signal rt_audio_l             : signed(15 downto 0);
+signal rt_audio_r             : signed(15 downto 0);
+signal rt_aud_ce              : std_logic;
+-- chip RAM in HyperRAM (chip_hr.vhd, rb_clk): the chipset port as chip_hr sees it (the cold-boot
+-- scrub owns it while amiga_chip_scrub), its answer, and its HyperRAM master
+signal ch_ram_addr            : std_logic_vector(22 downto 1);
+signal ch_ram_wrdata          : std_logic_vector(15 downto 0);
+signal ch_ram_bhe_n           : std_logic;
+signal ch_ram_ble_n           : std_logic;
+signal ch_ram_we_n            : std_logic;
+signal ch_ram_oe_n            : std_logic;
+signal ch_ram_rddata          : std_logic_vector(15 downto 0);
+signal ch_chip48              : std_logic_vector(47 downto 0);
+signal ch_hr_addr             : std_logic_vector(22 downto 1);   -- the HyperRAM word
+signal ch_valid               : std_logic;                       -- a chip or slow RAM bank
+signal ch_hr_we_n             : std_logic;
+signal ch_hr_oe_n             : std_logic;
+signal ch_hr_rddata           : std_logic_vector(15 downto 0);
+signal ch_hr_chip48           : std_logic_vector(47 downto 0);
+signal ch_avm_write           : std_logic;
+signal ch_avm_read            : std_logic;
+signal ch_avm_address         : std_logic_vector(31 downto 0);
+signal ch_avm_writedata       : std_logic_vector(15 downto 0);
+signal ch_avm_byteenable      : std_logic_vector(1 downto 0);
+signal ch_avm_burstcount      : std_logic_vector(7 downto 0);
+signal ch_avm_readdata        : std_logic_vector(15 downto 0);
+signal ch_avm_readdatavalid   : std_logic;
+signal ch_avm_waitrequest     : std_logic;
+signal hr_ch_avm_write        : std_logic;
+signal hr_ch_avm_read         : std_logic;
+signal hr_ch_avm_address      : std_logic_vector(31 downto 0);
+signal hr_ch_avm_writedata    : std_logic_vector(15 downto 0);
+signal hr_ch_avm_byteenable   : std_logic_vector(1 downto 0);
+signal hr_ch_avm_burstcount   : std_logic_vector(7 downto 0);
+signal hr_ch_avm_readdata     : std_logic_vector(15 downto 0);
+signal hr_ch_avm_readdatavalid : std_logic;
+signal hr_ch_avm_waitrequest  : std_logic;
+signal ch_n_read              : unsigned(31 downto 0);
+signal ch_n_miss              : unsigned(31 downto 0);
+signal ch_n_pfhit            : unsigned(31 downto 0);
+signal ch_n_flush             : unsigned(31 downto 0);
+-- ide_board's diagnostics counters 12/13 (IDE_DIAG firmware: on the debug UART): the CPU's
+-- address/state/stall, or with rubber banding the underflows, the lowest out-FIFO level since the
+-- reset and chip_hr's line fills
+signal main_dbg_word          : std_logic_vector(63 downto 0);
+signal a_rb_stat              : std_logic_vector(28 downto 0);
 signal main_fastram_en        : std_logic;
 signal main_fram_sel          : std_logic;
 signal main_fram_we           : std_logic;
@@ -455,6 +583,35 @@ signal main_fram_rtg          : std_logic;
 signal main_sdram_fram_sel    : std_logic;
 signal main_sdram_rddata      : std_logic_vector(15 downto 0);
 signal main_sdram_ready       : std_logic;
+-- Megamiga, November 2026 (R3): the outputs of amiga_sdram, rtg_vram and rtg_blitter, and of
+-- amiga_mem_r3, before C_HAS_SDRAM selects (the instances keep their names on every board)
+signal sd_ram_rddata, sd_fram_rddata                 : std_logic_vector(15 downto 0);
+signal sd_chip48                                     : std_logic_vector(47 downto 0);
+signal sd_fram_ready, sd_kick_wait, sd_kick_busy     : std_logic;
+signal sd_maint_idle, sd_cart_busy, sd_fp_ack        : std_logic;
+signal sd_dm_ack                                     : std_logic;
+signal sd_fp_rdata                                   : std_logic_vector(127 downto 0);
+signal r3_ram_rddata, r3_fram_rddata                 : std_logic_vector(15 downto 0) := (others => '0');
+signal r3_chip48                                     : std_logic_vector(47 downto 0) := (others => '0');
+signal r3_fram_ready, r3_kick_wait, r3_kick_busy     : std_logic := '0';
+signal r3_maint_idle                                 : std_logic := '1';
+signal r3_avm_write, r3_avm_read                     : std_logic := '0';
+signal r3_avm_address                                : std_logic_vector(31 downto 0) := (others => '0');
+signal r3_avm_writedata                              : std_logic_vector(15 downto 0) := (others => '0');
+signal r3_avm_byteenable                             : std_logic_vector(1 downto 0) := (others => '0');
+signal r3_avm_burstcount                             : std_logic_vector(7 downto 0) := (others => '0');
+signal rtg_avm_write, rtg_avm_read                   : std_logic;
+signal rtg_avm_address                               : std_logic_vector(31 downto 0);
+signal rtg_avm_writedata                             : std_logic_vector(15 downto 0);
+signal rtg_avm_byteenable                            : std_logic_vector(1 downto 0);
+signal rtg_avm_burstcount                            : std_logic_vector(7 downto 0);
+signal blt_dout                                      : std_logic_vector(15 downto 0);
+signal blt_busy, blt_flush                           : std_logic;
+signal blt_avm_write, blt_avm_read                   : std_logic;
+signal blt_avm_address                               : std_logic_vector(31 downto 0);
+signal blt_avm_writedata                             : std_logic_vector(15 downto 0);
+signal blt_avm_byteenable                            : std_logic_vector(1 downto 0);
+signal blt_avm_burstcount                            : std_logic_vector(7 downto 0);
 signal main_vram_rddata       : std_logic_vector(15 downto 0);
 signal main_vram_ready        : std_logic;
 signal main_vram_rst          : std_logic;
@@ -1262,6 +1419,9 @@ begin
    -- 28.636364 MHz NTSC master clock of the second MMCM (AExp: the 28.4375 MHz HDMI
    -- flicker-free "fast" twin selected by hr_core_speed, issue #12; never used by Megamiga)
    clk_gen : entity work.clk
+      generic map (
+         G_RB              => C_RB             -- Megamiga, November 2026: rubber banding
+      )
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
          -- Megamiga: the core clock and its 4x SDRAM twin, PAL or NTSC; switched by
@@ -1271,7 +1431,11 @@ begin
          main_clk_o        => main_clk,        -- CORE's 28.375 / 28.636364 MHz clock
          main_clk4x_o      => main_clk4x,      -- 113.5 MHz for the SDRAM controller
          main_rst_o        => main_rst,        -- CORE's reset, synchronized
-         cpu_clk_o         => main_clkcpu      -- Megamiga (cpu040): the AP68040's clock
+         cpu_clk_o         => main_clkcpu,     -- Megamiga (cpu040): the AP68040's clock
+         gate_i            => rb_gate,         -- Megamiga (rubber banding): the Amiga's clock
+         rb_clk_o          => rb_clk,
+         rb_rst_o          => rb_rst,
+         amiga_clk_o       => amiga_clk
       ); -- clk_gen
 
    main_clk_o  <= main_clk;
@@ -1295,15 +1459,21 @@ begin
    --            C_HD_LED_HOLD so that single short accesses still flash)
    --   YELLOW = floppy activity (Paula disk DMA)
    --   ORANGE = hard disk and floppy at the same time
-   main_drive_led_o     <= main_fdd_led or main_adf_any_dirty or main_hd_led;
-   main_drive_led_col_o <= x"00FF00" when main_adf_any_dirty = '1' else
-                           x"FF8000" when main_hd_led = '1' and main_fdd_led = '1' else
-                           x"FF0000" when main_hd_led = '1' else
+   -- Megamiga, November 2026: rt_* = the Amiga's LEDs replayed in real time (rb_bridge)
+   --main_drive_led_o     <= main_fdd_led or main_adf_any_dirty or main_hd_led;
+   --main_drive_led_col_o <= x"00FF00" when main_adf_any_dirty = '1' else
+   --                        x"FF8000" when main_hd_led = '1' and main_fdd_led = '1' else
+   --                        x"FF0000" when main_hd_led = '1' else
+   --                        x"FFFF00";
+   main_drive_led_o     <= rt_fdd_led or rt_adf_any_dirty or rt_hd_led;
+   main_drive_led_col_o <= x"00FF00" when rt_adf_any_dirty = '1' else
+                           x"FF8000" when rt_hd_led = '1' and rt_fdd_led = '1' else
+                           x"FF0000" when rt_hd_led = '1' else
                            x"FFFF00";
 
-   p_hd_led : process (main_clk)
+   p_hd_led : process (amiga_clk)
    begin
-      if rising_edge(main_clk) then
+      if rising_edge(amiga_clk) then
          if main_ide_activity = '1' then
             main_hd_led_cnt <= to_unsigned(C_HD_LED_HOLD, main_hd_led_cnt'length);
             main_hd_led     <= '1';
@@ -1375,14 +1545,14 @@ begin
    -- firmware enforces the same thing in the menu, this is the belt).
    -- Fall-through defaults reproduce the OPTM_G_STDSEL lines, so the core
    -- behaves per the standard configuration while QNICE is still booting.
-   drv_decode : process (main_osm_control_i)
+   drv_decode : process (a_osm)
       variable v_count : natural range 1 to 3;
       variable v_mode  : std_logic_vector(1 downto 0);
       variable v_phys  : std_logic;
    begin
-      if main_osm_control_i(C_MENU_DRIVES_3) = '1' then
+      if a_osm(C_MENU_DRIVES_3) = '1' then
          v_count := 3;
-      elsif main_osm_control_i(C_MENU_DRIVES_2) = '1' then
+      elsif a_osm(C_MENU_DRIVES_2) = '1' then
          v_count := 2;
       else
          v_count := 1;                                      -- OPTM_G_STDSEL default
@@ -1395,23 +1565,23 @@ begin
 
       for u in 0 to 2 loop
          if u = 0 then
-            if main_osm_control_i(C_MENU_DF0_HW) = '1' then
+            if a_osm(C_MENU_DF0_HW) = '1' then
                v_mode := C_DRV_HW;
             else
                v_mode := C_DRV_IMAGE;                       -- OPTM_G_STDSEL default
             end if;
          elsif u = 1 then
-            if main_osm_control_i(C_MENU_DF1_IMG) = '1' then
+            if a_osm(C_MENU_DF1_IMG) = '1' then
                v_mode := C_DRV_IMAGE;
-            elsif main_osm_control_i(C_MENU_DF1_HW) = '1' then
+            elsif a_osm(C_MENU_DF1_HW) = '1' then
                v_mode := C_DRV_HW;
             else
                v_mode := C_DRV_OFF;                         -- OPTM_G_STDSEL default
             end if;
          else
-            if main_osm_control_i(C_MENU_DF2_IMG) = '1' then
+            if a_osm(C_MENU_DF2_IMG) = '1' then
                v_mode := C_DRV_IMAGE;
-            elsif main_osm_control_i(C_MENU_DF2_HW) = '1' then
+            elsif a_osm(C_MENU_DF2_HW) = '1' then
                v_mode := C_DRV_HW;
             else
                v_mode := C_DRV_OFF;                         -- OPTM_G_STDSEL default
@@ -1460,54 +1630,81 @@ begin
       -- the 68040 takes the 68020's bus (cpucfg "11", Zorro III, RTG): main_cpu_020 is set for both
       --main_cpu_020 <= main_osm_control_i(v_base + C_PROF_CPU_020);
       --main_z3_ram  <= main_osm_control_i(v_base + C_PROF_Z3) and main_osm_control_i(v_base + C_PROF_CPU_020);
-      main_cpu_020 <= main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040);
-      main_cpu_040 <= main_osm_control_i(v_base + C_PROF_CPU_040);
+      main_cpu_020 <= a_osm(v_base + C_PROF_CPU_020) or a_osm(v_base + C_PROF_CPU_040);
+      main_cpu_040 <= a_osm(v_base + C_PROF_CPU_040);
+      -- Megamiga, November 2026: no 68040 on the R3 (main.vhd builds no island there); a
+      -- 68040 profile runs the 68020 instead
+      if not C_HAS_SDRAM then
+         main_cpu_040 <= '0';
+      end if;
       -- Megamiga 0.7: both Zorro III boards are in the board SDRAM: R4+ only, like the Fast RAM
       --main_z3_ram  <= main_osm_control_i(v_base + C_PROF_Z3) and
       --                (main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040));
       if C_HAS_SDRAM then
-         main_z3_ram  <= main_osm_control_i(v_base + C_PROF_Z3) and
-                         (main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040));
-         main_z3b_ram <= main_osm_control_i(v_base + C_PROF_Z3B) and
-                         (main_osm_control_i(v_base + C_PROF_CPU_020) or main_osm_control_i(v_base + C_PROF_CPU_040));
+         main_z3_ram  <= a_osm(v_base + C_PROF_Z3) and
+                         (a_osm(v_base + C_PROF_CPU_020) or a_osm(v_base + C_PROF_CPU_040));
+         main_z3b_ram <= a_osm(v_base + C_PROF_Z3B) and
+                         (a_osm(v_base + C_PROF_CPU_020) or a_osm(v_base + C_PROF_CPU_040));
       else
          main_z3_ram  <= '0';
          main_z3b_ram <= '0';
       end if;
-      main_slow_ram <= main_osm_control_i(v_base + C_PROF_SLOW);
+      main_slow_ram <= a_osm(v_base + C_PROF_SLOW);
       -- Megamiga 0.7: the HDFs on the A600/A1200 Gayle instead of the RIPPLE board
-      main_gayle    <= main_osm_control_i(v_base + C_PROF_GAYLE);
+      main_gayle    <= a_osm(v_base + C_PROF_GAYLE);
       -- Megamiga 0.7 (menu rows): the controller radio None / Gayle / RIPPLE board, and the
       -- graphics and network card switches of the Zorro Boards section
-      main_ide_none <= main_osm_control_i(v_base + C_PROF_HDC_NONE);
-      main_rtg_card <= main_osm_control_i(v_base + C_PROF_GFX);
-      main_eth_card <= main_osm_control_i(v_base + C_PROF_NET);
-      if C_HAS_SDRAM then
-         main_fastram_en <= main_osm_control_i(v_base + C_PROF_FAST);
-      else
-         main_fastram_en <= '0';
+      main_ide_none <= a_osm(v_base + C_PROF_HDC_NONE);
+      main_rtg_card <= a_osm(v_base + C_PROF_GFX);
+      if not C_HAS_SDRAM then                       -- Megamiga, November 2026: no RTG on R3
+         main_rtg_card <= '0';
       end if;
+      main_eth_card <= a_osm(v_base + C_PROF_NET);
+      -- Megamiga, November 2026: on R3 the Zorro II Fast RAM is 4 MB in HyperRAM
+      -- (amiga_mem_r3.vhd; main.vhd configures 4 MB there). Original:
+      --if C_HAS_SDRAM then
+      --   main_fastram_en <= main_osm_control_i(v_base + C_PROF_FAST);
+      --else
+      --   main_fastram_en <= '0';
+      --end if;
+      main_fastram_en <= a_osm(v_base + C_PROF_FAST);
 
       -- chipset radio: AGA / OCS explicitly, everything else is ECS
-      if main_osm_control_i(v_base + C_PROF_CS_AGA) = '1' then
+      if a_osm(v_base + C_PROF_CS_AGA) = '1' then
          main_chipset <= "10";
-      elsif main_osm_control_i(v_base + C_PROF_CS_OCS) = '1' then
+      elsif a_osm(v_base + C_PROF_CS_OCS) = '1' then
          main_chipset <= "00";
       else
          main_chipset <= "01";
       end if;
 
       -- chip RAM radio: userio 0xF5 CC = 00 512 KB, 01 1 MB, 11 2 MB
-      if main_osm_control_i(v_base + C_PROF_CHIP_2M) = '1' then
+      if a_osm(v_base + C_PROF_CHIP_2M) = '1' then
          main_chip_size <= "11";
-      elsif main_osm_control_i(v_base + C_PROF_CHIP_1M) = '1' then
+      elsif a_osm(v_base + C_PROF_CHIP_1M) = '1' then
          main_chip_size <= "01";
       else
          main_chip_size <= "00";
       end if;
+      -- Megamiga, November 2026: on R3 chip and slow RAM share 1 MB of block RAM
+      -- (amiga_mem_r3.vhd): at most 1 MB chip RAM, and slow RAM only with 512 KB chip RAM
+      -- (rubber banding: chip RAM in HyperRAM, up to 2 MB; slow RAM shares the chip RAM's 2 MB of
+      -- HyperRAM, so only with up to 1 MB chip RAM)
+      if not C_HAS_SDRAM and not C_RB and (a_osm(v_base + C_PROF_CHIP_2M) = '1' or
+                              a_osm(v_base + C_PROF_CHIP_1M) = '1') then
+         main_chip_size <= "01";
+         main_slow_ram  <= '0';
+      end if;
+      if C_RB and a_osm(v_base + C_PROF_CHIP_2M) = '1' then
+         main_slow_ram  <= '0';
+      end if;
       -- Megamiga: the cartridge radio (None is the STDSEL default and the fall-through)
-      main_cart_hrt_sel <= main_osm_control_i(v_base + C_PROF_CART_HRT);
-      main_cart_ar3_sel <= main_osm_control_i(v_base + C_PROF_CART_AR3);
+      main_cart_hrt_sel <= a_osm(v_base + C_PROF_CART_HRT);
+      main_cart_ar3_sel <= a_osm(v_base + C_PROF_CART_AR3);
+      if not C_HAS_SDRAM then                       -- Megamiga, November 2026: no cartridges on R3
+         main_cart_hrt_sel <= '0';
+         main_cart_ar3_sel <= '0';
+      end if;
    end process prof_decode;
 
    -- Megamiga: the cartridge that should be plugged in. The Action Replay III only counts
@@ -1532,9 +1729,9 @@ begin
    -- (Kickstart, scrub, cartridge) is idle and the two toggle-handshake ports (the IDE board's
    -- DMA, the AP68040's Fast RAM port) have no request outstanding. The chipset and the CPU bus
    -- are quiet anyway: amiga_cold_boot only looks at this while it holds the Amiga in reset.
-   p_sdram_quiet : process (main_clk)
+   p_sdram_quiet : process (amiga_clk)
    begin
-      if rising_edge(main_clk) then
+      if rising_edge(amiga_clk) then
          if main_maint_idle = '1' and ide_dm_req = ide_dm_ack and main_fp_req = main_fp_ack then
             main_sdram_quiet <= '1';
          else
@@ -1545,7 +1742,7 @@ begin
 
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
-         clk_i             => main_clk,
+         clk_i             => amiga_clk,
          slow_ram_i        => main_slow_ram,
          fast_ram_i        => main_fastram_en,
          cpu_020_i         => main_cpu_020,
@@ -1560,7 +1757,7 @@ begin
          kick_hold_i       => main_kick_hold,
          cart_i            => main_cart_req,
          cart_busy_i       => main_cart_busy,
-         ntsc_i            => main_osm_control_i(C_MENU_NTSC),
+         ntsc_i            => a_osm(C_MENU_NTSC),
          sdram_quiet_i     => main_sdram_quiet,
          ntsc_o            => main_ntsc,
          pause_o           => main_sdram_pause,
@@ -1577,22 +1774,23 @@ begin
          G_VDNUM              => C_VDNUM,
          G_ADF_BASE_DF0       => C_HMAP_ADF_DF0(9 downto 0) & x"000",
          G_ADF_BASE_DF1       => C_HMAP_ADF_DF1(9 downto 0) & x"000",
-         G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000"
+         G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000",
+         G_R3                 => not C_HAS_SDRAM      -- Megamiga, November 2026
       )
       port map (
-         clk_main_i           => main_clk,
+         clk_main_i           => amiga_clk,
          clk_cpu_i            => main_clkcpu,
-         reset_soft_i         => main_reset_core_i or amiga_cold_reset,
-         reset_hard_i         => main_reset_m2m_i,
-         pause_i              => main_pause_core_i,
+         reset_soft_i         => a_reset_core or amiga_cold_reset,
+         reset_hard_i         => a_reset_m2m,
+         pause_i              => a_pause,
 
          clk_main_speed_i     => CORE_CLK_SPEED,
 
          -- VGA output mode from the OSM: in the two retro 15 kHz modes the
          -- framework's scandoubler is bypassed and main.vhd halves the OSM
          -- overlay sampling rate accordingly
-         video_retro15khz_i   => main_osm_control_i(C_MENU_VGA_15KHZHSVS) or
-                                 main_osm_control_i(C_MENU_VGA_15KHZCS),
+         video_retro15khz_i   => a_osm(C_MENU_VGA_15KHZHSVS) or
+                                 a_osm(C_MENU_VGA_15KHZCS),
 
          -- Video output: PAL 15.625 kHz raw Amiga signal on the 28.375 MHz clock;
          -- the framework's scandoubler (on in the Standard VGA mode) doubles it
@@ -1600,16 +1798,16 @@ begin
          -- field (toggles while LACE is set), which lets ascal weave-deinterlace
          -- laced modes like 640x512 on the HDMI output; the VGA scandoubler stays
          -- field-blind (bob), while the 15 kHz modes show interlace CRT-native.
-         video_ce_o           => video_ce_o,
-         video_ce_ovl_o       => video_ce_ovl_o,
-         video_red_o          => video_red_o,
-         video_green_o        => video_green_o,
-         video_blue_o         => video_blue_o,
-         video_vs_o           => video_vs_o,
-         video_hs_o           => video_hs_o,
-         video_hblank_o       => video_hblank_o,
-         video_vblank_o       => video_vblank_o,
-         video_fl_o           => video_fl_o,
+         video_ce_o           => a_video_ce,
+         video_ce_ovl_o       => a_video_ce_ovl,
+         video_red_o          => a_video_red,
+         video_green_o        => a_video_green,
+         video_blue_o         => a_video_blue,
+         video_vs_o           => a_video_vs,
+         video_hs_o           => a_video_hs,
+         video_hblank_o       => a_video_hblank,
+         video_vblank_o       => a_video_vblank,
+         video_fl_o           => a_video_fl,
          video_60hz_o         => main_vid60,
 
          -- Master volume (OSM "Volume" radio): 0..20 step index = mute..100%
@@ -1617,13 +1815,13 @@ begin
 
          -- Paula output filters + stereo crossfeed (OSM "Audio" section):
          -- static bits, applied in main.vhd's audio_filters ahead of the volume
-         audio_a500_filter_i  => main_osm_control_i(C_MENU_A500FILT),
-         audio_led_filter_i   => main_osm_control_i(C_MENU_LEDFILT),
+         audio_a500_filter_i  => a_osm(C_MENU_A500FILT),
+         audio_led_filter_i   => a_osm(C_MENU_LEDFILT),
          audio_stereo_mix_i   => main_stereo_mix,
 
          -- audio output (pcm format, signed values)
-         audio_left_o         => main_audio_left_o,
-         audio_right_o        => main_audio_right_o,
+         audio_left_o         => a_flt_audio_l,
+         audio_right_o        => a_flt_audio_r,
 
          -- Amiga memory bus, served by the BRAMs below
          ram_addr_o           => main_ram_addr,
@@ -1659,13 +1857,13 @@ begin
          adf_avm_rderr_i         => main_adf_avm_rderr,
 
          -- M2M Keyboard interface
-         kb_key_num_i         => main_kb_key_num_i,
-         kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
+         kb_key_num_i         => a_kb_key_num,
+         kb_key_pressed_n_i   => a_kb_key_pressed_n,
 
          -- Keyboard mapping mode (issue #6): '1' = Amiga positional, '0' = MEGA65 semantic.
          -- Static OSM bit in the core clock domain, wired straight through to keyboard.vhd
          -- (like video_retro15khz_i above).
-         keyboard_mode_i      => main_osm_control_i(C_MENU_KBD_AMIGA),
+         keyboard_mode_i      => a_osm(C_MENU_KBD_AMIGA),
 
          -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present.
          -- Sampled by amiga_config.vhd during the Amiga-local cold boot above, so the new
@@ -1752,7 +1950,7 @@ begin
          cart_hrtmon_i        => main_cart_hrtmon,
          cart_ar3_i           => main_cart_ar3,
          cart_freeze_i        => main_menu_freeze,
-         osm_block_o          => osm_block_o,
+         osm_block_o          => a_osm_block,
 
          -- Floppy configuration, plus the Hardware Floppy CIA-B taps,
          -- conditioned real drive status and reconstructed word stream
@@ -1763,7 +1961,7 @@ begin
          hwf_phys_en_i        => main_hwf_en,
          hwf_fdd_ctrl_o       => main_hwf_ctrl,
          hwf_motor_on_o       => main_hwf_motor_on,
-         fdd_spinup_i         => main_osm_control_i(C_MENU_DRV_SPINUP),
+         fdd_spinup_i         => a_osm(C_MENU_DRV_SPINUP),
          hwf_change_n_i       => main_hwf_change_n,
          hwf_wprot_n_i        => main_hwf_wprot_n,
          hwf_track0_n_i       => main_hwf_track0_n,
@@ -1802,30 +2000,245 @@ begin
          hwf_wr_precmode_i    => main_hwf_precmode,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
-         joy_1_up_n_i         => main_joy_1_up_n_i ,
-         joy_1_down_n_i       => main_joy_1_down_n_i,
-         joy_1_left_n_i       => main_joy_1_left_n_i,
-         joy_1_right_n_i      => main_joy_1_right_n_i,
-         joy_1_fire_n_i       => main_joy_1_fire_n_i,
+         joy_1_up_n_i         => a_joy_1(4),
+         joy_1_down_n_i       => a_joy_1(3),
+         joy_1_left_n_i       => a_joy_1(2),
+         joy_1_right_n_i      => a_joy_1(1),
+         joy_1_fire_n_i       => a_joy_1(0),
 
-         joy_2_up_n_i         => main_joy_2_up_n_i,
-         joy_2_down_n_i       => main_joy_2_down_n_i,
-         joy_2_left_n_i       => main_joy_2_left_n_i,
-         joy_2_right_n_i      => main_joy_2_right_n_i,
-         joy_2_fire_n_i       => main_joy_2_fire_n_i,
+         joy_2_up_n_i         => a_joy_2(4),
+         joy_2_down_n_i       => a_joy_2(3),
+         joy_2_left_n_i       => a_joy_2(2),
+         joy_2_right_n_i      => a_joy_2(1),
+         joy_2_fire_n_i       => a_joy_2(0),
 
-         pot1_x_i             => main_pot1_x_i,
-         pot1_y_i             => main_pot1_y_i,
-         pot2_x_i             => main_pot2_x_i,
-         pot2_y_i             => main_pot2_y_i,
-         rtc_i                => main_rtc_i,
+         pot1_x_i             => a_pots(7 downto 0),
+         pot1_y_i             => a_pots(15 downto 8),
+         pot2_x_i             => a_pots(23 downto 16),
+         pot2_y_i             => a_pots(31 downto 24),
+         rtc_i                => a_rtc,
 
          -- Amiga serial port (PMOD1, see the pin driver below)
-         uart_rxd_i           => main_uart_rxd,
-         uart_txd_o           => main_uart_txd,
-         uart_cts_n_i         => main_uart_cts_n,
-         uart_rts_n_o         => main_uart_rts_n
+         uart_rxd_i           => a_uart_rxd,
+         uart_txd_o           => a_uart_txd,
+         uart_cts_n_i         => a_uart_cts_n,
+         uart_rts_n_o         => a_uart_rts_n,
+
+         aud_raw_l_o          => a_aud_raw_l,     -- Megamiga, November 2026 (rubber banding)
+         aud_raw_r_o          => a_aud_raw_r,
+         aud_ce_o             => a_aud_ce
       ); -- i_main
+
+   ---------------------------------------------------------------------------------------------
+   -- Megamiga, November 2026: rubber banding (doc/developers/rubber-band.md). rb_bridge paces the
+   -- Amiga (the gate of amiga_clk) and carries its real-time I/O; the framework's main_clk levels
+   -- reach the Amiga's clock domain through synchronizers. All of it is a wire without C_RB.
+   ---------------------------------------------------------------------------------------------
+
+   rb_rt_in(6 downto 0)   <= std_logic_vector(to_unsigned(main_kb_key_num_i, 7));
+   rb_rt_in(7)            <= main_kb_key_pressed_n_i;
+   rb_rt_in(12 downto 8)  <= main_joy_1_up_n_i & main_joy_1_down_n_i & main_joy_1_left_n_i &
+                             main_joy_1_right_n_i & main_joy_1_fire_n_i;
+   rb_rt_in(17 downto 13) <= main_joy_2_up_n_i & main_joy_2_down_n_i & main_joy_2_left_n_i &
+                             main_joy_2_right_n_i & main_joy_2_fire_n_i;
+   rb_rt_in(49 downto 18) <= main_pot2_y_i & main_pot2_x_i & main_pot1_y_i & main_pot1_x_i;
+   rb_rt_in(50)           <= main_uart_rxd;
+   rb_rt_in(51)           <= main_uart_cts_n;
+
+   a_kb_key_num           <= to_integer(unsigned(rb_a_in(6 downto 0))) when
+                             unsigned(rb_a_in(6 downto 0)) <= 79 else 0;
+   a_kb_key_pressed_n     <= rb_a_in(7);
+   a_joy_1                <= rb_a_in(12 downto 8);
+   a_joy_2                <= rb_a_in(17 downto 13);
+   a_pots                 <= rb_a_in(49 downto 18);
+   a_uart_rxd             <= rb_a_in(50);
+   a_uart_cts_n           <= rb_a_in(51);
+
+   rb_a_out(0)            <= a_video_ce;
+   rb_a_out(1)            <= a_video_ce_ovl;
+   rb_a_out(25 downto 2)  <= a_video_red & a_video_green & a_video_blue;
+   rb_a_out(26)           <= a_video_vs;
+   rb_a_out(27)           <= a_video_hs;
+   rb_a_out(28)           <= a_video_hblank;
+   rb_a_out(29)           <= a_video_vblank;
+   rb_a_out(30)           <= a_video_fl;
+   rb_a_out(31)           <= main_vid60;
+   rb_a_out(46 downto 32) <= a_aud_raw_l;
+   rb_a_out(61 downto 47) <= a_aud_raw_r;
+   rb_a_out(62)           <= a_aud_ce;
+   rb_a_out(63)           <= main_pwr_led;
+   rb_a_out(64)           <= main_fdd_led;
+   rb_a_out(65)           <= main_adf_any_dirty;
+   rb_a_out(66)           <= main_hd_led;
+   rb_a_out(67)           <= a_osm_block;
+   rb_a_out(68)           <= a_uart_txd;
+   rb_a_out(69)           <= a_uart_rts_n;
+
+   i_rb_bridge : entity work.rb_bridge
+      generic map (
+         G_RB         => C_RB,
+         G_IN_W       => C_RB_IN_W,
+         G_OUT_W      => C_RB_OUT_W,
+         -- 2026-11-04: 2048 / 12 (72 us) underflowed on the R6 test in Workbench (blitter work
+         -- in the vertical blank: VGA blackouts, the CRT's top lines shaking); then 8192 / 14
+         G_DELAY      => C_RB_DELAY,
+         G_DEPTH_LOG2 => C_RB_DEPTH_LOG2
+      )
+      port map (
+         main_clk_i   => main_clk,
+         main_rst_i   => main_rst,
+         rb_clk_i     => rb_clk,
+         rb_rst_i     => rb_rst,
+         gate_o       => rb_gate,
+         a_edge_o     => rb_edge,
+         a_rst_o      => amiga_rst,
+         chip_go_i    => rb_chip_go,
+         rt_in_i      => rb_rt_in,
+         a_in_o       => rb_a_in,
+         a_out_i      => rb_a_out,
+         rt_out_o     => rb_rt_out,
+         rt_valid_o   => rb_rt_valid,
+         rt_under_o   => rb_under,
+         rt_minlvl_o  => rb_minlvl,
+         rb_lagmax_o  => rb_lagmax,
+         rb_lagclr_i  => rb_lagclr
+      ); -- i_rb_bridge
+
+   -- the replayed outputs: video and audio stop (no clock enables) while the reader primes
+   video_ce_o       <= rb_rt_out(0) and rb_rt_valid;
+   video_ce_ovl_o   <= rb_rt_out(1) and rb_rt_valid;
+   video_red_o      <= rb_rt_out(25 downto 18);
+   video_green_o    <= rb_rt_out(17 downto 10);
+   video_blue_o     <= rb_rt_out(9 downto 2);
+   video_vs_o       <= rb_rt_out(26);
+   video_hs_o       <= rb_rt_out(27);
+   video_hblank_o   <= rb_rt_out(28);
+   video_vblank_o   <= rb_rt_out(29);
+   video_fl_o       <= rb_rt_out(30);
+   rt_vid60         <= rb_rt_out(31);
+   rt_aud_ce        <= rb_rt_out(62) and rb_rt_valid;
+   rt_fdd_led       <= rb_rt_out(64);
+   rt_adf_any_dirty <= rb_rt_out(65);
+   rt_hd_led        <= rb_rt_out(66);
+   osm_block_o      <= rb_rt_out(67);
+   main_uart_txd    <= rb_rt_out(68);
+   main_uart_rts_n  <= rb_rt_out(69);
+
+   -- audio: main.vhd's filters and volume, or (C_RB) the same in real time on the replayed
+   -- Paula output (rb_audio.vhd: the filters' IIR does not close timing at rb_clk)
+   i_rb_audio : entity work.rb_audio
+      port map (
+         clk_i         => main_clk,
+         rst_i         => main_rst,
+         ce_i          => rt_aud_ce,
+         ldata_i       => rb_rt_out(46 downto 32),
+         rdata_i       => rb_rt_out(61 downto 47),
+         pwr_led_i     => rb_rt_out(63),
+         a500_filter_i => main_osm_control_i(C_MENU_A500FILT),
+         led_filter_i  => main_osm_control_i(C_MENU_LEDFILT),
+         stereo_mix_i  => main_stereo_mix,
+         volume_i      => main_volume,
+         audio_left_o  => rt_audio_l,
+         audio_right_o => rt_audio_r
+      ); -- i_rb_audio
+
+   -- Diagnostics (2026-11-04): the clocks the Amiga waits for chip RAM (rb_clk, wraps)
+   p_stall : process (rb_clk)
+   begin
+      if rising_edge(rb_clk) then
+         if rb_chip_go = '0' then
+            rb_stall <= rb_stall + 1;
+         end if;
+         -- the largest lag (in-FIFO level, main_clk clocks) of the last 2**26 rb_clk clocks
+         rb_lagwin <= rb_lagwin + 1;
+         rb_lagclr <= '0';
+         if rb_lagwin = 0 then
+            if rb_lagmax(23 downto 20) /= 0 then               -- in units of 16 clocks, saturated
+               rb_lagsnap <= (others => '1');
+            else
+               rb_lagsnap <= rb_lagmax(19 downto 4);
+            end if;
+            rb_lagclr  <= '1';
+         end if;
+      end if;
+   end process p_stall;
+
+   i_cdc_rb_stat : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 29,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i                => main_clk,
+         src_data_i(28 downto 13) => std_logic_vector(rb_under),
+         src_data_i(12 downto 0)  => std_logic_vector(rb_minlvl(C_RB_DEPTH_LOG2 downto C_RB_DEPTH_LOG2 - 12)),
+         dst_clk_i                => amiga_clk,
+         dst_data_o               => a_rb_stat
+      ); -- i_cdc_rb_stat
+
+   -- The IDE board's diagnostics firmware (IDE_DIAG) shows this as the UART line's last two words
+   -- (dcnt(12), dcnt(13)); ~/aexp-work/rbstat.py turns them into rates:
+   --   word 12: clocks the Amiga waited for chip RAM / 256 (24 bits) | underflows (low 8 bits)
+   --   word 13: chip_hr's misses / 4 (16 bits) | the largest lag of the last 1.36 s window, in
+   --            main_clk clocks (16 bits; an underflow at C_RB_DELAY) (until r6rb-n: reads of
+   --            prefetched lines / 4)
+   -- rb_stall and chip_hr's counters are rb_clk counters and amiga_clk is a gated copy of rb_clk,
+   -- so no CDC; the underflows come from main_clk through i_cdc_rb_stat.
+   main_dbg_word <= std_logic_vector(rb_stall(31 downto 8)) & a_rb_stat(20 downto 13) &
+                    std_logic_vector(ch_n_miss(17 downto 2)) & std_logic_vector(rb_lagsnap)
+                    when C_RB else
+                    main_dbg_cpu_addr & main_dbg_cpu_state & main_dbg_cpu_stall;
+
+   main_audio_left_o  <= rt_audio_l when C_RB else a_flt_audio_l;
+   main_audio_right_o <= rt_audio_r when C_RB else a_flt_audio_r;
+
+   -- the framework's main_clk levels in the Amiga's clock domain: the settings and the RTC as
+   -- whole words (cdc_stable: a word is taken only once it has been stable), the resets through
+   -- two flip-flops (they last far longer than the Amiga's longest pause)
+   g_rb_sync : if C_RB generate
+      i_cdc_rb_osm : entity work.cdc_stable
+         generic map (
+            G_DATA_SIZE    => 256,
+            G_REGISTER_SRC => false
+         )
+         port map (
+            src_clk_i  => main_clk,
+            src_data_i => main_osm_control_i,
+            dst_clk_i  => rb_clk,
+            dst_data_o => a_osm
+         ); -- i_cdc_rb_osm
+
+      i_cdc_rb_rtc : entity work.cdc_stable
+         generic map (
+            G_DATA_SIZE    => 65,
+            G_REGISTER_SRC => false
+         )
+         port map (
+            src_clk_i  => main_clk,
+            src_data_i => main_rtc_i,
+            dst_clk_i  => rb_clk,
+            dst_data_o => a_rtc
+         ); -- i_cdc_rb_rtc
+
+      p_rb_rst_sync : process (rb_clk)
+      begin
+         if rising_edge(rb_clk) then
+            rb_meta_rst <= main_reset_m2m_i & main_reset_core_i & main_pause_core_i;
+            rb_sync_rst <= rb_meta_rst;
+         end if;
+      end process p_rb_rst_sync;
+      a_reset_m2m  <= rb_sync_rst(2);
+      a_reset_core <= rb_sync_rst(1);
+      a_pause      <= rb_sync_rst(0);
+   end generate g_rb_sync;
+
+   g_no_rb_sync : if not C_RB generate
+      a_osm        <= main_osm_control_i;
+      a_rtc        <= main_rtc_i;
+      a_reset_m2m  <= main_reset_m2m_i;
+      a_reset_core <= main_reset_core_i;
+      a_pause      <= main_pause_core_i;
+   end generate g_no_rb_sync;
 
    ---------------------------------------------------------------------------------------------
    -- Network card (R4/R5/R6): a Zorro II board with the MEGA65's Ethernet port, see
@@ -1844,14 +2257,14 @@ begin
 
    i_eth_dna : entity work.eth_dna
       port map (
-         clk_i   => main_clk,
+         clk_i   => amiga_clk,
          mac_o   => main_eth_mac,
          valid_o => main_eth_mac_vld
       ); -- i_eth_dna
 
    i_eth_card : entity work.eth_card
       port map (
-         clk_i          => main_clk,
+         clk_i          => amiga_clk,
          rst_i          => main_ide_rst,               -- Amiga reset or RESET instruction
          sel_i          => main_eth_sel,
          rw_i           => not main_fram_we,
@@ -1888,7 +2301,7 @@ begin
 
    i_share_buf : entity work.share_buf
       port map (
-         clk_i          => main_clk,
+         clk_i          => amiga_clk,
          rst_i          => main_ide_rst,               -- Amiga reset or RESET instruction
          sel_i          => main_shr_sel,
          rw_i           => not main_fram_we,
@@ -1960,16 +2373,20 @@ begin
    -- is '0', so the board is never autoconfig'd); synthesis trims the controller.
    ---------------------------------------------------------------------------------------------
 
+   -- Megamiga, November 2026: the R3/R3A has no SDRAM - amiga_mem_r3 below serves the Amiga
+   -- there; amiga_sdram stays instantiated under its name on every board (CORE.xdc and the
+   -- sign-off gates find it by that name) and its outputs are selected by C_HAS_SDRAM (on R3
+   -- they are unused, synthesis trims the controller)
    i_amiga_sdram : entity work.amiga_sdram
       port map (
-         clk_i          => main_clk,
+         clk_i          => amiga_clk,
          clk4x_i        => main_clk4x,
-         rst_i          => main_rst,
+         rst_i          => amiga_rst,
          c7m_i          => main_c7m,
          ram_addr_i     => main_ram_addr,
          ram_data_i     => main_ram_wrdata,
-         ram_data_o     => main_ram_rddata,
-         chip48_o       => main_chip48,
+         ram_data_o     => sd_ram_rddata,
+         chip48_o       => sd_chip48,
          ram_bhe_n_i    => main_ram_bhe_n,
          ram_ble_n_i    => main_ram_ble_n,
          ram_we_n_i     => main_ram_we_n,
@@ -1981,8 +2398,8 @@ begin
          fram_uds_n_i   => main_fram_uds_n,
          fram_lds_n_i   => main_fram_lds_n,
          fram_data_i    => main_fram_wrdata,
-         fram_data_o    => main_sdram_rddata,
-         fram_ready_o   => main_sdram_ready,
+         fram_data_o    => sd_fram_rddata,
+         fram_ready_o   => sd_fram_ready,
          cpu_reset_n_i  => not main_ide_rst,
          cpu_cacr_i     => main_cpu_cacr,
          fp_req_i       => main_fp_req,
@@ -1991,15 +2408,15 @@ begin
          fp_addr_i      => main_fp_addr,
          fp_be_i        => main_fp_be,
          fp_data_i      => main_fp_wdata,
-         fp_data_o      => main_fp_rdata,
-         fp_ack_o       => main_fp_ack,
+         fp_data_o      => sd_fp_rdata,
+         fp_ack_o       => sd_fp_ack,
          dm_req_i       => ide_dm_req,
          dm_we_i        => ide_dm_we,
          dm_line_i      => ide_dm_line,
          dm_addr_i      => ide_dm_addr,
          dm_be_i        => ide_dm_be,
          dm_data_i      => ide_dm_wdata,
-         dm_ack_o       => ide_dm_ack,
+         dm_ack_o       => sd_dm_ack,
          scrub_i        => amiga_chip_scrub,
          scrub_addr_i   => amiga_chip_scrub_addr,
          qnice_clk_i    => qnice_clk_i,
@@ -2008,21 +2425,21 @@ begin
          qnice_data_i   => qnice_dev_data_i,
          qnice_ce_i     => qnice_kick_ce,
          qnice_we_i     => qnice_dev_we_i,
-         qnice_wait_o   => qnice_kick_wait,
+         qnice_wait_o   => sd_kick_wait,
          qnice_kick_1mb_i => qnice_kick_1mb,
-         kick_busy_o    => main_kick_busy,
+         kick_busy_o    => sd_kick_busy,
          pause_i        => main_sdram_pause,
-         maint_idle_o   => main_maint_idle,
+         maint_idle_o   => sd_maint_idle,
          qnice_ar3_ce_i => qnice_ar3_ce,
          cart_init_i    => main_cart_init,
          cart_type_i    => main_cart_type,
          cart_aga_i     => main_chipset(1),                -- "10" = AGA
          cart_chip_i    => main_chip_size,
-         cart_busy_o    => main_cart_busy,
+         cart_busy_o    => sd_cart_busy,
          -- Megamiga: the floppy port is unused - the ADF images are read from the SD card
          -- (adf_sd.vhd) and the IDE boot ROM is in block RAM (flp_bram.vhd), so its half of
          -- SDRAM bank 0 (column bit 9 = 1) is free
-         flp_rst_i               => main_rst,
+         flp_rst_i               => amiga_rst,
          flp_avm_write_i         => '0',
          flp_avm_read_i          => '0',
          flp_avm_address_i       => (others => '0'),
@@ -2046,6 +2463,202 @@ begin
          sdram_dq_io    => sdram_dq_io
       ); -- i_amiga_sdram
 
+   g_mem_r3 : if not C_HAS_SDRAM generate
+
+   ---------------------------------------------------------------------------------------------
+   -- Megamiga, November 2026: the memory of the MEGA65 R3/R3A (amiga_mem_r3.vhd): chip and
+   -- slow RAM in 1 MB of block RAM, the Kickstart and 4 MB of Zorro II Fast RAM in HyperRAM,
+   -- reached through the RTG card's HyperRAM path below (main_vram_avm_*: the clock-crossing
+   -- FIFO, the write combiner, the arbiter), which has no RTG card on R3.
+   -- Not on R3: the 68040's port, IDE DMA (the IDE board's fmap_* are 0: PIO), cartridges.
+   ---------------------------------------------------------------------------------------------
+   i_amiga_mem_r3 : entity work.amiga_mem_r3
+      generic map (
+         G_KICK_BRAM    => C_RB                    -- rubber banding: chip RAM takes its HyperRAM words
+      )
+      port map (
+         clk_i          => amiga_clk,
+         rst_i          => amiga_rst,
+         ram_addr_i     => main_ram_addr,
+         ram_data_i     => main_ram_wrdata,
+         ram_data_o     => r3_ram_rddata,
+         chip48_o       => r3_chip48,
+         ram_bhe_n_i    => main_ram_bhe_n,
+         ram_ble_n_i    => main_ram_ble_n,
+         ram_we_n_i     => main_ram_we_n,
+         ram_oe_n_i     => main_ram_oe_n,
+         fram_sel_i     => main_sdram_fram_sel,
+         fram_state_i   => main_fram_state,
+         fram_addr_i    => main_fram_addr,
+         cpu_020_i      => main_cpu_020,
+         fram_uds_n_i   => main_fram_uds_n,
+         fram_lds_n_i   => main_fram_lds_n,
+         fram_data_i    => main_fram_wrdata,
+         fram_data_o    => r3_fram_rddata,
+         fram_ready_o   => r3_fram_ready,
+         cpu_reset_n_i  => not main_ide_rst,
+         scrub_i        => amiga_chip_scrub,
+         scrub_addr_i   => amiga_chip_scrub_addr,
+         qnice_clk_i    => qnice_clk_i,
+         qnice_rst_i    => qnice_rst_i,
+         qnice_addr_i   => qnice_dev_addr_i,
+         qnice_data_i   => qnice_dev_data_i,
+         qnice_ce_i     => qnice_kick_ce,
+         qnice_we_i     => qnice_dev_we_i,
+         qnice_wait_o   => r3_kick_wait,
+         kick_busy_o    => r3_kick_busy,
+         maint_idle_o   => r3_maint_idle,
+         avm_write_o         => r3_avm_write,
+         avm_read_o          => r3_avm_read,
+         avm_address_o       => r3_avm_address,
+         avm_writedata_o     => r3_avm_writedata,
+         avm_byteenable_o    => r3_avm_byteenable,
+         avm_burstcount_o    => r3_avm_burstcount,
+         avm_readdata_i      => main_vram_avm_readdata,
+         avm_readdatavalid_i => main_vram_avm_readdatavalid,
+         avm_waitrequest_i   => main_vram_avm_waitrequest
+      ); -- i_amiga_mem_r3
+
+   end generate g_mem_r3;
+
+   ---------------------------------------------------------------------------------------------
+   -- Megamiga, November 2026: rubber banding - chip and slow RAM in HyperRAM (chip_hr.vhd on the
+   -- free-running rb_clk, behind a 16 KB 4-way cache, doc/developers/rubber-band.md). It stops the
+   -- Amiga's clock (rb_chip_go) while a read waits for its word. amiga_mem_r3's block RAM above has
+   -- no reader then and is trimmed; the Kickstart is in block RAM (amiga_mem_r3 G_KICK_BRAM).
+   -- HyperRAM words (16 bits), all 8 MB:
+   --   000000-0FFFFF  the scaler's framebuffer
+   --   100000-2FFFFF  Zorro II Fast RAM, 4 MB (amiga_mem_r3)
+   --   300000-3FFFFF  chip RAM, 2 MB    (banks 0000-0011 of the banked address)
+   --   380000-3BFFFF  slow RAM, 512 KB  (bank 1000: the upper half of the chip RAM's words, so
+   --                                     only with up to 1 MB chip RAM - prof_decode)
+   -- Any other bank on the chipset port (the Kickstart's: its reads go through cpu_wrapper's
+   -- ram* port, 1 MB Kickstart, cartridges: none on R3) reads 0 and writes nothing, as
+   -- amiga_mem_r3's block RAM did.
+   ---------------------------------------------------------------------------------------------
+   g_chip_hr : if C_RB generate
+      -- the cold-boot scrub owns the port while amiga_chip_scrub (the Amiga is in reset then)
+      ch_ram_addr   <= "0000" & amiga_chip_scrub_addr when amiga_chip_scrub = '1' else main_ram_addr;
+      ch_ram_wrdata <= (others => '0')              when amiga_chip_scrub = '1' else main_ram_wrdata;
+      ch_ram_bhe_n  <= '0'                          when amiga_chip_scrub = '1' else main_ram_bhe_n;
+      ch_ram_ble_n  <= '0'                          when amiga_chip_scrub = '1' else main_ram_ble_n;
+      ch_ram_we_n   <= '0'                          when amiga_chip_scrub = '1' else main_ram_we_n;
+      ch_ram_oe_n   <= '1'                          when amiga_chip_scrub = '1' else main_ram_oe_n;
+
+      ch_valid   <= '1' when ch_ram_addr(22 downto 21) = "00" or ch_ram_addr(22 downto 19) = "1000" else '0';
+      ch_hr_addr <= "11"   & ch_ram_addr(20 downto 1)        when ch_ram_addr(22 downto 21) = "00" else
+                    "1110" & ch_ram_addr(18 downto 1);
+      ch_hr_we_n <= ch_ram_we_n or not ch_valid;
+      ch_hr_oe_n <= ch_ram_oe_n or not ch_valid;
+      ch_ram_rddata <= ch_hr_rddata when ch_valid = '1' else (others => '0');
+      -- chip48 NOT masked: chip_hr holds it from a read until the next one (as sdram_ctrl.v does),
+      -- and Denise takes it half a 7 MHz cycle after the read, when ch_ram_addr already shows the
+      -- next slot (the CPU in Kickstart or Fast RAM: ch_valid '0'). A mask on the current address
+      -- zeroed the three words behind the first of every 64-bit fetch (R6 test r6rb-b/-c,
+      -- 2026-11-04: Workbench after SetPatch, FMODE 3). Only Denise reads it, after its own
+      -- bitplane/sprite fetches, which are always chip RAM.
+      ch_chip48     <= ch_hr_chip48;
+
+      i_chip_hr : entity work.chip_hr
+         generic map (
+            G_SET_BITS  => 7,                       -- 16 KB, 4 ways (a bigger first level misses timing)
+            G_L2_BITS   => 10,                      -- + 128 KB second level (16 KB lost Workbench's
+                                                    -- line blits to the bitplane stream: rubber-band.md)
+            G_BASE_WORD => 0                        -- ch_hr_addr is the HyperRAM word
+         )
+         port map (
+            clk_i               => rb_clk,
+            rst_i               => rb_rst,
+            a_edge_i            => rb_edge,
+            go_o                => rb_chip_go,
+            ram_addr_i          => ch_hr_addr,
+            ram_data_i          => ch_ram_wrdata,
+            ram_bhe_n_i         => ch_ram_bhe_n,
+            ram_ble_n_i         => ch_ram_ble_n,
+            ram_we_n_i          => ch_hr_we_n,
+            ram_oe_n_i          => ch_hr_oe_n,
+            ram_data_o          => ch_hr_rddata,
+            chip48_o            => ch_hr_chip48,
+            avm_write_o         => ch_avm_write,
+            avm_read_o          => ch_avm_read,
+            avm_address_o       => ch_avm_address,
+            avm_writedata_o     => ch_avm_writedata,
+            avm_byteenable_o    => ch_avm_byteenable,
+            avm_burstcount_o    => ch_avm_burstcount,
+            avm_readdata_i      => ch_avm_readdata,
+            avm_readdatavalid_i => ch_avm_readdatavalid,
+            avm_waitrequest_i   => ch_avm_waitrequest,
+            n_read_o            => ch_n_read,
+            n_miss_o            => ch_n_miss,
+            n_pfhit_o           => ch_n_pfhit,
+            n_flush_o           => ch_n_flush
+         ); -- i_chip_hr
+
+      -- into the HyperRAM clock; on the hr_clk side it takes the RTG blitter's arbiter port
+      -- (no blitter on R3)
+      i_avm_fifo_chip : entity work.avm_fifo
+         generic map (
+            G_WR_DEPTH     => 32,                   -- a 16-word write burst, with room
+            G_RD_DEPTH     => 32,                   -- a 16-word line fill, with room
+            G_FILL_SIZE    => 1,
+            G_ADDRESS_SIZE => 32,
+            G_DATA_SIZE    => 16
+         )
+         port map (
+            s_clk_i               => rb_clk,
+            s_rst_i               => rb_rst,
+            s_avm_waitrequest_o   => ch_avm_waitrequest,
+            s_avm_write_i         => ch_avm_write,
+            s_avm_read_i          => ch_avm_read,
+            s_avm_address_i       => ch_avm_address,
+            s_avm_writedata_i     => ch_avm_writedata,
+            s_avm_byteenable_i    => ch_avm_byteenable,
+            s_avm_burstcount_i    => ch_avm_burstcount,
+            s_avm_readdata_o      => ch_avm_readdata,
+            s_avm_readdatavalid_o => ch_avm_readdatavalid,
+            m_clk_i               => hr_clk_i,
+            m_rst_i               => hr_rst_i,
+            m_avm_waitrequest_i   => hr_blt_avm_waitrequest,
+            m_avm_write_o         => hr_ch_avm_write,
+            m_avm_read_o          => hr_ch_avm_read,
+            m_avm_address_o       => hr_ch_avm_address,
+            m_avm_writedata_o     => hr_ch_avm_writedata,
+            m_avm_byteenable_o    => hr_ch_avm_byteenable,
+            m_avm_burstcount_o    => hr_ch_avm_burstcount,
+            m_avm_readdata_i      => hr_blt_avm_readdata,
+            m_avm_readdatavalid_i => hr_blt_avm_readdatavalid
+         ); -- i_avm_fifo_chip
+   end generate g_chip_hr;
+
+   g_no_chip_hr : if not C_RB generate
+      rb_chip_go           <= '1';
+      ch_n_miss            <= (others => '0');
+      ch_n_pfhit           <= (others => '0');
+      ch_ram_rddata        <= (others => '0');
+      ch_chip48            <= (others => '0');
+      hr_ch_avm_write      <= '0';
+      hr_ch_avm_read       <= '0';
+      hr_ch_avm_address    <= (others => '0');
+      hr_ch_avm_writedata  <= (others => '0');
+      hr_ch_avm_byteenable <= (others => '0');
+      hr_ch_avm_burstcount <= (others => '0');
+   end generate g_no_chip_hr;
+
+   -- Megamiga, November 2026: SDRAM (R4-R6) or the R3 memory
+   --main_ram_rddata   <= sd_ram_rddata  when C_HAS_SDRAM else r3_ram_rddata;
+   --main_chip48       <= sd_chip48      when C_HAS_SDRAM else r3_chip48;
+   main_ram_rddata   <= sd_ram_rddata  when C_HAS_SDRAM else ch_ram_rddata when C_RB else r3_ram_rddata;
+   main_chip48       <= sd_chip48      when C_HAS_SDRAM else ch_chip48     when C_RB else r3_chip48;
+   main_sdram_rddata <= sd_fram_rddata when C_HAS_SDRAM else r3_fram_rddata;
+   main_sdram_ready  <= sd_fram_ready  when C_HAS_SDRAM else r3_fram_ready;
+   qnice_kick_wait   <= sd_kick_wait   when C_HAS_SDRAM else r3_kick_wait;
+   main_kick_busy    <= sd_kick_busy   when C_HAS_SDRAM else r3_kick_busy;
+   main_maint_idle   <= sd_maint_idle  when C_HAS_SDRAM else r3_maint_idle;
+   main_fp_rdata     <= sd_fp_rdata    when C_HAS_SDRAM else (others => '0');
+   main_fp_ack       <= sd_fp_ack      when C_HAS_SDRAM else main_fp_req;   -- (no 68040 on R3)
+   ide_dm_ack        <= sd_dm_ack      when C_HAS_SDRAM else ide_dm_req;    -- (no IDE DMA on R3)
+   main_cart_busy    <= sd_cart_busy   when C_HAS_SDRAM else '0';
+
    ---------------------------------------------------------------------------------------------
    -- IDE board: RIPPLE-compatible Zorro II IDE controller, main_clk domain for the Amiga side
    --
@@ -2060,14 +2673,15 @@ begin
          G_ROM_BASE              => C_HMAP_IDE_ROM(9 downto 0) & x"000"
       )
       port map (
-         clk_i                   => main_clk,
+         clk_i                   => amiga_clk,
          rst_i                   => main_ide_rst,
          sel_i                   => main_ide_sel,
          rw_i                    => not main_fram_we,
          uds_n_i                 => main_fram_uds_n,
          lds_n_i                 => main_fram_lds_n,
          gayle_i                 => main_gayle,
-         dbg_cpu_i               => main_dbg_cpu_addr & main_dbg_cpu_state & main_dbg_cpu_stall,
+         --dbg_cpu_i               => main_dbg_cpu_addr & main_dbg_cpu_state & main_dbg_cpu_stall,
+         dbg_cpu_i               => main_dbg_word,      -- Megamiga, November 2026 (rubber banding)
          addr_i                  => main_fram_addr(18 downto 1),
          data_i                  => main_fram_wrdata,
          data_o                  => main_ide_rddata,
@@ -2080,7 +2694,10 @@ begin
          ids_data_o              => main_ids_data,
          ids_last_o              => main_ids_last,
          ids_cons_i              => main_ids_cons,
-         fmap_z2_i               => main_fmap_z2,
+         -- Megamiga, November 2026: no IDE DMA on R3 (its memory port is the SDRAM's): the
+         -- board refuses every range there and lide.device copies with the CPU. Original:
+         --fmap_z2_i               => main_fmap_z2,
+         fmap_z2_i               => main_fmap_z2 and C_SDRAM_SL,
          fmap_ar3_i              => main_cart_ar3,
          fmap_z3_i               => main_fmap_z3,
          fmap_z3base_i           => main_fmap_z3base,
@@ -2148,8 +2765,8 @@ begin
          G_BASE_DF2          => C_HMAP_ADF_DF2(9 downto 0) & x"000"
       )
       port map (
-         clk_main_i          => main_clk,
-         rst_main_i          => main_rst,
+         clk_main_i          => amiga_clk,
+         rst_main_i          => amiga_rst,
          avm_write_i         => main_adf_avm_write,
          avm_read_i          => main_adf_avm_read,
          avm_address_i       => main_adf_avm_address,
@@ -2224,10 +2841,10 @@ begin
    -- RTG native resolution: which HDMI mode shows the RTG screenmode 1:1 (or exactly 2:1,
    -- the doubled low-resolution modes). Everything else stays scaled. fb_* are the RTG
    -- registers (main.vhd, core clock), read back from the output ports.
-   p_rtgv : process (main_clk)
+   p_rtgv : process (amiga_clk)
       variable w, h : natural range 0 to 4095;
    begin
-      if rising_edge(main_clk) then
+      if rising_edge(amiga_clk) then
          w := to_integer(unsigned(fb_hsize_o));
          h := to_integer(unsigned(fb_vsize_o));
          main_rtgv <= C_RTGV_NONE;
@@ -2248,7 +2865,7 @@ begin
          G_REGISTER_SRC => false              -- main_rtgv is a register
       )
       port map (
-         src_clk_i     => main_clk,
+         src_clk_i     => amiga_clk,
          src_data_i    => main_rtgv,
          dst_clk_i     => qnice_clk_i,
          dst_data_o    => qnice_rtgv_cdc
@@ -2288,7 +2905,7 @@ begin
          G_REGISTER_SRC => false              -- main_vid60 is a register
       )
       port map (
-         src_clk_i     => main_clk,
+         src_clk_i     => amiga_clk,
          src_data_i(0) => main_vid60,
          dst_clk_i     => qnice_clk_i,
          dst_data_o(0) => qnice_vid60_cdc
@@ -2440,7 +3057,7 @@ begin
       port map (
          src_clk_i     => qnice_clk_i,
          src_data_i(0) => qnice_kick_ldng,
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_kick_ldng
       ); -- i_cdc_kick_ldng
 
@@ -2525,7 +3142,7 @@ begin
          src_data_i(0) => qnice_ar3_ok,
          src_data_i(1) => qnice_ar3_ldng,
          src_data_i(2) => qnice_frz_t,
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_ar3_ok,
          dst_data_o(1) => main_ar3_ldng,
          dst_data_o(2) => main_frz_t
@@ -2533,9 +3150,9 @@ begin
 
    -- the menu's freeze: each toggle is one press of ~4.6 ms (the cartridges detect the
    -- rising edge on their 7 MHz enable)
-   p_menu_freeze : process (main_clk)
+   p_menu_freeze : process (amiga_clk)
    begin
-      if rising_edge(main_clk) then
+      if rising_edge(amiga_clk) then
          main_frz_d <= main_frz_t;
          if main_frz_t /= main_frz_d then
             main_frz_cnt <= (others => '1');
@@ -2835,7 +3452,7 @@ begin
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i                  => main_clk,
+         src_clk_i                  => amiga_clk,
          src_data_i(15 downto 0)    => main_hwf_eng_sig,
          src_data_i(23 downto 16)   => main_hwf_eng_ses,
          src_data_i(24)             => main_hwf_eng_done,
@@ -2927,7 +3544,7 @@ begin
    -- steps, only a probe: every 2^C_SND_TMR_BITS clocks (0.59 s) the drive is selected
    -- for 2^C_SND_PRB_BITS clocks (289 us), and a low /DSKCHG (the disk was taken out)
    -- brings the sound back.
-   hwf_pins_proc : process (main_clk)
+   hwf_pins_proc : process (amiga_clk)
       variable v_sel_n : std_logic;
       variable v_unit  : natural range 0 to 2;
       variable v_on    : std_logic;
@@ -2936,7 +3553,7 @@ begin
       variable v_pin   : std_logic;
       variable v_prb   : std_logic;
    begin
-      if rising_edge(main_clk) then
+      if rising_edge(amiga_clk) then
          if main_hwf_en = '1' then
             -- main_hwf_ctrl bits 6..3 are _sel3.._sel0, so the select line of
             -- unit u sits at bit 3 + u. Getting this wrong leaves the real
@@ -3065,7 +3682,7 @@ begin
                end loop;
             end if;
             v_stp := '1';
-            if main_osm_control_i(C_MENU_DRV_NOCLICK) = '1' then
+            if a_osm(C_MENU_DRV_NOCLICK) = '1' then
                v_sel := '0';                                 -- Noclick: motor sounds only
             end if;
             v_prb := '0';
@@ -3076,7 +3693,7 @@ begin
                   v_prb := '1';                              -- ... only the probe
                end if;
             end if;
-            if main_osm_control_i(C_MENU_DRV_SNDOFF) = '1' then
+            if a_osm(C_MENU_DRV_SNDOFF) = '1' then
                v_on  := '0';
                v_sel := '0';
                v_prb := '0';
@@ -3175,7 +3792,7 @@ begin
          wr_precmode_i       => qnice_fdd_precmode,
          wr_busy_o           => qnice_fdd_wr_busy,
          wr_ok_o             => qnice_fdd_wr_ok,
-         rd_clk_i            => main_clk,
+         rd_clk_i            => amiga_clk,
          rd_rst_i            => main_qnice_rst,
          rd_en_i             => main_hwf_rd_en,
          rd_data_o           => main_hwf_rd_data,
@@ -3251,7 +3868,7 @@ begin
       port map (
          src_clk_i     => qnice_clk_i,
          src_data_i(0) => qnice_fdd_ctrl(8),
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_hwf_obs_legacy
       ); -- i_cdc_hwf_obs_leg
 
@@ -3272,7 +3889,7 @@ begin
          src_data_i(0)          => qnice_fdd_wr_busy,
          src_data_i(1)          => qnice_fdd_wr_ok,
          src_data_i(3 downto 2) => qnice_fdd_precmode,
-         dst_clk_i              => main_clk,
+         dst_clk_i              => amiga_clk,
          dst_data_o(0)          => main_hwf_wr_busy,
          dst_data_o(1)          => main_hwf_wr_ok,
          dst_data_o(3 downto 2) => main_hwf_precmode
@@ -3284,7 +3901,7 @@ begin
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i  => main_clk,
+         src_clk_i  => amiga_clk,
          src_data_i => main_hwf_wr_track,
          dst_clk_i  => qnice_clk_i,
          dst_data_o => qnice_fdd_wr_track
@@ -3300,7 +3917,7 @@ begin
       port map (
          src_clk_i     => qnice_clk_i,
          src_data_i(0) => qnice_fdd_sideinv,
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_hwf_sideinv
       ); -- i_cdc_hwf_sideinv
 
@@ -3314,7 +3931,7 @@ begin
       port map (
          src_clk_i     => qnice_clk_i,
          src_data_i(0) => qnice_rst_i,
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_qnice_rst
       ); -- i_cdc_hwf_rst
 
@@ -3369,7 +3986,7 @@ begin
          src_data_i(3) => qnice_fdd_ready_n,
          src_data_i(4) => qnice_fdd_index,
          src_data_i(5) => qnice_fdd_present,
-         dst_clk_i     => main_clk,
+         dst_clk_i     => amiga_clk,
          dst_data_o(0) => main_hwf_change_n,
          dst_data_o(1) => main_hwf_wprot_n,
          dst_data_o(2) => main_hwf_track0_n,
@@ -3539,8 +4156,8 @@ begin
          G_ADDR_WIDTH        => 14                       -- the 4 windows of C_HMAP_IDE_ROM
       )
       port map (
-         clk_i               => main_clk,
-         rst_i               => main_rst,
+         clk_i               => amiga_clk,
+         rst_i               => amiga_rst,
          avm_write_i         => mem_avm_write,
          avm_read_i          => mem_avm_read,
          avm_address_i       => mem_avm_address,
@@ -3578,8 +4195,8 @@ begin
             qnice_wrt_req_i      => qnice_adf_wrt_req(u),
             qnice_wrt_ack_o      => qnice_adf_wrt_ack(u),
 
-            hr_clk_i             => main_clk,             -- SDRAM floppy port side
-            hr_rst_i             => main_rst,
+            hr_clk_i             => amiga_clk,             -- SDRAM floppy port side
+            hr_rst_i             => amiga_rst,
             hr_write_o           => mem_adf_avm_write(u),
             hr_read_o            => mem_adf_avm_read(u),
             hr_address_o         => mem_adf_avm_address(u),
@@ -3618,8 +4235,8 @@ begin
          qnice_wrt_req_i      => '0',
          qnice_wrt_ack_o      => open,
 
-         hr_clk_i             => main_clk,                -- SDRAM floppy port side
-         hr_rst_i             => main_rst,
+         hr_clk_i             => amiga_clk,                -- SDRAM floppy port side
+         hr_rst_i             => amiga_rst,
          hr_write_o           => mem_ldr_avm_write,
          hr_read_o            => mem_ldr_avm_read,
          hr_address_o         => mem_ldr_avm_address,
@@ -3664,8 +4281,8 @@ begin
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i     => main_clk,
-         src_data_i(0) => main_osm_control_i(C_MENU_HDMI_FF),
+         src_clk_i     => amiga_clk,
+         src_data_i(0) => a_osm(C_MENU_HDMI_FF),
          dst_clk_i     => hr_clk_i,
          dst_data_o(0) => hr_hdmi_ff
       ); -- i_cdc_hdmi_ff
@@ -3687,7 +4304,7 @@ begin
          src_data_i(26 downto 24)  => qnice_adf_mounted,
          src_data_i(29 downto 27)  => qnice_adf_write_en,
          src_data_i(32 downto 30)  => qnice_adf_any_dirty,
-         dst_clk_i                 => main_clk,
+         dst_clk_i                 => amiga_clk,
          dst_data_o(23 downto  0)  => main_adf_tracks,
          dst_data_o(26 downto 24)  => main_adf_mounted,
          dst_data_o(29 downto 27)  => main_adf_writable,
@@ -3708,7 +4325,7 @@ begin
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i                => main_clk,
+         src_clk_i                => amiga_clk,
          src_data_i( 7 downto 0)  => main_adf_wr_track,
          src_data_i(10 downto 8)  => main_adf_wr_req,
          dst_clk_i                => qnice_clk_i,
@@ -3724,7 +4341,7 @@ begin
       port map (
          src_clk_i               => qnice_clk_i,
          src_data_i(2 downto 0)  => qnice_adf_wrt_ack,
-         dst_clk_i               => main_clk,
+         dst_clk_i               => amiga_clk,
          dst_data_o(2 downto 0)  => main_adf_wr_ack
       ); -- i_cdc_adf_wrt_ack
 
@@ -3806,8 +4423,8 @@ begin
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => main_clk,
-         rst_i                  => main_rst,
+         clk_i                  => amiga_clk,
+         rst_i                  => amiga_rst,
          s0_avm_write_i         => mem_ldr_avm_write,
          s0_avm_read_i          => mem_ldr_avm_read,
          s0_avm_address_i       => mem_ldr_avm_address,
@@ -3846,8 +4463,8 @@ begin
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => main_clk,
-         rst_i                  => main_rst,
+         clk_i                  => amiga_clk,
+         rst_i                  => amiga_rst,
          s0_avm_write_i         => mem_adf_avm_write(2),
          s0_avm_read_i          => mem_adf_avm_read(2),
          s0_avm_address_i       => mem_adf_avm_address(2),
@@ -3900,11 +4517,13 @@ begin
 
    -- the core reset (button, or the Shell holding the core) and the clock-generator reset; the
    -- framework resets the HyperRAM side together with the core (reset_core_n)
-   main_vram_rst <= main_reset_core_i or main_rst;
+   main_vram_rst <= a_reset_core or amiga_rst;
 
+   -- Megamiga, November 2026: on R3 amiga_mem_r3 drives main_vram_avm_* (no RTG card there,
+   -- rtg_vram is trimmed)
    i_rtg_vram : entity work.rtg_vram
       port map (
-         clk_i                 => main_clk,
+         clk_i                 => amiga_clk,
          rst_i                 => main_vram_rst,
          sel_i                 => main_fram_sel and main_fram_rtg,
          we_i                  => main_fram_we,
@@ -3915,16 +4534,22 @@ begin
          data_o                => main_vram_rddata,
          ready_o               => main_vram_ready,
          inval_i               => main_blt_busy,
-         avm_write_o           => main_vram_avm_write,
-         avm_read_o            => main_vram_avm_read,
-         avm_address_o         => main_vram_avm_address,
-         avm_writedata_o       => main_vram_avm_writedata,
-         avm_byteenable_o      => main_vram_avm_byteenable,
-         avm_burstcount_o      => main_vram_avm_burstcount,
+         avm_write_o           => rtg_avm_write,
+         avm_read_o            => rtg_avm_read,
+         avm_address_o         => rtg_avm_address,
+         avm_writedata_o       => rtg_avm_writedata,
+         avm_byteenable_o      => rtg_avm_byteenable,
+         avm_burstcount_o      => rtg_avm_burstcount,
          avm_readdata_i        => main_vram_avm_readdata,
          avm_readdatavalid_i   => main_vram_avm_readdatavalid,
          avm_waitrequest_i     => main_vram_avm_waitrequest
       ); -- i_rtg_vram
+   main_vram_avm_write      <= rtg_avm_write      when C_HAS_SDRAM else r3_avm_write;
+   main_vram_avm_read       <= rtg_avm_read       when C_HAS_SDRAM else r3_avm_read;
+   main_vram_avm_address    <= rtg_avm_address    when C_HAS_SDRAM else r3_avm_address;
+   main_vram_avm_writedata  <= rtg_avm_writedata  when C_HAS_SDRAM else r3_avm_writedata;
+   main_vram_avm_byteenable <= rtg_avm_byteenable when C_HAS_SDRAM else r3_avm_byteenable;
+   main_vram_avm_burstcount <= rtg_avm_burstcount when C_HAS_SDRAM else r3_avm_burstcount;
 
    i_avm_fifo_vram : entity work.avm_fifo
       generic map (
@@ -3935,7 +4560,7 @@ begin
          G_DATA_SIZE    => 16
       )
       port map (
-         s_clk_i               => main_clk,
+         s_clk_i               => amiga_clk,
          s_rst_i               => main_vram_rst,
          s_avm_waitrequest_o   => main_vram_avm_waitrequest,
          s_avm_write_i         => main_vram_avm_write,
@@ -3988,30 +4613,41 @@ begin
    -- the CPU path holds nothing for the board memory: FIFO output empty, combiner empty
    hr_vram_quiet <= hr_wcomb_idle and not (hr_vram_avm_write or hr_vram_avm_read);
 
+   -- Megamiga, November 2026: no RTG blitter on R3 (2 block RAM tiles; no RTG card there):
+   -- its outputs are replaced by idle values there, so synthesis trims it
    i_rtg_blitter : entity work.rtg_blitter
       port map (
-         m_clk_i               => main_clk,
+         m_clk_i               => amiga_clk,
          m_sel_i               => main_blt_sel,
          m_wr_i                => main_blt_wr,
          m_rs_i                => main_blt_rs,
          m_data_i              => main_blt_din,
-         m_data_o              => main_blt_dout,
-         m_busy_o              => main_blt_busy,
+         m_data_o              => blt_dout,
+         m_busy_o              => blt_busy,
          h_clk_i               => hr_clk_i,
          h_rst_i               => hr_rst_i,
          h_quiet_i             => hr_vram_quiet,
-         h_flush_o             => hr_wcomb_flush,
+         h_flush_o             => blt_flush,
          h_busy_o              => open,
-         avm_write_o           => hr_blt_avm_write,
-         avm_read_o            => hr_blt_avm_read,
-         avm_address_o         => hr_blt_avm_address,
-         avm_writedata_o       => hr_blt_avm_writedata,
-         avm_byteenable_o      => hr_blt_avm_byteenable,
-         avm_burstcount_o      => hr_blt_avm_burstcount,
+         avm_write_o           => blt_avm_write,
+         avm_read_o            => blt_avm_read,
+         avm_address_o         => blt_avm_address,
+         avm_writedata_o       => blt_avm_writedata,
+         avm_byteenable_o      => blt_avm_byteenable,
+         avm_burstcount_o      => blt_avm_burstcount,
          avm_readdata_i        => hr_blt_avm_readdata,
          avm_readdatavalid_i   => hr_blt_avm_readdatavalid,
          avm_waitrequest_i     => hr_blt_avm_waitrequest
       ); -- i_rtg_blitter
+   main_blt_dout         <= blt_dout           when C_HAS_SDRAM else (others => '0');
+   main_blt_busy         <= blt_busy           when C_HAS_SDRAM else '0';
+   hr_wcomb_flush        <= blt_flush          when C_HAS_SDRAM else '0';
+   hr_blt_avm_write      <= blt_avm_write      when C_HAS_SDRAM else hr_ch_avm_write;
+   hr_blt_avm_read       <= blt_avm_read       when C_HAS_SDRAM else hr_ch_avm_read;
+   hr_blt_avm_address    <= blt_avm_address    when C_HAS_SDRAM else hr_ch_avm_address;
+   hr_blt_avm_writedata  <= blt_avm_writedata  when C_HAS_SDRAM else hr_ch_avm_writedata;
+   hr_blt_avm_byteenable <= blt_avm_byteenable when C_HAS_SDRAM else hr_ch_avm_byteenable;
+   hr_blt_avm_burstcount <= blt_avm_burstcount when C_HAS_SDRAM else hr_ch_avm_burstcount;
 
    i_avm_arbit_rtg : entity work.avm_arbit
       generic map (
@@ -4053,7 +4689,7 @@ begin
       ); -- i_avm_arbit_rtg
 
    fb_format_o  <= '0' & main_rtg_format;
-   fb_pal_clk_o <= main_clk;
+   fb_pal_clk_o <= amiga_clk;
 
    -- round-robin per whole transaction; the masters never compete in practice
    -- (a mount streams while the engine is idle and vice versa). Keep this at
@@ -4066,8 +4702,8 @@ begin
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                 => main_clk,
-         rst_i                 => main_rst,
+         clk_i                 => amiga_clk,
+         rst_i                 => amiga_rst,
 
          s_avm_write_i         => mem_arb_write,
          s_avm_read_i          => mem_arb_read,

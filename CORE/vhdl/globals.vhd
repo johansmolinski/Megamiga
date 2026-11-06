@@ -65,6 +65,11 @@ constant QNICE_CODE_BANKS         : string  := "../../../CORE/m2m-rom/m2m-banks.
 -- clock that the hardware actually generates.
 constant CORE_CLK_SPEED       : natural := 28_375_000;
 
+-- Megamiga, November 2026: the R3/R3A build with rubber banding (doc/developers/rubber-band.md):
+-- up to 2 MB chip RAM in HyperRAM behind chip_hr.vhd, the Amiga on a gated 49.3 MHz clock that
+-- averages real time (rb_bridge.vhd), 2 MB Zorro II Fast RAM. false = the 1 MB block RAM design.
+constant C_R3_RUBBER          : boolean := true;
+
 -- System clock speed (crystal that is driving the FPGA) and QNICE clock speed
 -- !!! Do not touch !!!
 constant BOARD_CLK_SPEED      : natural := 100_000_000;

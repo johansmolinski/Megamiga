@@ -50,16 +50,21 @@ foreach k {opt phys routed} {
 # The gates of build_bitstream.tcl. A board that misses timing never reaches
 # them there, so they have to be checked here.
 proc signoff_gates {} {
+    global board
     set gate {}
     # A500+ mode: the core clock is pinned to native (no flicker-free fast leg), and the
     # chipset -> SDRAM multicycle constraints need the controller's instance name.
     # Megamiga 0.7 NTSC: both clock muxes (core clock, SDRAM 4x clock) are on the NTSC leg
-    foreach pin {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S} {
+    # Megamiga, November 2026: the R3 has no SDRAM - no SDRAM controller and no 4x clock (its
+    # mux is trimmed); the SDRAM constraints of CORE.xdc then match nothing there
+    set muxes {CORE/clk_gen/i_bufgmux/S CORE/clk_gen/i_bufgmux4x/S}
+    if {$board eq "R3"} { set muxes {CORE/clk_gen/i_bufgmux/S} }
+    foreach pin $muxes {
         if {[llength [get_pins -quiet $pin]] == 0} {
             lappend gate "set_case_analysis target $pin missing"
         }
     }
-    if {[llength [get_cells -quiet {CORE/i_amiga_sdram/i_sdram_ctrl/*}]] == 0} {
+    if {$board ne "R3" && [llength [get_cells -quiet {CORE/i_amiga_sdram/i_sdram_ctrl/*}]] == 0} {
         lappend gate "multicycle target CORE/i_amiga_sdram/i_sdram_ctrl missing"
     }
     # the CPU -> SDRAM multicycle (CORE.xdc) must cover every TG68K, whatever its name
