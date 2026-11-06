@@ -501,6 +501,14 @@ signal ch_valid               : std_logic;                       -- a chip or sl
 signal ch_hr_we_n             : std_logic;
 signal ch_hr_oe_n             : std_logic;
 signal ch_hr_rddata           : std_logic_vector(15 downto 0);
+-- Megamiga, November 2026 (R3): the HyperRAM side's reset in the Amiga's domains. The framework
+-- resets the HyperRAM controller, its arbiter and every avm_fifo's hr_clk half (hr_rst) on BOTH reset
+-- buttons (reset_m2m_n and reset_core_n), but chip_hr and amiga_mem_r3 only saw the clock-generator
+-- reset: a read in flight at the reset never got its data, chip_hr held go low for ever, the Amiga's
+-- clock stopped, and amiga_mem_r3 (stuck in S_FILL) stopped draining the Kickstart FIFO, so the
+-- Shell stalled on its wait line after a long reset (R3 board, build rb-e, 2026-11-06).
+signal ch_rst                 : std_logic := '1';        -- chip_hr + its avm_fifo (rb_clk)
+signal r3_mem_rst             : std_logic := '1';        -- amiga_mem_r3 (amiga_clk)
 signal ch_hr_chip48           : std_logic_vector(47 downto 0);
 signal ch_avm_write           : std_logic;
 signal ch_avm_read            : std_logic;
@@ -2472,13 +2480,21 @@ begin
    -- FIFO, the write combiner, the arbiter), which has no RTG card on R3.
    -- Not on R3: the 68040's port, IDE DMA (the IDE board's fmap_* are 0: PIO), cartridges.
    ---------------------------------------------------------------------------------------------
+   p_r3_mem_rst : process (amiga_clk)
+   begin
+      if rising_edge(amiga_clk) then
+         r3_mem_rst <= amiga_rst or a_reset_m2m or a_reset_core;   -- see the declaration
+      end if;
+   end process p_r3_mem_rst;
+
    i_amiga_mem_r3 : entity work.amiga_mem_r3
       generic map (
          G_KICK_BRAM    => C_RB                    -- rubber banding: chip RAM takes its HyperRAM words
       )
       port map (
          clk_i          => amiga_clk,
-         rst_i          => amiga_rst,
+         --rst_i          => amiga_rst,
+         rst_i          => r3_mem_rst,
          ram_addr_i     => main_ram_addr,
          ram_data_i     => main_ram_wrdata,
          ram_data_o     => r3_ram_rddata,
@@ -2559,6 +2575,13 @@ begin
       -- bitplane/sprite fetches, which are always chip RAM.
       ch_chip48     <= ch_hr_chip48;
 
+      p_ch_rst : process (rb_clk)
+      begin
+         if rising_edge(rb_clk) then
+            ch_rst <= rb_rst or a_reset_m2m or a_reset_core;
+         end if;
+      end process p_ch_rst;
+
       i_chip_hr : entity work.chip_hr
          generic map (
             G_SET_BITS  => 7,                       -- 16 KB, 4 ways (a bigger first level misses timing)
@@ -2568,7 +2591,8 @@ begin
          )
          port map (
             clk_i               => rb_clk,
-            rst_i               => rb_rst,
+            --rst_i               => rb_rst,
+            rst_i               => ch_rst,          -- with the HyperRAM side (see ch_rst)
             a_edge_i            => rb_edge,
             go_o                => rb_chip_go,
             ram_addr_i          => ch_hr_addr,
@@ -2606,7 +2630,8 @@ begin
          )
          port map (
             s_clk_i               => rb_clk,
-            s_rst_i               => rb_rst,
+            --s_rst_i               => rb_rst,
+            s_rst_i               => ch_rst,
             s_avm_waitrequest_o   => ch_avm_waitrequest,
             s_avm_write_i         => ch_avm_write,
             s_avm_read_i          => ch_avm_read,
@@ -4517,7 +4542,10 @@ begin
 
    -- the core reset (button, or the Shell holding the core) and the clock-generator reset; the
    -- framework resets the HyperRAM side together with the core (reset_core_n)
-   main_vram_rst <= a_reset_core or amiga_rst;
+   -- Megamiga, November 2026: on R3 (amiga_mem_r3's Fast RAM) also the long reset, which resets the
+   -- HyperRAM side too (see r3_mem_rst); R4/R5/R6 unchanged. Original:
+   --main_vram_rst <= a_reset_core or amiga_rst;
+   main_vram_rst <= a_reset_core or amiga_rst or (a_reset_m2m and not C_SDRAM_SL);
 
    -- Megamiga, November 2026: on R3 amiga_mem_r3 drives main_vram_avm_* (no RTG card there,
    -- rtg_vram is trimmed)
