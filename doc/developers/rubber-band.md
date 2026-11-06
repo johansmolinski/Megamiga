@@ -646,6 +646,17 @@ short reset left the HD LED on (the QNICE firmware no longer served the IDE boar
 reset it never came back. Open; rb-e has no diag UART, so next time: is the picture still alive
 (HyperRAM bus jammed or firmware loop), and build a diag variant if it recurs.
 
+Then a long reset hung (power LED blue, then green, nothing more). The framework resets the HyperRAM
+controller, its arbiter and the hr_clk half of every avm_fifo (hr_rst) on BOTH reset buttons, but
+chip_hr and the rb_clk half of its FIFO reset only with the clock generator (rb_rst), amiga_mem_r3
+only with amiga_rst. A read in flight at the reset lost its data: chip_hr kept go low (the Amiga's
+clock stopped), and amiga_mem_r3, stuck in S_FILL, no longer drained the Kickstart FIFO (it reads it
+only in S_IDLE), so the Shell stalled on the FIFO's wait line while loading the Kickstart. Fix
+(f39f729, mega65.vhd `ch_rst`, `r3_mem_rst`): those reset with a_reset_m2m and a_reset_core too, and
+the R3 Fast RAM FIFO (main_vram_rst) with the long reset as well. Lines a fill had begun stay invalid
+(a tag is valid only from f_done); what sits in chip_hr's write buffers at the reset is lost. Build
+`rb-f` (REF rb-e): WNS +0.103, WHS +0.002; on the R3 long and short resets during Workbench work.
+
 ## Next steps
 
 1. DONE for r6rb-z (no shaking, 342 us of 559 us). Optional: r6rb-t (the needed lead with the 16 KB cache):

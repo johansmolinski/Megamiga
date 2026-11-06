@@ -3637,6 +3637,13 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     AmigaVision start after the JTAG load, a Software Failure #8000000B (Line-F) and after
     choosing Debug a dead menu (QNICE no longer serving the IDE: HD LED on after a reset); after
     a long reset it never came back - open. Merged into main (Minimig: r3-wip into develop).
+    Then a long reset hung (power LED blue -> green, nothing more): the framework resets the
+    HyperRAM side (hr_rst) on BOTH reset buttons, chip_hr and amiga_mem_r3 only on the clock
+    generator's reset, so a read in flight at the reset never got its data - chip_hr held the
+    Amiga's clock, amiga_mem_r3 stuck in S_FILL stopped draining the Kickstart FIFO and the
+    Shell stalled on its wait line. Fixed (f39f729): both, and the R3 Fast RAM FIFO, reset with
+    every reset button (writes still in chip_hr's write buffers are lost then). Build `rb-f`
+    (REF rb-e): WNS +0.103, WHS +0.002; HW: long and short resets OK.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
