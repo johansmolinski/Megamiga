@@ -3442,6 +3442,21 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
     only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
     animation is garbled on HDMI only (VGA is fine).
+  - **Faster HDF mounts from MegaX (main, 2026-11-19, for 0.7.0).** MegaX made its 2 GB disk
+    image mount in 2 s instead of 16 s in two parts. Part A, the seek to the end through the
+    extent map (`FAT32$FILE_SEEK_MAP`), Megamiga already had (`_HDFP_SKM`). Part B is taken
+    now: QNICE `megax-fastmap` (749d32d, 85937a4, 6c0665f, 724b470) merged into
+    `fat32-fastseek` (`e519791`, no conflict with the long-name fix 2472fc3) - `_F32_FM_RUN`
+    follows the entries of the FAT sector in the buffer while each is "current + 1", with
+    `FAT32$DEV_DIRECT` = 1 through `IO$SD_DATA_POS`/`IO$SD_DATA` after one byte read call that
+    selects the slot - and `SDC$MOUNT` sets `FAT32$DEV_DIRECT` (as MegaX's Shell). Checked for
+    Megamiga: the progress hook (`FL_BAR_STEP`, between runs only) never touches the SD buffer,
+    every run re-selects the slot, the device handles are all `FAT32$DEV_STRUCT_SIZE` blocks
+    (the shared folder's copy included). `fat32_seek` on fedora: 512 B / 4 KB / 32 KB clusters
+    with and without direct reads PASS, the 2 GB case (SPCS=8) PASS, mutants all killed but
+    `flush_r9` (survives on 78aeaac too). Fixed ROM 32745/32768. Patched into the release
+    builds rel070-r6/-r3 with `patch_firmware.sh` (fedora `~/builds/rel070-*-save`). On the R3
+    (rel070-r3 patched): "HDF mounts much faster now" (the user).
   - **Drive Settings simplified (branch `drvpage` from main ad990b4, 2026-11-19).** The page has
     two rows now: Drives (1/2/3) and Hardware Floppy (Off / df0 / df1 / df2, `OPTM_G_HWFLOPPY`
     85, lines 52..55; df1 greyed out unless Drives is 2 or 3, df2 unless it is 3, via

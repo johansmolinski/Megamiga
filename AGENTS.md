@@ -600,7 +600,12 @@ the dated facts.
   stepping, FAT sector cache, forward from the current position, exact EOF,
   `FAT32$ERR_CHAIN` on damaged chains), extent maps (`FAT32$FILE_MAP` +
   `FAT32$FILE_SEEK_MAP`, syscalls `f32_fmap`/`f32_fseekm`) and fixes
-  `FAT32$FLUSH` returning a stale R9 for R8 = 0. Tests:
+  `FAT32$FLUSH` returning a stale R9 for R8 = 0.
+  Since 0.7.0 (merged from MegaX's branch `megax-fastmap`, `e519791`): a fast path in
+  `FAT32$FILE_MAP` (runs of "next = current + 1" within the FAT sector in the buffer) with
+  direct SD buffer reads (`FAT32$DEV_DIRECT`, device handle 0x1C words; set by the Shell's
+  `SDC$MOUNT` in `M2M/rom/sdcards.asm`, tag `M2M-UPSTREAM fat32-fastmap`) - faster HDF
+  mounts. The fixed ROM is at 32745/32768 words after it. Tests:
   `M2M/QNICE/test_programs/fat32_seek/run.sh` (emulator + generated FAT32
   images, `--compare REV`, `--mutants`). The firmware assembles this library
   from source but takes constants from the generated `dist_kit/sysdef.asm`,
