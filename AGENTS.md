@@ -811,11 +811,17 @@ the dated facts.
   visible height per menu view and the `MENU_HEAP_SIZE` demand from
   `config.vhd`, and cross-checks every `C_MENU_*` constant in `mega65.vhd`
   against the TEXT of the line it addresses - run it after ANY menu change.
-  `check_firmware.py` checks the per-drive tables and arrays against
+  `tools/check_firmware.py` (tracked, from upstream AExp V2) checks the per-drive tables and arrays against
   `ADF_DRIVES` and requires every `ADDC`/`SUBC` in `m2m-rom.asm` to take its
   carry from a producer that writes the same storage class; on QNICE only
-  `ADD`/`ADDC`/`SUB`/`SUBC`/`SHL`/`SHR` write Carry and `MOVE` does not, so
-  inserting address arithmetic between a 32-bit `ADD` and its `ADDC` silently
+  `ADD`/`ADDC`/`SUB`/`SUBC`/`SHL` write Carry and `MOVE` does not. `SHR` does
+  NOT write Carry, it READS it: it fills the freed top bits with C and shifts
+  the dropped bit into X (`qnice_cpu.vhd`; `SHL` fills with X). So clear C
+  (`AND 0xFFFB, SR`) before an `SHR` whose top bits matter, or mask after it
+  (audited 2026-11-19: every `SHR` in CORE/m2m-rom and M2M/rom does one of the
+  two, or only tests X; the one loop that does neither, `_VAL_IDX_SH` in
+  optm_deps.asm, counts down from >= 1, so its `SUB` never borrows, and the
+  menu validator passes at boot). Inserting address arithmetic between a 32-bit `ADD` and its `ADDC` silently
   eats the carry (this exact slip once made the ADF write-back address every
   chunk past a 64 KB boundary 64 KB too low). Then analyze all CORE VHDL with
   `nvc --std=2008` in dependency order (M2M packages first: tools.vhd,
