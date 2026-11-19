@@ -3442,6 +3442,19 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
     only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
     animation is garbled on HDMI only (VGA is fine).
+  - **Upstream AExp V2 (2026-11-14, branch `aexp-v2` from main 7c7f884, 2026-11-19).** Seven
+    upstream commits since WIP-V2-B3, no functional change: comments, version, docs, `.xpr`
+    re-saves. Taken: `tools/check_firmware.py` (tracked now), whose correction matters: QNICE's
+    `SHR` does not write Carry, it fills the freed top bits WITH it (`qnice_cpu.vhd`, QNICE manual);
+    AGENTS.md said the opposite. Every `SHR` in CORE/m2m-rom and M2M/rom audited: each clears C
+    first, masks after, or only tests X; `_VAL_IDX_SH` (optm_deps.asm) does neither but counts down
+    from >= 1, so C stays 0. The checker passes on our firmware. README: the Micro Tom pointer
+    twitch and the pin-5 cure (AExp #41: the framework's paddle sampler drains pin 5 ~2000/s, the
+    adapter answers each drain as a wheel query). Comments in adf_track_engine, tb_adf_rotation,
+    globals.vhd and timing_closure.md (our re-roll counts match: 15 after a hold miss, 16 after
+    setup only). Not taken: V2 texts, the rewritten AExp docs, `.xpr` re-saves, upstream's
+    check_osm_menu.py (fails on our menu). A core-side cure (drain only when Paula starts a pot
+    count) is possible but untested - the user has no such adapter.
   - **Upstream AExp WIP-V2-B3 taken over (branch `aexp-b3` from main 3115ea3,
     2026-11-03).** Upstream develop 8f454d4 (Beta 3) has two code changes; everything
     else since the last sync (b110b18) is comment-only (461c510, 0b579fb), AExp help
