@@ -2524,6 +2524,7 @@ begin
          qnice_wait_o   => r3_kick_wait,
          kick_busy_o    => r3_kick_busy,
          maint_idle_o   => r3_maint_idle,
+         dbg_o          => open,                   -- (diag builds: the diag word)
          avm_write_o         => r3_avm_write,
          avm_read_o          => r3_avm_read,
          avm_address_o       => r3_avm_address,

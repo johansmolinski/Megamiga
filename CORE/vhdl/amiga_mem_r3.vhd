@@ -108,6 +108,9 @@ entity amiga_mem_r3 is
       qnice_wait_o   : out   std_logic;
       kick_busy_o    : out   std_logic;                      -- core clock: words in flight
       maint_idle_o   : out   std_logic;
+      -- diagnostics (mega65.vhd's diag word in diag builds): fills that reached 4095 clocks,
+      -- read words with no fill waiting, the longest fill wait (clocks, saturating at 4095)
+      dbg_o          : out   std_logic_vector(31 downto 0);
 
       -- HyperRAM: Avalon master (core clock; the parent crosses to the HyperRAM clock)
       avm_write_o         : out std_logic;
@@ -193,7 +196,10 @@ architecture synthesis of amiga_mem_r3 is
    signal l_mirror  : std_logic := '0';
    signal avm_write : std_logic := '0';
    signal avm_read  : std_logic := '0';
-   signal watchdog  : unsigned(11 downto 0) := (others => '0');
+   signal watchdog  : unsigned(11 downto 0) := (others => '0');   -- clocks in S_FILL (dbg_o)
+   signal d_long    : unsigned(7 downto 0) := (others => '0');
+   signal d_stray   : unsigned(7 downto 0) := (others => '0');
+   signal d_maxlat  : unsigned(11 downto 0) := (others => '0');
 
    -- G_KICK_BRAM: the Kickstart block RAM (256K words)
    type t_kick is array (0 to 2 ** 18 - 1) of std_logic_vector(7 downto 0);
@@ -307,6 +313,22 @@ begin
    ---------------------------------------------------------------------------------------
 
    qnice_wait_o <= q_full or q_wr_rst_busy;
+   dbg_o        <= std_logic_vector(d_long) & std_logic_vector(d_stray) & "0000" & std_logic_vector(d_maxlat);
+
+   p_dbg : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         if avm_readdatavalid_i = '1' and state /= S_FILLREQ and state /= S_FILL and d_stray /= x"FF" then
+            d_stray <= d_stray + 1;
+         end if;
+         if state = S_FILL and watchdog = to_unsigned(4094, 12) and d_long /= x"FF" then
+            d_long <= d_long + 1;
+         end if;
+         if state = S_FILL and avm_readdatavalid_i = '1' and watchdog > d_maxlat then
+            d_maxlat <= watchdog;
+         end if;
+      end if;
+   end process p_dbg;
    kick_busy_o  <= '1' when f_empty = '0' or state = S_LOAD or state = S_LOAD2 or
                             l_mirror = '1' else '0';
    maint_idle_o <= '1' when f_empty = '1' and state /= S_LOAD and state /= S_LOAD2 and
@@ -529,8 +551,8 @@ begin
                   avm_read <= '0';
                   state    <= S_FILL;
                end if;
-               if state = S_FILL then
-                  watchdog <= watchdog + 1;
+               if state = S_FILL and watchdog /= (watchdog'range => '1') then
+                  watchdog <= watchdog + 1;                         -- (saturates: dbg_o only)
                end if;
                if avm_readdatavalid_i = '1' then
                   c_wa  <= f_line * 16 + to_integer(f_idx);
@@ -548,14 +570,21 @@ begin
                      avm_read <= '0';
                      state    <= S_FILLEND;
                   end if;
-               elsif state = S_FILL and watchdog = (watchdog'range => '1') then
-                  if f_given = '0' then                             -- lost response: no hang
-                     data     <= (others => '1');
-                     v_answer := true;
-                     from_c   <= '0';
-                     from_k   <= '0';
-                  end if;
-                  state <= S_IDLE;
+               -- Megamiga, 2026-11-19 (R3 HW: Line-F crashes, a corrupted longword, only with Fast
+               -- RAM): a fill no longer gives up. The watchdog answered the CPU $FFFF (a Line-F
+               -- opcode) after 4095 clocks, or dropped the rest of a line the CPU already had its
+               -- word from, and the late words then went into the NEXT fill. A late answer is
+               -- harmless to wait for (the CPU waits, nothing else writes these words, and since
+               -- f39f729 a HyperRAM reset resets this entity too); bench ~/aexp-work/r3fram.
+               -- Original:
+               --elsif state = S_FILL and watchdog = (watchdog'range => '1') then
+               --   if f_given = '0' then                             -- lost response: no hang
+               --      data     <= (others => '1');
+               --      v_answer := true;
+               --      from_c   <= '0';
+               --      from_k   <= '0';
+               --   end if;
+               --   state <= S_IDLE;
                end if;
 
             when S_FILLEND =>
