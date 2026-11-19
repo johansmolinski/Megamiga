@@ -170,9 +170,9 @@ constant HELP_3 : string :=
    "\n ADF FLOPPY\n\n" &
 
    " Select a df0:/df1:/df2: line in the\n" &
-   " menu. A drive shows this line only\n" &
-   " while Drive Settings has it set to\n" &
-   " Disk Image.\n\n" &
+   " menu. Drive Settings sets how many\n" &
+   " drives there are and which one is\n" &
+   " the Hardware Floppy.\n\n" &
 
    " Empty drive + Space: open file browser\n" &
    " Mounted disk + Space: eject disk\n\n" &
@@ -511,7 +511,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 183; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 184; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -696,137 +696,138 @@ constant OPTM_ITEMS        : string :=
    " 2\n"                   &  --  49: 2
    " 3\n"                   &  --  50: 3
    "\n"                     &  --  51: Line
-   " Drive df0\n"           &  --  52: Headline "Drive df0"
-   " Disk Image\n"          &  --  53: df0 Disk Image (default)
-   " Hardware Floppy\n"     &  --  54: df0 Hardware Floppy
-   "\n"                     &  --  55: Line
-   " Drive df1\n"           &  --  56: Headline "Drive df1"
-   " Disk Image\n"          &  --  57: df1 Disk Image
-   " Hardware Floppy\n"     &  --  58: df1 Hardware Floppy
-   " Off\n"                 &  --  59: df1 Off (only while Drives = 1; default)
-   "\n"                     &  --  60: Line
-   " Drive df2\n"           &  --  61: Headline "Drive df2"
-   " Disk Image\n"          &  --  62: df2 Disk Image
-   " Hardware Floppy\n"     &  --  63: df2 Hardware Floppy
-   " Off\n"                 &  --  64: df2 Off (while Drives = 1 or 2; default)
-   "\n"                     &  --  65: Line
-   " Drive spin-up delay\n" &  --  66: Drive spin-up delay (single-select, default OFF)
-   " Virtual Drive Sound: On\n" &  --  67: Virtual Drive Sound: On (row; the internal drive sounds the disk image drives, default)
-   " Noclick\n"              &  --  68: Virtual Drive Sound: Noclick (only with a motor on: no click of an empty drive)
-   " Off\n"                  &  --  69: Virtual Drive Sound: Off
-   "\n"                     &  --  70: Line
-   " Back to main menu\n"   &  --  71: Close submenu / back to main menu
-   " Settings\n"            &  --  72: Settings submenu head (Display / Audio / Keyboard)
-   " Settings\n"            &  --  73: Headline "Settings"
-   " Display\n"             &  --  74: Headline "Display"
-   " HDMI: %s\n"            &  --  75: HDMI submenu block: "HDMI: %s"
-   " HDMI Settings\n"       &  --  76: Headline "HDMI Settings"
-   " 720p 16:9\n"           &  --  77: 720p 16:9, default (50 Hz, 60 Hz while the Amiga runs NTSC)
-   " 576p/480p 4:3\n"       &  --  78: 576p 50 Hz 4:3 (480p 59.94 Hz while the Amiga runs NTSC)
-   " 576p/480p 5:4\n"       &  --  79: 576p 50 Hz 5:4 (480p 59.94 Hz 4:3 while the Amiga runs NTSC)
-   "\n"                     &  --  80: Line
-   " DVI (no sound)\n"      &  --  81: DVI (no sound) (single-select, default OFF)
-   " RTG native resolution\n" & --  82: RTG native resolution (single-select, default ON; was a Line)
-   " Back to Settings\n"    &  --  83: Close submenu / back to Settings
-   " HDMI: %s\n"            &  --  84: HDMI Filter submenu block: "HDMI: %s"
-   " HDMI Filter\n"         &  --  85: Headline "HDMI Filter"
-   " No Filter\n"           &  --  86: No Filter
-   " Sharp Bilinear\n"      &  --  87: Sharp Bilinear
-   " Bicubic\n"             &  --  88: Bicubic
-   " Smooth\n"              &  --  89: Smooth
-   " Lanczos\n"             &  --  90: Lanczos (default)
-   " Scanlines\n"           &  --  91: Scanlines
-   " CRT (S-Video)\n"       &  --  92: CRT (S-Video)
-   " CRT (Composite)\n"     &  --  93: CRT (Composite)
-   "\n"                     &  --  94: Line
-   " Back to Settings\n"    &  --  95: Close submenu / back to Settings
-   " HDMI: Flicker-free\n"  &  --  96: HDMI: Flicker-free (single-select, default ON)
-   " VGA: %s\n"             &  --  97: VGA submenu block: "VGA: %s"
-   " VGA Display Mode\n"    &  --  98: Headline "VGA Display Mode"
-   " Standard\n"            &  --  99: Standard (default)
-   "\n"                     &  -- 100: Line
-   " Retro 15 kHz mode\n"   &  -- 101: Text "Retro 15 kHz mode"
-   "\n"                     &  -- 102: Line
-   " 15 kHz with HS/VS\n"   &  -- 103: 15 kHz with HS/VS
-   " 15 kHz with CSYNC\n"   &  -- 104: 15 kHz with CSYNC
-   "\n"                     &  -- 105: Line
-   " Back to Settings\n"    &  -- 106: Close submenu / back to Settings
-   " Reload Screen Config\n" & -- 107: Reload screen cfg (momentary action)
-   " OSM: %s\n"             &  -- 108: OSM Scaling submenu block: "OSM: %s"
-   " OSM Scaling\n"         &  -- 109: Headline "OSM Scaling"
-   " 100%\n"                &  -- 110: 100% (default)
-   " 94%\n"                 &  -- 111: 94%
-   " 88%\n"                 &  -- 112: 88%
-   " 81%\n"                 &  -- 113: 81%
-   " 75%\n"                 &  -- 114: 75%
-   " 69%\n"                 &  -- 115: 69%
-   " 63%\n"                 &  -- 116: 63%
-   " 56%\n"                 &  -- 117: 56%
-   " 50%\n"                 &  -- 118: 50%
-   "\n"                     &  -- 119: Line
-   " Back to Settings\n"    &  -- 120: Close submenu / back to Settings
-   " NTSC (60 Hz)\n"        &  -- 121: NTSC (60 Hz): the video standard of the machine (single-select, default OFF; Megamiga)
-   "\n"                     &  -- 122: Line
-   " Audio\n"               &  -- 123: Headline "Audio"
-   " Volume: %s\n"          &  -- 124: Volume submenu block: "Volume: %s"
-   " Volume Control\n"      &  -- 125: Headline "Volume Control"
-   " 100%\n"                &  -- 126: 100% (default)
-   " 95%\n"                 &  -- 127: 95%
-   " 90%\n"                 &  -- 128: 90%
-   " 85%\n"                 &  -- 129: 85%
-   " 80%\n"                 &  -- 130: 80%
-   " 75%\n"                 &  -- 131: 75%
-   " 70%\n"                 &  -- 132: 70%
-   " 65%\n"                 &  -- 133: 65%
-   " 60%\n"                 &  -- 134: 60%
-   " 55%\n"                 &  -- 135: 55%
-   " 50%\n"                 &  -- 136: 50%
-   " 45%\n"                 &  -- 137: 45%
-   " 40%\n"                 &  -- 138: 40%
-   " 35%\n"                 &  -- 139: 35%
-   " 30%\n"                 &  -- 140: 30%
-   " 25%\n"                 &  -- 141: 25%
-   " 20%\n"                 &  -- 142: 20%
-   " 15%\n"                 &  -- 143: 15%
-   " 10%\n"                 &  -- 144: 10%
-   " 5%\n"                  &  -- 145: 5%
-   " 0%\n"                  &  -- 146: 0% (mute)
-   "\n"                     &  -- 147: Line
-   " Back to Settings\n"    &  -- 148: Close submenu / back to Settings
-   " Stereo: %s\n"          &  -- 149: Stereo Mix submenu block: "Stereo: %s"
-   " Stereo Mix\n"          &  -- 150: Headline "Stereo Mix"
-   " Full Stereo\n"         &  -- 151: Full Stereo (default)
-   " Wide Stereo\n"         &  -- 152: Wide Stereo
-   " Narrow Stereo\n"       &  -- 153: Narrow Stereo
-   " Mono\n"                &  -- 154: Mono
-   "\n"                     &  -- 155: Line
-   " Back to Settings\n"    &  -- 156: Close submenu / back to Settings
-   " A500 Filter\n"         &  -- 157: A500 Filter (single-select, default ON)
-   " LED Filter\n"          &  -- 158: LED Filter (single-select, default ON)
-   "\n"                     &  -- 159: Line
-   " Keyboard\n"            &  -- 160: Headline "Keyboard"
-   " Amiga\n"               &  -- 161: Amiga (pure positional)
-   " MEGA65\n"              &  -- 162: MEGA65 (semantic; default)
-   " OSM: %s\n"             &  -- 163: OSM-open key submenu block: "OSM: %s"
-   " Key to open the menu\n" & -- 164: Headline "Key to open the menu"
-   " Help\n"                &  -- 165: Help (default opener)
-   " F11\n"                 &  -- 166: F11
-   " F13\n"                 &  -- 167: F13
-   " MEGA + Run/Stop\n"     &  -- 168: MEGA + Run/Stop
-   "\n"                     &  -- 169: Line
-   " Back to Settings\n"    &  -- 170: Close submenu / back to Settings
-   "\n"                     &  -- 171: Line
-   " Ports\n"               &  -- 172: Headline "Ports"
-   " Serial port on PMOD\n" &  -- 173: Serial port on PMOD1 (single-select, default OFF)
-   "\n"                     &  -- 174: Line
-   " Back to main menu\n"   &  -- 175: Close Settings
-   "\n"                     &  -- 176: Line
-   " Freeze cartridge\n"    &  -- 177: Freeze: the cartridge button (momentary)
-   "\n"                     &  -- 178: Line
-   " About & Help\n"        &  -- 179: About & Help (WHS(1))
-   " Close Menu\n"          &  -- 180: Close Menu (was 212; the Line moved below it)
-   "\n"                     &  -- 181: Line
-   " \n" ;                     -- 182: Text: empty; SD_STATUS_STEP (m2m-rom.asm) paints the live status of both SD cards on the bottom row of the main menu
+   " Hardware Floppy: Off\n" &  --  52: Hardware Floppy row (OPTM_G_HWFLOPPY): Off (default) - which drive is the MEGA65 drive
+   " df0\n"                 &  --  53: Hardware Floppy: df0
+   " df1\n"                 &  --  54: Hardware Floppy: df1 (greyed out with one drive)
+   " df2\n"                 &  --  55: Hardware Floppy: df2 (greyed out unless there are three drives)
+   " d0i\n"                 &  --  56: HIDDEN df0 mode: Disk Image (the firmware sets the modes from Drives + Hardware Floppy)
+   " d0h\n"                 &  --  57: HIDDEN df0 mode: Hardware Floppy
+   " d1i\n"                 &  --  58: HIDDEN df1 mode: Disk Image
+   " d1h\n"                 &  --  59: HIDDEN df1 mode: Hardware Floppy
+   " d1o\n"                 &  --  60: HIDDEN df1 mode: Off (default)
+   " d2i\n"                 &  --  61: HIDDEN df2 mode: Disk Image
+   " d2h\n"                 &  --  62: HIDDEN df2 mode: Hardware Floppy
+   " d2o\n"                 &  --  63: HIDDEN df2 mode: Off (default)
+   " ha\n"                  &  --  64: HIDDEN helper A (single-select, never on)
+   " hb\n"                  &  --  65: HIDDEN helper B (single-select, never on)
+   "\n"                     &  --  66: Line
+   " Drive spin-up delay\n" &  --  67: Drive spin-up delay (single-select, default OFF)
+   " Virtual Drive Sound: On\n" &  --  68: Virtual Drive Sound: On (row; the internal drive sounds the disk image drives, default)
+   " Noclick\n"              &  --  69: Virtual Drive Sound: Noclick (only with a motor on: no click of an empty drive)
+   " Off\n"                  &  --  70: Virtual Drive Sound: Off
+   "\n"                     &  --  71: Line
+   " Back to main menu\n"   &  --  72: Close submenu / back to main menu
+   " Settings\n"            &  --  73: Settings submenu head (Display / Audio / Keyboard)
+   " Settings\n"            &  --  74: Headline "Settings"
+   " Display\n"             &  --  75: Headline "Display"
+   " HDMI: %s\n"            &  --  76: HDMI submenu block: "HDMI: %s"
+   " HDMI Settings\n"       &  --  77: Headline "HDMI Settings"
+   " 720p 16:9\n"           &  --  78: 720p 16:9, default (50 Hz, 60 Hz while the Amiga runs NTSC)
+   " 576p/480p 4:3\n"       &  --  79: 576p 50 Hz 4:3 (480p 59.94 Hz while the Amiga runs NTSC)
+   " 576p/480p 5:4\n"       &  --  80: 576p 50 Hz 5:4 (480p 59.94 Hz 4:3 while the Amiga runs NTSC)
+   "\n"                     &  --  81: Line
+   " DVI (no sound)\n"      &  --  82: DVI (no sound) (single-select, default OFF)
+   " RTG native resolution\n" & --  83: RTG native resolution (single-select, default ON; was a Line)
+   " Back to Settings\n"    &  --  84: Close submenu / back to Settings
+   " HDMI: %s\n"            &  --  85: HDMI Filter submenu block: "HDMI: %s"
+   " HDMI Filter\n"         &  --  86: Headline "HDMI Filter"
+   " No Filter\n"           &  --  87: No Filter
+   " Sharp Bilinear\n"      &  --  88: Sharp Bilinear
+   " Bicubic\n"             &  --  89: Bicubic
+   " Smooth\n"              &  --  90: Smooth
+   " Lanczos\n"             &  --  91: Lanczos (default)
+   " Scanlines\n"           &  --  92: Scanlines
+   " CRT (S-Video)\n"       &  --  93: CRT (S-Video)
+   " CRT (Composite)\n"     &  --  94: CRT (Composite)
+   "\n"                     &  --  95: Line
+   " Back to Settings\n"    &  --  96: Close submenu / back to Settings
+   " HDMI: Flicker-free\n"  &  --  97: HDMI: Flicker-free (single-select, default ON)
+   " VGA: %s\n"             &  --  98: VGA submenu block: "VGA: %s"
+   " VGA Display Mode\n"    &  --  99: Headline "VGA Display Mode"
+   " Standard\n"            &  -- 100: Standard (default)
+   "\n"                     &  -- 101: Line
+   " Retro 15 kHz mode\n"   &  -- 102: Text "Retro 15 kHz mode"
+   "\n"                     &  -- 103: Line
+   " 15 kHz with HS/VS\n"   &  -- 104: 15 kHz with HS/VS
+   " 15 kHz with CSYNC\n"   &  -- 105: 15 kHz with CSYNC
+   "\n"                     &  -- 106: Line
+   " Back to Settings\n"    &  -- 107: Close submenu / back to Settings
+   " Reload Screen Config\n" & -- 108: Reload screen cfg (momentary action)
+   " OSM: %s\n"             &  -- 109: OSM Scaling submenu block: "OSM: %s"
+   " OSM Scaling\n"         &  -- 110: Headline "OSM Scaling"
+   " 100%\n"                &  -- 111: 100% (default)
+   " 94%\n"                 &  -- 112: 94%
+   " 88%\n"                 &  -- 113: 88%
+   " 81%\n"                 &  -- 114: 81%
+   " 75%\n"                 &  -- 115: 75%
+   " 69%\n"                 &  -- 116: 69%
+   " 63%\n"                 &  -- 117: 63%
+   " 56%\n"                 &  -- 118: 56%
+   " 50%\n"                 &  -- 119: 50%
+   "\n"                     &  -- 120: Line
+   " Back to Settings\n"    &  -- 121: Close submenu / back to Settings
+   " NTSC (60 Hz)\n"        &  -- 122: NTSC (60 Hz): the video standard of the machine (single-select, default OFF; Megamiga)
+   "\n"                     &  -- 123: Line
+   " Audio\n"               &  -- 124: Headline "Audio"
+   " Volume: %s\n"          &  -- 125: Volume submenu block: "Volume: %s"
+   " Volume Control\n"      &  -- 126: Headline "Volume Control"
+   " 100%\n"                &  -- 127: 100% (default)
+   " 95%\n"                 &  -- 128: 95%
+   " 90%\n"                 &  -- 129: 90%
+   " 85%\n"                 &  -- 130: 85%
+   " 80%\n"                 &  -- 131: 80%
+   " 75%\n"                 &  -- 132: 75%
+   " 70%\n"                 &  -- 133: 70%
+   " 65%\n"                 &  -- 134: 65%
+   " 60%\n"                 &  -- 135: 60%
+   " 55%\n"                 &  -- 136: 55%
+   " 50%\n"                 &  -- 137: 50%
+   " 45%\n"                 &  -- 138: 45%
+   " 40%\n"                 &  -- 139: 40%
+   " 35%\n"                 &  -- 140: 35%
+   " 30%\n"                 &  -- 141: 30%
+   " 25%\n"                 &  -- 142: 25%
+   " 20%\n"                 &  -- 143: 20%
+   " 15%\n"                 &  -- 144: 15%
+   " 10%\n"                 &  -- 145: 10%
+   " 5%\n"                  &  -- 146: 5%
+   " 0%\n"                  &  -- 147: 0% (mute)
+   "\n"                     &  -- 148: Line
+   " Back to Settings\n"    &  -- 149: Close submenu / back to Settings
+   " Stereo: %s\n"          &  -- 150: Stereo Mix submenu block: "Stereo: %s"
+   " Stereo Mix\n"          &  -- 151: Headline "Stereo Mix"
+   " Full Stereo\n"         &  -- 152: Full Stereo (default)
+   " Wide Stereo\n"         &  -- 153: Wide Stereo
+   " Narrow Stereo\n"       &  -- 154: Narrow Stereo
+   " Mono\n"                &  -- 155: Mono
+   "\n"                     &  -- 156: Line
+   " Back to Settings\n"    &  -- 157: Close submenu / back to Settings
+   " A500 Filter\n"         &  -- 158: A500 Filter (single-select, default ON)
+   " LED Filter\n"          &  -- 159: LED Filter (single-select, default ON)
+   "\n"                     &  -- 160: Line
+   " Keyboard\n"            &  -- 161: Headline "Keyboard"
+   " Amiga\n"               &  -- 162: Amiga (pure positional)
+   " MEGA65\n"              &  -- 163: MEGA65 (semantic; default)
+   " OSM: %s\n"             &  -- 164: OSM-open key submenu block: "OSM: %s"
+   " Key to open the menu\n" & -- 165: Headline "Key to open the menu"
+   " Help\n"                &  -- 166: Help (default opener)
+   " F11\n"                 &  -- 167: F11
+   " F13\n"                 &  -- 168: F13
+   " MEGA + Run/Stop\n"     &  -- 169: MEGA + Run/Stop
+   "\n"                     &  -- 170: Line
+   " Back to Settings\n"    &  -- 171: Close submenu / back to Settings
+   "\n"                     &  -- 172: Line
+   " Ports\n"               &  -- 173: Headline "Ports"
+   " Serial port on PMOD\n" &  -- 174: Serial port on PMOD1 (single-select, default OFF)
+   "\n"                     &  -- 175: Line
+   " Back to main menu\n"   &  -- 176: Close Settings
+   "\n"                     &  -- 177: Line
+   " Freeze cartridge\n"    &  -- 178: Freeze: the cartridge button (momentary)
+   "\n"                     &  -- 179: Line
+   " About & Help\n"        &  -- 180: About & Help (WHS(1))
+   " Close Menu\n"          &  -- 181: Close Menu (was 212; the Line moved below it)
+   "\n"                     &  -- 182: Line
+   " \n" ;                     -- 183: Text: empty; SD_STATUS_STEP (m2m-rom.asm) paints the live status of both SD cards on the bottom row of the main menu
 -- Megamiga, November 2026: the menu as the board shows it - the R3/R3A has 4 MB of Zorro II
 -- Fast RAM in HyperRAM (amiga_mem_r3.vhd) instead of 8 MB in SDRAM; same length
 function f_items(b : string) return string is
@@ -900,6 +901,9 @@ constant OPTM_G_PROFREN    : integer := 82;  -- Rename Profile: momentary, the n
 constant OPTM_G_QHDF       : integer := 83;  -- quick HDF on the main page: the master in place of the
                                               -- profile's HDFs until Space ejects it (manual CRT/ROM load 3, C_DEV_AMIGA_IDEQ)
 constant OPTM_G_NTSC       : integer := 84;  -- NTSC (60 Hz) toggle: the video standard (core clock + Agnus); read in HDL (mega65.vhd)
+constant OPTM_G_HWFLOPPY   : integer := 85;  -- Drive Settings: Hardware Floppy row Off / df0 / df1 / df2 (2026-11-19); the firmware sets the mode radios from it
+constant OPTM_G_HIDEA      : integer := 86;  -- helper: never on, so the lines that depend on it (the drive mode radios) are never shown
+constant OPTM_G_HIDEB      : integer := 87;  -- helper: A and B are each visible only while the other is on - both stay off for ever
 
 -- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
 -- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
@@ -950,7 +954,7 @@ end function OPTM_DEP2;
 type OPTM_RTYPE is array (natural range <>) of natural;
 constant OPTM_ROWS : OPTM_RTYPE := (
    OPTM_G_P1CPU, OPTM_G_P1CS, OPTM_G_P1HDC, OPTM_G_P1CHIP, OPTM_G_P1SLOW, OPTM_G_P1CART,
-   OPTM_G_DRIVES, OPTM_G_DRVSOUND
+   OPTM_G_DRIVES, OPTM_G_HWFLOPPY, OPTM_G_DRVSOUND
 );
 
 -- Greyed out (M2M-UPSTREAM menu-rows): an item of group "grp" whose position in the
@@ -963,6 +967,8 @@ type OPTM_AREC is record
 end record;
 type OPTM_ATYPE is array (natural range <>) of OPTM_AREC;
 constant OPTM_AVAIL_SDRAM : OPTM_ATYPE := (
+   -- Hardware Floppy: df1 needs two or three drives, df2 three
+   (OPTM_G_HWFLOPPY, 4, OPTM_G_DRIVES, 6), (OPTM_G_HWFLOPPY, 8, OPTM_G_DRIVES, 4),
    -- the Zorro III boards and the graphics card need a 68020 or 68040
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 6), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 6), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 6),
    -- HRTmon: 68000 and 68020; the Action Replay III: 68000 only
@@ -973,6 +979,8 @@ constant OPTM_AVAIL_SDRAM : OPTM_ATYPE := (
 -- III boards, the graphics card, both cartridges; Slow RAM only next to 512 KB chip RAM (chip
 -- and slow RAM share 1 MB of block RAM). mega65.vhd's prof_decode applies the same limits.
 constant OPTM_AVAIL_R3 : OPTM_ATYPE := (
+   -- Hardware Floppy: df1 needs two or three drives, df2 three
+   (OPTM_G_HWFLOPPY, 4, OPTM_G_DRIVES, 6), (OPTM_G_HWFLOPPY, 8, OPTM_G_DRIVES, 4),
    (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0), (OPTM_G_P1CHIP, 4, OPTM_G_P1CHIP, 0),
    (OPTM_G_P1SLOW, 2, OPTM_G_P1CHIP, 1),
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
@@ -981,6 +989,8 @@ constant OPTM_AVAIL_R3 : OPTM_ATYPE := (
 -- With rubber banding (C_R3_RUBBER, chip RAM in HyperRAM) 2 MB chip RAM is back, and Slow RAM
 -- next to 512 KB or 1 MB chip RAM (it takes the upper half of the chip RAM's 2 MB of HyperRAM).
 constant OPTM_AVAIL_R3_RB : OPTM_ATYPE := (
+   -- Hardware Floppy: df1 needs two or three drives, df2 three
+   (OPTM_G_HWFLOPPY, 4, OPTM_G_DRIVES, 6), (OPTM_G_HWFLOPPY, 8, OPTM_G_DRIVES, 4),
    (OPTM_G_P1CPU, 4, OPTM_G_P1CPU, 0), (OPTM_G_P1SLOW, 2, OPTM_G_P1CHIP, 3),
    (OPTM_G_P1Z3, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1Z3B, 1, OPTM_G_P1CPU, 0), (OPTM_G_P1GFX, 1, OPTM_G_P1CPU, 0),
    (OPTM_G_P1CART, 6, OPTM_G_P1CPU, 0)
@@ -1058,137 +1068,138 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE, --  
                                               OPTM_G_DRIVES,                                           --  49: 2
                                               OPTM_G_DRIVES,                                           --  50: 3
                                               OPTM_G_LINE,                                             --  51: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  52: Headline "Drive df0"
-                                              OPTM_G_DF0MODE + OPTM_G_STDSEL,                          --  53: df0 Disk Image (default)
-                                              OPTM_G_DF0MODE,                                          --  54: df0 Hardware Floppy
-                                              OPTM_G_LINE,                                             --  55: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  56: Headline "Drive df1"
-                                              OPTM_G_DF1MODE + OPTM_DEP2(OPTM_G_DRIVES, 1, 2),         --  57: df1 Disk Image
-                                              OPTM_G_DF1MODE + OPTM_DEP2(OPTM_G_DRIVES, 1, 2),         --  58: df1 Hardware Floppy
-                                              OPTM_G_DF1MODE + OPTM_G_STDSEL + OPTM_DEP(OPTM_G_DRIVES, 0), --  59: df1 Off (only while Drives = 1; default)
-                                              OPTM_G_LINE,                                             --  60: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  61: Headline "Drive df2"
-                                              OPTM_G_DF2MODE + OPTM_DEP(OPTM_G_DRIVES, 2),             --  62: df2 Disk Image
-                                              OPTM_G_DF2MODE + OPTM_DEP(OPTM_G_DRIVES, 2),             --  63: df2 Hardware Floppy
-                                              OPTM_G_DF2MODE + OPTM_G_STDSEL + OPTM_DEP2(OPTM_G_DRIVES, 0, 1), --  64: df2 Off (while Drives = 1 or 2; default)
-                                              OPTM_G_LINE,                                             --  65: Line
-                                              OPTM_G_SPINUP + OPTM_G_SINGLESEL,                        --  66: Drive spin-up delay (single-select, default OFF)
-                                              OPTM_G_DRVSOUND + OPTM_G_STDSEL,                         --  67: Virtual Drive Sound: On (row; the internal drive sounds the disk image drives, default)
-                                              OPTM_G_DRVSOUND,                                         --  68: Virtual Drive Sound: Noclick (only with a motor on: no click of an empty drive)
-                                              OPTM_G_DRVSOUND,                                         --  69: Virtual Drive Sound: Off
-                                              OPTM_G_LINE,                                             --  70: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  71: Close submenu / back to main menu
-                                              OPTM_G_SUBMENU,                                          --  72: Settings submenu head (Display / Audio / Keyboard)
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  73: Headline "Settings"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  74: Headline "Display"
-                                              OPTM_G_SUBMENU,                                          --  75: HDMI submenu block: "HDMI: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  76: Headline "HDMI Settings"
-                                              OPTM_G_HDMI + OPTM_G_STDSEL,                             --  77: 720p 50 Hz 16:9, default
-                                              OPTM_G_HDMI,                                             --  78: 576p 50 Hz 4:3
-                                              OPTM_G_HDMI,                                             --  79: 576p 50 Hz 5:4
-                                              OPTM_G_LINE,                                             --  80: Line
-                                              OPTM_G_HDMIDVI + OPTM_G_SINGLESEL,                       --  81: DVI (no sound) (single-select, default OFF)
-                                              OPTM_G_RTGNATIVE + OPTM_G_SINGLESEL + OPTM_G_STDSEL,     --  82: RTG native resolution (single-select, default ON; was a Line)
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  83: Close submenu / back to Settings
-                                              OPTM_G_SUBMENU,                                          --  84: HDMI Filter submenu block: "HDMI: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  85: Headline "HDMI Filter"
-                                              OPTM_G_FILTER,                                           --  86: No Filter
-                                              OPTM_G_FILTER,                                           --  87: Sharp Bilinear
-                                              OPTM_G_FILTER,                                           --  88: Bicubic
-                                              OPTM_G_FILTER,                                           --  89: Smooth
-                                              OPTM_G_FILTER + OPTM_G_STDSEL,                           --  90: Lanczos (default)
-                                              OPTM_G_FILTER,                                           --  91: Scanlines
-                                              OPTM_G_FILTER,                                           --  92: CRT (S-Video)
-                                              OPTM_G_FILTER,                                           --  93: CRT (Composite)
-                                              OPTM_G_LINE,                                             --  94: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  95: Close submenu / back to Settings
-                                              OPTM_G_HDMIFF + OPTM_G_SINGLESEL + OPTM_G_STDSEL,        --  96: HDMI: Flicker-free (single-select, default ON)
-                                              OPTM_G_SUBMENU,                                          --  97: VGA submenu block: "VGA: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  98: Headline "VGA Display Mode"
-                                              OPTM_G_VGA + OPTM_G_STDSEL,                              --  99: Standard (default)
-                                              OPTM_G_LINE,                                             -- 100: Line
-                                              OPTM_G_TEXT,                                             -- 101: Text "Retro 15 kHz mode"
-                                              OPTM_G_LINE,                                             -- 102: Line
-                                              OPTM_G_VGA,                                              -- 103: 15 kHz with HS/VS
-                                              OPTM_G_VGA,                                              -- 104: 15 kHz with CSYNC
-                                              OPTM_G_LINE,                                             -- 105: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 106: Close submenu / back to Settings
-                                              OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,                     -- 107: Reload screen cfg (momentary action)
-                                              OPTM_G_SUBMENU,                                          -- 108: OSM Scaling submenu block: "OSM: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 109: Headline "OSM Scaling"
-                                              OPTM_G_OSM_MODE + OPTM_G_STDSEL,                         -- 110: 100% (default)
-                                              OPTM_G_OSM_MODE,                                         -- 111: 94%
-                                              OPTM_G_OSM_MODE,                                         -- 112: 88%
-                                              OPTM_G_OSM_MODE,                                         -- 113: 81%
-                                              OPTM_G_OSM_MODE,                                         -- 114: 75%
-                                              OPTM_G_OSM_MODE,                                         -- 115: 69%
-                                              OPTM_G_OSM_MODE,                                         -- 116: 63%
-                                              OPTM_G_OSM_MODE,                                         -- 117: 56%
-                                              OPTM_G_OSM_MODE,                                         -- 118: 50%
-                                              OPTM_G_LINE,                                             -- 119: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 120: Close submenu / back to Settings
-                                              OPTM_G_NTSC + OPTM_G_SINGLESEL,                          -- 121: NTSC (60 Hz): the video standard (single-select, default OFF)
-                                              OPTM_G_LINE,                                             -- 122: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 123: Headline "Audio"
-                                              OPTM_G_SUBMENU,                                          -- 124: Volume submenu block: "Volume: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 125: Headline "Volume Control"
-                                              OPTM_G_VOLUME + OPTM_G_STDSEL,                           -- 126: 100% (default)
-                                              OPTM_G_VOLUME,                                           -- 127: 95%
-                                              OPTM_G_VOLUME,                                           -- 128: 90%
-                                              OPTM_G_VOLUME,                                           -- 129: 85%
-                                              OPTM_G_VOLUME,                                           -- 130: 80%
-                                              OPTM_G_VOLUME,                                           -- 131: 75%
-                                              OPTM_G_VOLUME,                                           -- 132: 70%
-                                              OPTM_G_VOLUME,                                           -- 133: 65%
-                                              OPTM_G_VOLUME,                                           -- 134: 60%
-                                              OPTM_G_VOLUME,                                           -- 135: 55%
-                                              OPTM_G_VOLUME,                                           -- 136: 50%
-                                              OPTM_G_VOLUME,                                           -- 137: 45%
-                                              OPTM_G_VOLUME,                                           -- 138: 40%
-                                              OPTM_G_VOLUME,                                           -- 139: 35%
-                                              OPTM_G_VOLUME,                                           -- 140: 30%
-                                              OPTM_G_VOLUME,                                           -- 141: 25%
-                                              OPTM_G_VOLUME,                                           -- 142: 20%
-                                              OPTM_G_VOLUME,                                           -- 143: 15%
-                                              OPTM_G_VOLUME,                                           -- 144: 10%
-                                              OPTM_G_VOLUME,                                           -- 145: 5%
-                                              OPTM_G_VOLUME,                                           -- 146: 0% (mute)
-                                              OPTM_G_LINE,                                             -- 147: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 148: Close submenu / back to Settings
-                                              OPTM_G_SUBMENU,                                          -- 149: Stereo Mix submenu block: "Stereo: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 150: Headline "Stereo Mix"
-                                              OPTM_G_STEREO + OPTM_G_STDSEL,                           -- 151: Full Stereo (default)
-                                              OPTM_G_STEREO,                                           -- 152: Wide Stereo
-                                              OPTM_G_STEREO,                                           -- 153: Narrow Stereo
-                                              OPTM_G_STEREO,                                           -- 154: Mono
-                                              OPTM_G_LINE,                                             -- 155: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 156: Close submenu / back to Settings
-                                              OPTM_G_A500FILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,      -- 157: A500 Filter (single-select, default ON)
-                                              OPTM_G_LEDFILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- 158: LED Filter (single-select, default ON)
-                                              OPTM_G_LINE,                                             -- 159: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 160: Headline "Keyboard"
-                                              OPTM_G_KBD,                                              -- 161: Amiga (pure positional)
-                                              OPTM_G_KBD + OPTM_G_STDSEL,                              -- 162: MEGA65 (semantic; default)
-                                              OPTM_G_SUBMENU,                                          -- 163: OSM-open key submenu block: "OSM: %s"
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 164: Headline "Key to open the menu"
-                                              OPTM_G_OSMKEY + OPTM_G_STDSEL,                           -- 165: Help (default opener)
-                                              OPTM_G_OSMKEY,                                           -- 166: F11
-                                              OPTM_G_OSMKEY,                                           -- 167: F13
-                                              OPTM_G_OSMKEY,                                           -- 168: MEGA + Run/Stop
-                                              OPTM_G_LINE,                                             -- 169: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 170: Close submenu / back to Settings
-                                              OPTM_G_LINE,                                             -- 171: Line
-                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 172: Headline "Ports"
-                                              OPTM_G_SERIAL + OPTM_G_SINGLESEL,                        -- 173: Serial port on PMOD1 (single-select, default OFF)
-                                              OPTM_G_LINE,                                             -- 174: Line
-                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 175: Close Settings
-                                              OPTM_G_LINE,                                             -- 176: Line
-                                              OPTM_G_FREEZE + OPTM_G_SINGLESEL,                        -- 177: Freeze: the cartridge button (momentary)
-                                              OPTM_G_LINE,                                             -- 178: Line
-                                              OPTM_G_About + OPTM_G_HELP,                              -- 179: About & Help (WHS(1))
-                                              OPTM_G_CLOSE,                                            -- 180: Close Menu
-                                              OPTM_G_LINE,                                             -- 181: Line
-                                              OPTM_G_TEXT                                              -- 182: Text: empty (the SD card status is painted on the bottom row)
+                                              OPTM_G_HWFLOPPY + OPTM_G_STDSEL,                         --  52: Hardware Floppy: Off (default)
+                                              OPTM_G_HWFLOPPY,                                         --  53: Hardware Floppy: df0
+                                              OPTM_G_HWFLOPPY,                                         --  54: Hardware Floppy: df1
+                                              OPTM_G_HWFLOPPY,                                         --  55: Hardware Floppy: df2
+                                              OPTM_G_DF0MODE + OPTM_G_STDSEL + OPTM_DEP(OPTM_G_HIDEA, 1),      --  56: HIDDEN df0 Disk Image (default)
+                                              OPTM_G_DF0MODE + OPTM_DEP(OPTM_G_HIDEA, 1),                      --  57: HIDDEN df0 Hardware Floppy
+                                              OPTM_G_DF1MODE + OPTM_DEP(OPTM_G_HIDEA, 1),                      --  58: HIDDEN df1 Disk Image
+                                              OPTM_G_DF1MODE + OPTM_DEP(OPTM_G_HIDEA, 1),                      --  59: HIDDEN df1 Hardware Floppy
+                                              OPTM_G_DF1MODE + OPTM_G_STDSEL + OPTM_DEP(OPTM_G_HIDEA, 1),      --  60: HIDDEN df1 Off (default)
+                                              OPTM_G_DF2MODE + OPTM_DEP(OPTM_G_HIDEA, 1),                      --  61: HIDDEN df2 Disk Image
+                                              OPTM_G_DF2MODE + OPTM_DEP(OPTM_G_HIDEA, 1),                      --  62: HIDDEN df2 Hardware Floppy
+                                              OPTM_G_DF2MODE + OPTM_G_STDSEL + OPTM_DEP(OPTM_G_HIDEA, 1),      --  63: HIDDEN df2 Off (default)
+                                              OPTM_G_HIDEA + OPTM_G_SINGLESEL + OPTM_DEP(OPTM_G_HIDEB, 1), --  64: HIDDEN helper A
+                                              OPTM_G_HIDEB + OPTM_G_SINGLESEL + OPTM_DEP(OPTM_G_HIDEA, 1), --  65: HIDDEN helper B
+                                              OPTM_G_LINE,                                             --  66: Line
+                                              OPTM_G_SPINUP + OPTM_G_SINGLESEL,                        --  67: Drive spin-up delay (single-select, default OFF)
+                                              OPTM_G_DRVSOUND + OPTM_G_STDSEL,                         --  68: Virtual Drive Sound: On (row; the internal drive sounds the disk image drives, default)
+                                              OPTM_G_DRVSOUND,                                         --  69: Virtual Drive Sound: Noclick (only with a motor on: no click of an empty drive)
+                                              OPTM_G_DRVSOUND,                                         --  70: Virtual Drive Sound: Off
+                                              OPTM_G_LINE,                                             --  71: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  72: Close submenu / back to main menu
+                                              OPTM_G_SUBMENU,                                          --  73: Settings submenu head (Display / Audio / Keyboard)
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  74: Headline "Settings"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  75: Headline "Display"
+                                              OPTM_G_SUBMENU,                                          --  76: HDMI submenu block: "HDMI: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  77: Headline "HDMI Settings"
+                                              OPTM_G_HDMI + OPTM_G_STDSEL,                             --  78: 720p 50 Hz 16:9, default
+                                              OPTM_G_HDMI,                                             --  79: 576p 50 Hz 4:3
+                                              OPTM_G_HDMI,                                             --  80: 576p 50 Hz 5:4
+                                              OPTM_G_LINE,                                             --  81: Line
+                                              OPTM_G_HDMIDVI + OPTM_G_SINGLESEL,                       --  82: DVI (no sound) (single-select, default OFF)
+                                              OPTM_G_RTGNATIVE + OPTM_G_SINGLESEL + OPTM_G_STDSEL,     --  83: RTG native resolution (single-select, default ON; was a Line)
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  84: Close submenu / back to Settings
+                                              OPTM_G_SUBMENU,                                          --  85: HDMI Filter submenu block: "HDMI: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  86: Headline "HDMI Filter"
+                                              OPTM_G_FILTER,                                           --  87: No Filter
+                                              OPTM_G_FILTER,                                           --  88: Sharp Bilinear
+                                              OPTM_G_FILTER,                                           --  89: Bicubic
+                                              OPTM_G_FILTER,                                           --  90: Smooth
+                                              OPTM_G_FILTER + OPTM_G_STDSEL,                           --  91: Lanczos (default)
+                                              OPTM_G_FILTER,                                           --  92: Scanlines
+                                              OPTM_G_FILTER,                                           --  93: CRT (S-Video)
+                                              OPTM_G_FILTER,                                           --  94: CRT (Composite)
+                                              OPTM_G_LINE,                                             --  95: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           --  96: Close submenu / back to Settings
+                                              OPTM_G_HDMIFF + OPTM_G_SINGLESEL + OPTM_G_STDSEL,        --  97: HDMI: Flicker-free (single-select, default ON)
+                                              OPTM_G_SUBMENU,                                          --  98: VGA submenu block: "VGA: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           --  99: Headline "VGA Display Mode"
+                                              OPTM_G_VGA + OPTM_G_STDSEL,                              -- 100: Standard (default)
+                                              OPTM_G_LINE,                                             -- 101: Line
+                                              OPTM_G_TEXT,                                             -- 102: Text "Retro 15 kHz mode"
+                                              OPTM_G_LINE,                                             -- 103: Line
+                                              OPTM_G_VGA,                                              -- 104: 15 kHz with HS/VS
+                                              OPTM_G_VGA,                                              -- 105: 15 kHz with CSYNC
+                                              OPTM_G_LINE,                                             -- 106: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 107: Close submenu / back to Settings
+                                              OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,                     -- 108: Reload screen cfg (momentary action)
+                                              OPTM_G_SUBMENU,                                          -- 109: OSM Scaling submenu block: "OSM: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 110: Headline "OSM Scaling"
+                                              OPTM_G_OSM_MODE + OPTM_G_STDSEL,                         -- 111: 100% (default)
+                                              OPTM_G_OSM_MODE,                                         -- 112: 94%
+                                              OPTM_G_OSM_MODE,                                         -- 113: 88%
+                                              OPTM_G_OSM_MODE,                                         -- 114: 81%
+                                              OPTM_G_OSM_MODE,                                         -- 115: 75%
+                                              OPTM_G_OSM_MODE,                                         -- 116: 69%
+                                              OPTM_G_OSM_MODE,                                         -- 117: 63%
+                                              OPTM_G_OSM_MODE,                                         -- 118: 56%
+                                              OPTM_G_OSM_MODE,                                         -- 119: 50%
+                                              OPTM_G_LINE,                                             -- 120: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 121: Close submenu / back to Settings
+                                              OPTM_G_NTSC + OPTM_G_SINGLESEL,                          -- 122: NTSC (60 Hz): the video standard (single-select, default OFF)
+                                              OPTM_G_LINE,                                             -- 123: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 124: Headline "Audio"
+                                              OPTM_G_SUBMENU,                                          -- 125: Volume submenu block: "Volume: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 126: Headline "Volume Control"
+                                              OPTM_G_VOLUME + OPTM_G_STDSEL,                           -- 127: 100% (default)
+                                              OPTM_G_VOLUME,                                           -- 128: 95%
+                                              OPTM_G_VOLUME,                                           -- 129: 90%
+                                              OPTM_G_VOLUME,                                           -- 130: 85%
+                                              OPTM_G_VOLUME,                                           -- 131: 80%
+                                              OPTM_G_VOLUME,                                           -- 132: 75%
+                                              OPTM_G_VOLUME,                                           -- 133: 70%
+                                              OPTM_G_VOLUME,                                           -- 134: 65%
+                                              OPTM_G_VOLUME,                                           -- 135: 60%
+                                              OPTM_G_VOLUME,                                           -- 136: 55%
+                                              OPTM_G_VOLUME,                                           -- 137: 50%
+                                              OPTM_G_VOLUME,                                           -- 138: 45%
+                                              OPTM_G_VOLUME,                                           -- 139: 40%
+                                              OPTM_G_VOLUME,                                           -- 140: 35%
+                                              OPTM_G_VOLUME,                                           -- 141: 30%
+                                              OPTM_G_VOLUME,                                           -- 142: 25%
+                                              OPTM_G_VOLUME,                                           -- 143: 20%
+                                              OPTM_G_VOLUME,                                           -- 144: 15%
+                                              OPTM_G_VOLUME,                                           -- 145: 10%
+                                              OPTM_G_VOLUME,                                           -- 146: 5%
+                                              OPTM_G_VOLUME,                                           -- 147: 0% (mute)
+                                              OPTM_G_LINE,                                             -- 148: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 149: Close submenu / back to Settings
+                                              OPTM_G_SUBMENU,                                          -- 150: Stereo Mix submenu block: "Stereo: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 151: Headline "Stereo Mix"
+                                              OPTM_G_STEREO + OPTM_G_STDSEL,                           -- 152: Full Stereo (default)
+                                              OPTM_G_STEREO,                                           -- 153: Wide Stereo
+                                              OPTM_G_STEREO,                                           -- 154: Narrow Stereo
+                                              OPTM_G_STEREO,                                           -- 155: Mono
+                                              OPTM_G_LINE,                                             -- 156: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 157: Close submenu / back to Settings
+                                              OPTM_G_A500FILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,      -- 158: A500 Filter (single-select, default ON)
+                                              OPTM_G_LEDFILT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- 159: LED Filter (single-select, default ON)
+                                              OPTM_G_LINE,                                             -- 160: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 161: Headline "Keyboard"
+                                              OPTM_G_KBD,                                              -- 162: Amiga (pure positional)
+                                              OPTM_G_KBD + OPTM_G_STDSEL,                              -- 163: MEGA65 (semantic; default)
+                                              OPTM_G_SUBMENU,                                          -- 164: OSM-open key submenu block: "OSM: %s"
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 165: Headline "Key to open the menu"
+                                              OPTM_G_OSMKEY + OPTM_G_STDSEL,                           -- 166: Help (default opener)
+                                              OPTM_G_OSMKEY,                                           -- 167: F11
+                                              OPTM_G_OSMKEY,                                           -- 168: F13
+                                              OPTM_G_OSMKEY,                                           -- 169: MEGA + Run/Stop
+                                              OPTM_G_LINE,                                             -- 170: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 171: Close submenu / back to Settings
+                                              OPTM_G_LINE,                                             -- 172: Line
+                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                           -- 173: Headline "Ports"
+                                              OPTM_G_SERIAL + OPTM_G_SINGLESEL,                        -- 174: Serial port on PMOD1 (single-select, default OFF)
+                                              OPTM_G_LINE,                                             -- 175: Line
+                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                           -- 176: Close Settings
+                                              OPTM_G_LINE,                                             -- 177: Line
+                                              OPTM_G_FREEZE + OPTM_G_SINGLESEL,                        -- 178: Freeze: the cartridge button (momentary)
+                                              OPTM_G_LINE,                                             -- 179: Line
+                                              OPTM_G_About + OPTM_G_HELP,                              -- 180: About & Help (WHS(1))
+                                              OPTM_G_CLOSE,                                            -- 181: Close Menu
+                                              OPTM_G_LINE,                                             -- 182: Line
+                                              OPTM_G_TEXT                                              -- 183: Text: empty (the SD card status is painted on the bottom row)
                                            );
 
 -- M2M-UPSTREAM menu-rows: the layout word of every item (SEL_OPTM_ROWS):

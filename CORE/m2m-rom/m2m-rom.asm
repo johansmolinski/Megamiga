@@ -1166,35 +1166,18 @@ _OSM_SP_FLT     CMP     AEXP_OPTM_G_FILTER, R8
                 ; reload takes -- the OSM is frozen meanwhile because QNICE
                 ; serves the menu synchronously -- then repaint the original
                 ; label with no "=" checkmark left behind.
-                ; Drive Settings: keep the "Drives" count radio and the three
-                ; per-drive mode radios consistent. The HDL decode is defensive
-                ; about an inconsistent combination, but the MENU must not show
-                ; one: a drive beyond the count has to sit on its "Off" item,
-                ; because that item is what the count radio swaps in (menu
-                ; dependency), and it is also what hides the two lines of that drive
-                ; in the main menu. And only one physical mechanism exists, so
-                ; "Hardware Floppy" has to be stolen from the other drives.
-                ; Everything else - the Amiga cold boot, the twin-line
-                ; visibility, the live redraw - happens in the HDL and in the
-                ; framework; this is purely about the model staying sane.
+                ; Drive Settings (2026-11-19): the page has two choices, the
+                ; "Drives" count row and the "Hardware Floppy" row (Off / df0 /
+                ; df1 / df2). The three per-drive mode radios are still there -
+                ; the HDL decodes them and the main-menu twin lines depend on
+                ; them - but hidden; DRV_SYNC sets them from the two rows after
+                ; either changed, and DRV_EJECT_GONE ejects the image of a drive
+                ; that stopped being a Disk Image.
 _OSM_SP_DRV     CMP     AEXP_OPTM_G_DRIVES, R8
-                RBRA    _OSM_SP_DRVM, !Z
-                RSUB    DRV_ENFORCE_COUNT, 1
-                RSUB    DRV_EJECT_GONE, 1
-                RBRA    _OSM_SEL_POST_R, 1
-
-_OSM_SP_DRVM    CMP     AEXP_OPTM_G_DF0MODE, R8
-                RBRA    _OSM_SP_DRVM1, !Z
-                XOR     R8, R8                    ; R8: the drive that changed
-                RBRA    _OSM_SP_DRVS, 1
-_OSM_SP_DRVM1   CMP     AEXP_OPTM_G_DF1MODE, R8
-                RBRA    _OSM_SP_DRVM2, !Z
-                MOVE    1, R8
-                RBRA    _OSM_SP_DRVS, 1
-_OSM_SP_DRVM2   CMP     AEXP_OPTM_G_DF2MODE, R8
+                RBRA    _OSM_SP_DRVM, Z
+                CMP     AEXP_OPTM_G_HWFLOPPY, R8
                 RBRA    _OSM_SP_SCR, !Z
-                MOVE    2, R8
-_OSM_SP_DRVS    RSUB    DRV_STEAL_HW, 1
+_OSM_SP_DRVM    RSUB    DRV_SYNC, 1
                 RSUB    DRV_EJECT_GONE, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
@@ -2400,7 +2383,7 @@ HWF_STATUS_STEP INCRB
                 ; The selected-state array of the menu is plain QNICE RAM and
                 ; therefore much cheaper than M2M$GET_SETTING, which would have
                 ; to select the config device. Only one drive can claim the
-                ; single mechanism (DRV_STEAL_HW enforces it), so the first hit
+                ; single mechanism (DRV_SYNC enforces it), so the first hit
                 ; wins; if nobody claims it, all three TEXT lines are hidden by
                 ; their dependencies and there is nothing to show.
                 MOVE    OPTM_DATA, R0
@@ -2735,125 +2718,75 @@ DRV_MODE_TAB    .DW AEXP_OSM_DF0_IMG, AEXP_OSM_DF0_HW, 0xFFFF
                 .DW AEXP_OSM_DF1_IMG, AEXP_OSM_DF1_HW, AEXP_OSM_DF1_OFF
                 .DW AEXP_OSM_DF2_IMG, AEXP_OSM_DF2_HW, AEXP_OSM_DF2_OFF
 
-; DRV_ENFORCE_COUNT: called after the "Drives" radio changed.
+; The items df0 / df1 / df2 of the Hardware Floppy row (Drive Settings)
+HWF_ITEM_TAB    .DW AEXP_OSM_HWF_DF0, AEXP_OSM_HWF_DF1, AEXP_OSM_HWF_DF2
+
+; DRV_SYNC: called after the "Drives" row or the "Hardware Floppy" row changed.
 ;
-; A drive that the new count does not cover must sit on its Off item, and a
-; drive that just came back must leave it. The Off item is the one the count
-; radio swaps in through the menu dependency, so this is what makes the drive
-; appear in and disappear from the main menu. Note that we cannot simply hide
-; the mode radio instead: the main-menu twin lines depend on the MODE, not on
-; the count, and a dependent line may name only one mother group.
+; Sets every drive's (hidden) mode radio: Off beyond the drive count, Hardware
+; Floppy for the drive the Hardware Floppy row names, Disk Image for the rest.
+; A Hardware Floppy choice beyond the count is greyed out in the menu and
+; changes nothing (the drive is Off); it applies again once the count covers
+; it. OPTM_SET goes FATAL when asked to select the item of a menu group that is
+; ALREADY the selected one, so only items that are not selected yet are set.
 ;
 ; Input:  none    Output: none    All registers preserved.
-DRV_ENFORCE_COUNT SYSCALL(enter, 1)
+DRV_SYNC        SYSCALL(enter, 1)
 
                 MOVE    1, R0                   ; R0: number of drives
                 MOVE    AEXP_OSM_DRIVES_2, R8
                 RSUB    M2M$GET_SETTING, 1
                 CMP     0, R9
-                RBRA    _DRVEC_C3, Z
+                RBRA    _DRVS_C3, Z
                 MOVE    2, R0
-                RBRA    _DRVEC_L, 1
-_DRVEC_C3       MOVE    AEXP_OSM_DRIVES_3, R8
+                RBRA    _DRVS_HW, 1
+_DRVS_C3        MOVE    AEXP_OSM_DRIVES_3, R8
                 RSUB    M2M$GET_SETTING, 1
                 CMP     0, R9
-                RBRA    _DRVEC_L, Z
+                RBRA    _DRVS_HW, Z
                 MOVE    3, R0
 
-_DRVEC_L        MOVE    1, R1                   ; R1: drive under inspection
-                                                ; (df0 always exists)
-_DRVEC_D        CMP     3, R1                   ; all drives done?
-                RBRA    _DRVEC_RET, Z
-                MOVE    DRV_MODE_TAB, R2        ; R2: &tab[drive]
-                MOVE    R1, R3
-                ADD     R3, R3                  ; three words per drive
-                ADD     R1, R3
-                ADD     R3, R2
+_DRVS_HW        MOVE    0xFFFF, R1              ; R1: the hardware drive (none)
+                XOR     R2, R2
+_DRVS_HL        MOVE    HWF_ITEM_TAB, R8
+                ADD     R2, R8
+                MOVE    @R8, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVS_HN, Z
+                MOVE    R2, R1
+_DRVS_HN        ADD     1, R2
+                CMP     ADF_DRIVES, R2
+                RBRA    _DRVS_HL, !Z
 
-                ; QNICE CMP sets N for an unsigned src > dst, so this asks
-                ; "count > drive index", i.e. "the count still covers it"
-                CMP     R0, R1
-                RBRA    _DRVEC_OFF, !N          ; no: the drive is gone
-
-                ; the drive exists: leave Off if it is still selected
+                XOR     R2, R2                  ; R2: drive
+_DRVS_D         MOVE    DRV_MODE_TAB, R3
                 MOVE    R2, R4
-                ADD     2, R4
-                MOVE    @R4, R8                 ; Off item of this drive
+                ADD     R4, R4                  ; three words per drive
+                ADD     R2, R4
+                ADD     R4, R3                  ; R3: &tab[drive] = Disk Image
+                MOVE    R3, R4                  ; R4: the item it gets
+                CMP     R1, R2
+                RBRA    _DRVS_CNT, !Z
+                ADD     1, R4                   ; the hardware drive
+                ; QNICE CMP sets N for an unsigned src > dst, so this asks
+                ; "count > drive index", i.e. "the count covers the drive"
+                ; (always true for df0, which has no Off item)
+_DRVS_CNT       CMP     R0, R2
+                RBRA    _DRVS_SET, N
+                MOVE    R3, R4
+                ADD     2, R4                   ; beyond the count: Off
+_DRVS_SET       MOVE    @R4, R8
                 RSUB    M2M$GET_SETTING, 1
                 CMP     0, R9
-                RBRA    _DRVEC_N, Z             ; not on Off: nothing to do
-                MOVE    @R2, R8                 ; select Disk Image instead
+                RBRA    _DRVS_N, !Z             ; already selected
                 MOVE    1, R9
                 RSUB    M2M$FORCE_MENU, 1
-                RBRA    _DRVEC_N, 1
+_DRVS_N         ADD     1, R2
+                CMP     ADF_DRIVES, R2
+                RBRA    _DRVS_D, !Z
 
-                ; the drive does not exist any more: force it to Off - but only
-                ; if it is not already there. OPTM_SET goes FATAL when it is
-                ; asked to select the item of a menu group that is ALREADY the
-                ; selected one: its "unselect the other member" scan then finds
-                ; nothing and falls through into OPTM_F_MENUGRP.
-_DRVEC_OFF      MOVE    R2, R4
-                ADD     2, R4
-                MOVE    @R4, R8
-                RSUB    M2M$GET_SETTING, 1
-                CMP     0, R9
-                RBRA    _DRVEC_N, !Z            ; already Off: nothing to do
-                MOVE    1, R9
-                RSUB    M2M$FORCE_MENU, 1
-
-_DRVEC_N        ADD     1, R1
-                RBRA    _DRVEC_D, 1
-
-_DRVEC_RET      SYSCALL(leave, 1)
-                RET
-
-; DRV_STEAL_HW: called after the mode radio of one drive changed.
-;
-; There is exactly one physical mechanism in a MEGA65, so if the drive that
-; just changed took "Hardware Floppy", every other drive that still claims it
-; has to fall back to "Disk Image" (clear-before-set, the C64MEGA65
-; _OSM_PRE_STEAL pattern). If it took something else, nothing is stolen.
-;
-; Input:  R8: the drive whose mode changed (0..2)
-; Output: R8/R9 undefined; all other registers preserved.
-DRV_STEAL_HW    SYSCALL(enter, 1)
-
-                MOVE    R8, R0                  ; R0: the drive that changed
-                MOVE    DRV_MODE_TAB, R1
-                MOVE    R0, R2
-                ADD     R2, R2
-                ADD     R0, R2
-                ADD     R2, R1                  ; R1: &tab[changed drive]
-                MOVE    R1, R3
-                ADD     1, R3
-                MOVE    @R3, R8                 ; its Hardware Floppy item
-                RSUB    M2M$GET_SETTING, 1
-                CMP     0, R9
-                RBRA    _DRVSH_RET, Z           ; not the hardware drive: done
-
-                XOR     R4, R4                  ; R4: drive to check
-_DRVSH_D        CMP     3, R4
-                RBRA    _DRVSH_RET, Z
-                CMP     R4, R0                  ; skip the drive that changed
-                RBRA    _DRVSH_N, Z
-                MOVE    DRV_MODE_TAB, R5
-                MOVE    R4, R6
-                ADD     R6, R6
-                ADD     R4, R6
-                ADD     R6, R5                  ; R5: &tab[drive]
-                MOVE    R5, R6
-                ADD     1, R6
-                MOVE    @R6, R8                 ; its Hardware Floppy item
-                RSUB    M2M$GET_SETTING, 1
-                CMP     0, R9
-                RBRA    _DRVSH_N, Z             ; does not claim it: leave alone
-                MOVE    @R5, R8                 ; hand it back a disk image
-                MOVE    1, R9
-                RSUB    M2M$FORCE_MENU, 1
-_DRVSH_N        ADD     1, R4
-                RBRA    _DRVSH_D, 1
-
-_DRVSH_RET      SYSCALL(leave, 1)
+                SYSCALL(leave, 1)
                 RET
 
 ; DRV_EJECT_GONE: eject the disk of every drive that is no longer a Disk Image.
@@ -2869,8 +2802,8 @@ _DRVSH_RET      SYSCALL(leave, 1)
 ; routine the SPACE gesture uses: flush what is pending into the right file
 ; first, then disarm.
 ;
-; Called from OSM_SEL_POST after the two consistency helpers have settled the
-; model, so every mode item already carries its final value.
+; Called from OSM_SEL_POST after DRV_SYNC has settled the model, so every mode
+; item already carries its final value.
 ;
 ; Input:  none    Output: none    All registers preserved.
 DRV_EJECT_GONE  SYSCALL(enter, 1)

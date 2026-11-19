@@ -17,19 +17,20 @@ about the real one.
 ## Turning it on
 
 Press **Help** to open the options menu, go to **Drive Settings**, and set
-one of the drives to **Hardware Floppy**. Out of the box no drive has it:
+**Hardware Floppy** to the drive that should be the real one (**df0**,
+**df1** or **df2**). Out of the box it is **Off**:
 AExp starts with a single disk image drive, `df0:`, because some games and
 demos do not cope with more than one drive being present.
 
-So you have a choice to make. Either hand `df0:` itself to the Hardware
-Floppy — one drive, and it is the real one, which is what you want for
-booting an original disk — or raise **Drives** to 2 or 3 and give the
-Hardware Floppy to one of the extra drives, which is what you want for
-copying between a real disk and a disk image.
+So you have a choice to make. Either set it to **df0** — one drive, and it
+is the real one, which is what you want for booting an original disk — or
+raise **Drives** to 2 or 3 and choose one of the extra drives, which is what
+you want for copying between a real disk and a disk image. A drive the
+**Drives** count does not cover is greyed out.
 
 There is only one mechanism in your MEGA65, so only one Amiga drive can be
-the Hardware Floppy at a time. Giving it to another drive takes it away from
-the one that had it. That is not a restriction AExp invented; it is simply
+the Hardware Floppy at a time, which is why it is one choice and not one per
+drive. That is not a restriction AExp invented; it is simply
 how many drives you own.
 
 Changing anything in Drive Settings cold-boots the Amiga, because a real
@@ -192,8 +193,8 @@ different story — see the previous section, and try another disk first.
 Here is what the Hardware Floppy is really good for: rescuing the contents of
 a real disk into a disk image, using nothing but the Amiga's own tools.
 
-1. In **Drive Settings**, set **Drives** to 3, leave `df0:` and `df1:` as
-   Disk Image, and set `df2:` to Hardware Floppy. Out of the box only `df0:`
+1. In **Drive Settings**, set **Drives** to 3 and **Hardware Floppy** to
+   **df2**; `df0:` and `df1:` stay disk image drives. Out of the box only `df0:`
    exists, so this layout has to be set up once — and the Amiga cold-boots
    when you change it.
 2. Mount a Workbench image in `df0:` and a writable image in `df1:` — a

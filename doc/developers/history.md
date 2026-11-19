@@ -3442,6 +3442,23 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     fresh image: 7300 commands, all READ MULTIPLE through the sector engine, none failed,
     only 0x90 x2, IDENTIFY and SET MULTIPLE 16 on the firmware path. Open: the AROS boot
     animation is garbled on HDMI only (VGA is fine).
+  - **Drive Settings simplified (branch `drvpage` from main ad990b4, 2026-11-19).** The page has
+    two rows now: Drives (1/2/3) and Hardware Floppy (Off / df0 / df1 / df2, `OPTM_G_HWFLOPPY`
+    85, lines 52..55; df1 greyed out unless Drives is 2 or 3, df2 unless it is 3, via
+    `OPTM_AVAIL` on all three boards). The three per-drive mode radios stay in the menu (the HDL
+    still decodes them, lines 56..63) but are HIDDEN: they depend on helper toggle
+    `OPTM_G_HIDEA` (86), which is visible only while `OPTM_G_HIDEB` (87) is on and vice versa,
+    so both stay off for ever (the validator forbids self-dependency). The firmware's `DRV_SYNC`
+    (+ `HWF_ITEM_TAB`) replaces `DRV_ENFORCE_COUNT` + `DRV_STEAL_HW`: after a change to either
+    row it sets every drive to Disk Image, Hardware Floppy (the chosen one) or Off (beyond the
+    count), forcing only the items not already selected, then `DRV_EJECT_GONE`. Lines >= 65
+    moved down by one, `OPTM_SIZE` 184; the `C_MENU_*` constants were renumbered by script
+    (`~/aexp-work/drvpage/mkmenu.py`, checked by `verify.py`), plus `C_MENU_HWF_*` for the
+    firmware. Old settings files are reset once by the menu signature; profiles are unaffected.
+    ROM 32489/32768. Config bench `~/aexp-work/menu-rows/cfg` (render.py shows the page).
+    Builds dp-r6b (R6, WNS +0.052) and dp-r3b (R3 + the Fast RAM watchdog fix, WNS +0.117),
+    both with `NO_REF_SYNTH=1` after incremental synthesis segfaulted (dp-r6a/dp-r3a). dp-r3b
+    HW-confirmed by the user on the R3.
   - **Upstream AExp V2 (2026-11-14, branch `aexp-v2` from main 7c7f884, 2026-11-19).** Seven
     upstream commits since WIP-V2-B3, no functional change: comments, version, docs, `.xpr`
     re-saves. Taken: `tools/check_firmware.py` (tracked now), whose correction matters: QNICE's
