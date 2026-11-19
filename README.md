@@ -758,6 +758,31 @@ is running, the right button can stay "stuck" for up to half a minute
 (Workbench shows its menu bar and stops redrawing) before it clears on its
 own. Just give it a moment after swapping devices.
 
+#### If the pointer twitches
+
+A Micro Tom adapter can make the pointer twitch by a few pixels while the
+mouse lies still: up and down or left and right, one axis at a time. Other
+USB adapters with scroll-wheel support may do the same. It happens on every
+MEGA65 board (found and explained by the AExp project, issue #41).
+
+The cause is pin 5 of the mouse port, the middle-button line. On a newer
+Amiga, a scroll-wheel driver briefly pulls this pin low to ask the adapter
+for wheel movements, and the adapter answers with a short code on the
+movement lines. The MEGA65's joystick ports, which inherited a paddle
+circuit from the C64, pull it low about 2000 times per second to read the
+right and middle buttons. So the adapter keeps answering, and the Amiga
+reads each answer as a small mouse movement.
+
+The cure: plug a DB9 extension cable (male to female, all pins wired
+straight through) between the port and the adapter, with wire 5 cut.
+Movement and the left and right buttons keep working; you lose only the
+middle button and the wheel.
+
+If the pointer is not just twitching but out of control, the Micro Tom is
+in its Atari ST or C64 mode. Hold all three buttons of the USB mouse for
+ten seconds to reset it to Amiga mode, its factory setting (see the
+[Micro Tom manual](https://c64u.org/dokuwiki/_media/book:retro_micro_tom_adapter_manual_in_english.pdf)).
+
 #### No mouse? Drive the pointer from the keyboard
 
 Have no Amiga mouse or adapter at hand? You can still operate Workbench. The
