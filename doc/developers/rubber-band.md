@@ -657,6 +657,24 @@ the R3 Fast RAM FIFO (main_vram_rst) with the long reset as well. Lines a fill h
 (a tag is valid only from f_done); what sits in chip_hr's write buffers at the reset is lost. Build
 `rb-f` (REF rb-e): WNS +0.103, WHS +0.002; on the R3 long and short resets during Workbench work.
 
+### The Fast RAM fill watchdog (2026-11-19)
+
+Intermittent Software Failures #8000000B (Line-F) on the R3, once with a corrupted program name
+(Palette), only with Fast RAM on. amiga_mem_r3 fills a 16-word cache line and had a watchdog: after
+4095 clocks (83 us) in S_FILL it answered the CPU $FFFF (a Line-F opcode) if the CPU's word had not
+come yet, or left the fill with the rest of the line missing; the late words then arrived in the
+next fill and were stored as its data. Bench `~/aexp-work/r3fram` (`run.sh`, `longrun.sh` on fedora):
+amiga_mem_r3 on a gated amiga clock, avm_fifo, rtg_wcomb, the arbiter with a chip RAM master and a
+HyperRAM model with random stalls (generics G_STALL_MAX, G_STALL_P, G_CHIP, G_GATE, G_CPU020); a
+shadow memory checks every CPU read. Unfixed: 1 failure in 96 long runs, the watchdog's $FFFF. Fix
+(e2881a6): a fill waits for its data (a late answer is safe to wait for: the CPU waits, nothing else
+writes these words, and a HyperRAM reset resets amiga_mem_r3 too since f39f729); the counter only
+saturates and feeds `dbg_o` (fills that reached 4094 clocks, read words with no fill waiting, the
+longest wait). Fixed: 120/120. Red controls: a stall past the watchdog, the combiner's read block
+forced off. On the hardware, diag build r3diag-a measured fills of at most 17 us; why one took 83 us
+there is not known (the crash did not come back in that build). Builds rb-g (WNS +0.103) and dp-r3b
+(+ the Drive Settings page, WNS +0.117).
+
 ## Next steps
 
 1. DONE for r6rb-z (no shaking, 342 us of 559 us). Optional: r6rb-t (the needed lead with the 16 KB cache):

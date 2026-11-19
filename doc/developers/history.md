@@ -3674,6 +3674,18 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     Shell stalled on its wait line. Fixed (f39f729): both, and the R3 Fast RAM FIFO, reset with
     every reset button (writes still in chip_hr's write buffers are lost then). Build `rb-f`
     (REF rb-e): WNS +0.103, WHS +0.002; HW: long and short resets OK.
+    Later on the R3 (2026-11-19): intermittent Software Failures #8000000B (Line-F) with a
+    corrupted program name (Palette), only with Fast RAM on. Bench `~/aexp-work/r3fram`
+    (amiga_mem_r3 on a gated clock -> avm_fifo -> rtg_wcomb -> arbiter with a chip RAM master ->
+    a HyperRAM model with random stalls) found it: amiga_mem_r3's fill watchdog gave up after 4095
+    clocks (83 us), answered the CPU $FFFF (a Line-F opcode) or dropped the rest of a line the CPU
+    already had its word from, and the late words then went into the NEXT fill. Fixed (e2881a6): a
+    fill waits for its data; the watchdog only saturates and feeds the diagnostics port `dbg_o`
+    (long fills, stray read words, longest wait). Unfixed 1 failure in 96 runs (the watchdog's
+    $FFFF), fixed 120/120 (fedora `rtest.sh` r3fram-fix); red controls: a stall past the watchdog,
+    the combiner's read block forced off. Diag build r3diag-a measured fills of at most 17 us on
+    the hardware; the crash was not reproduced there. Shipped in dp-r3b (with the new Drive
+    Settings page), run on the R3 without a crash.
 - **Firmware patching without synthesis (2026-10-12).** `CORE/patch_firmware.sh
   save <dir>` keeps a build's routed checkpoint, bitstream and firmware images;
   `patch <dir> [out.bit]` assembles the current firmware, opens the checkpoint,
