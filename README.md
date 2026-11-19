@@ -13,8 +13,9 @@ and machine profiles (A500, A600 and A1200; files of your own since 0.7); versio
 0.6.1 a shared folder (`SDCard:`), both SD card slots at once and hard disks
 served by the FPGA itself; 0.6.2 adds freezer cartridges (HRTmon built in, the
 Action Replay III with your own ROM), and 0.6.3 shows Picasso96 screens on
-HDMI in their own resolution; 0.6.4 adds an A4000 profile. Megamiga needs a MEGA65 R4 or newer; the R3 has no
-SDRAM. Everything
+HDMI in their own resolution; 0.6.4 adds an A4000 profile. 0.7 runs on the
+MEGA65 R3/R3A too (see [MEGA65 R3 and R3A](#mega65-r3-and-r3a)) and has a
+simpler Drive Settings page. Everything
 else - and most of this README - is AExp; where the text says "AExp", it
 describes the core Megamiga is built on.
 
@@ -76,7 +77,9 @@ Features
   board, each switched on by itself, 48 MB with both (off by default; needs
   Kickstart 2.0 or newer - Kickstart 1.3 does not know Zorro III boards, so
   leave them off there)
-* MEGA65 R4, R5 and R6 only: all Amiga memory lives in the board SDRAM
+* On R4, R5 and R6 all Amiga memory lives in the board SDRAM; the R3/R3A
+  version keeps it in the HyperRAM and has fewer options (see
+  [MEGA65 R3 and R3A](#mega65-r3-and-r3a))
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
   as a disk image — switched on by default: mount standard 880 KB `*.adf`
   disk images via the on-screen-menu, read and write — and hand one of the
@@ -302,8 +305,26 @@ Fast RAM is switched **off** by default, because a stock A500 had none and
 a few old games and demos do not cope with it. To switch it on, open the
 menu with <kbd>Help</kbd>, go to **Profile Settings** and select
 **Fast RAM (8 MB)**: the Amiga automatically reboots with the new memory
-configuration, and the setting is remembered. The MEGA65 R3 has no SDRAM;
-there the menu item has no effect.
+configuration, and the setting is remembered. On the MEGA65 R3/R3A the
+Fast RAM board has 4 MB (**Zorro II RAM 4 MB** in the menu).
+
+### MEGA65 R3 and R3A
+
+The R3 and R3A have no SDRAM, only the 8 MB HyperRAM, which is too slow to
+answer the custom chips in time. The R3/R3A version therefore runs the Amiga
+1.74 times faster than real time and pauses it whenever it waits for the
+HyperRAM, with a cache in the FPGA for the Chip RAM; the picture and the sound
+come out in real time through a buffer, about half a millisecond late. Games,
+demos and Workbench run at their normal speed. Compared with R4/R5/R6:
+
+* CPU 68000 or 68020; no 68040 (greyed out)
+* Chip RAM up to 2 MB; Slow RAM only next to 512 KB or 1 MB Chip RAM
+* Zorro II Fast RAM 4 MB instead of 8 MB; no Zorro III RAM, no graphics card
+  (RTG), no freezer cartridges
+* Kickstarts up to 512 KB (no 1 MB AROS ROM)
+* The network card and the PMOD serial port are there but untested on the R3
+* Use the `*-R3.cor` (or `mega65_r3.bit`) file; R4/R5/R6 files do not work
+  on an R3, and the R3 file does not work on newer boards
 
 ### 68040
 
@@ -1252,7 +1273,8 @@ gaps remain in this release:
   Productivity) yet
 * No ECS SuperHires and Productivity modes (the video path takes at most a
   14 MHz pixel clock), no HDMI flicker-free mode
-* Megamiga 0.2 runs on boards with SDRAM (R4, R5, R6) only, not on the R3
+* The R3/R3A version has fewer options (see
+  [MEGA65 R3 and R3A](#mega65-r3-and-r3a))
 
 The development history — all the alpha and beta work-in-progress builds — is
 documented in [doc/inofficial.md](doc/inofficial.md).
