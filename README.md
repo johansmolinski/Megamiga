@@ -335,11 +335,13 @@ and whole cache lines at a time.
 AExp gives the Amiga up to three floppy drives: `df0:`, `df1:` and `df2:`.
 Each one is either a **disk image** (an `*.adf` file on your SD card), the
 **Hardware Floppy** (the MEGA65's own internal 3.5" drive, reading genuine
-Amiga disks), or switched off. How many drives exist and what each of them
-is, you choose in the **Drive Settings** submenu of the options menu; a
+Amiga disks). You choose two things in the **Drive Settings** submenu of the
+options menu: **Drives** (1, 2 or 3) and **Hardware Floppy** (**Off**, `df0`,
+`df1` or `df2`: which drive, if any, is the internal drive; a drive the count
+does not cover is greyed out). Every other drive is a disk image drive. A
 change there cold-boots the Amiga, because it has to re-detect its drives.
-Out of the box you get exactly one: `df0:` as a disk image drive. `df1:` and
-`df2:` are off, and no drive is the Hardware Floppy — a number of games and
+Out of the box you get exactly one: `df0:` as a disk image drive, and
+Hardware Floppy is Off — a number of games and
 demos misbehave when the Amiga sees more than one drive, so AExp starts with
 the configuration those titles expect. Switch the others on when you need
 them.
@@ -359,7 +361,7 @@ it. If several drives run at once, the lowest one is heard (`df0:` before
 `df1:` before `df2:`). **Noclick** leaves out the "click" an empty Amiga
 drive makes every few seconds while Workbench checks for a disk. Nothing is
 written to a disk in the internal drive, and the sound is off while a drive
-is set to Hardware Floppy.
+is the Hardware Floppy.
 
 A real disk in the internal drive silences it, so the disk does not wear:
 the drive reports the disk at the first click or head step after it is
@@ -407,7 +409,7 @@ Two things to know. It needs double-density (DD) media, which is what Amiga
 disks are; a PC-style mechanism physically cannot read Amiga HD disks. And
 because writing is real, **the disk's own write-protect tab is the only thing
 protecting it** — slide the tab open on anything irreplaceable before it goes
-near the slot. Only one drive can have the Hardware Floppy, since there is
+near the slot. Only one drive can be the Hardware Floppy, since there is
 only one mechanism.
 
 The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
@@ -974,12 +976,11 @@ lost at every power-off, so it is worth copying in.
 Two things decide whether those key counts are right. The menu remembers
 where the cursor was, so the sequence only works the **first** time you open
 it after switching the machine on — that is what the power cycle is for. And
-step 2 follows your drive configuration: only a drive set to **Disk Image**
-has a line the cursor can land on, so it adds one <kbd>&darr;</kbd>, while a
-drive set to **Hardware Floppy** shows a status line that the cursor skips
-and a drive set to **Off** shows nothing at all. Neither adds a
-<kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is five
-<kbd>&darr;</kbd>.
+step 2 follows your drive configuration: only a disk image drive has a line
+the cursor can land on, so it adds one <kbd>&darr;</kbd>, while the Hardware
+Floppy drive shows a status line that the cursor skips and a drive beyond the
+**Drives** count shows nothing at all. Neither adds a <kbd>&darr;</kbd>. If
+`df0:` itself is the Hardware Floppy, step 2 is five <kbd>&darr;</kbd>.
 
 ### PAL and NTSC (60 Hz)
 

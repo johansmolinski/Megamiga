@@ -35,18 +35,20 @@ Everything else is one visit to **Drive Settings** away.
 
 ## Drive Settings
 
-Open the menu with **Help** and go into **Drive Settings**. At the top is
-**Drives** — 1, 2 or 3 — and below it one mode selection per drive.
+Open the menu with **Help** and go into **Drive Settings**. It has two
+choices: **Drives** (1, 2 or 3) and **Hardware Floppy** (**Off**, **df0**,
+**df1** or **df2**).
 
 The count decides which drives exist. It starts at 1. Raise it to 2 and
-`df1:` appears as a Disk Image drive; lower it again and `df1:` switches to
-**Off** and disappears. A drive that comes back always comes back as a Disk
-Image drive, whatever it was before. `df0:` always exists, which is why it
-has no "Off" — an Amiga without a boot drive would be a doorstop.
+`df1:` appears; lower it again and `df1:` disappears. `df0:` always exists -
+an Amiga without a boot drive would be a doorstop.
 
-Only one drive at a time can be the Hardware Floppy. Handing it to another
-drive takes it away from the one that had it, which becomes a Disk Image
-drive instead.
+**Hardware Floppy** picks the drive that is the MEGA65's internal drive; every
+other drive is a Disk Image drive. It starts at **Off**. Only one drive can be
+the Hardware Floppy, since there is only one mechanism. A drive the count does
+not cover is greyed out (with one drive only **Off** and **df0** can be
+chosen); if the count drops below the chosen drive, that drive is simply gone
+until the count covers it again.
 
 Changing anything here cold-boots the Amiga. That is not AExp being dramatic:
 a real Amiga counts and identifies its drives while it starts up, so the only
@@ -61,7 +63,7 @@ you what kind of drive it is:
   it is empty.
 * A **Hardware Floppy** drive shows `dfN:Hardware Floppy` for whichever drive
   it is, and reports live status while the menu is open.
-* A drive that is **Off** shows nothing at all. No line, no placeholder.
+* A drive beyond the **Drives** count shows nothing at all. No line, no placeholder.
 
 ## Mounting and ejecting a disk image
 
@@ -135,11 +137,11 @@ declines.
 If a program wants two disks, give it two files. If you want a copy of a
 disk, make one on the SD card and mount that.
 
-## Changing a drive's mode with a disk in it
+## Changing the drives with a disk in it
 
-Switching a Disk Image drive to Hardware Floppy or to Off ejects whatever was
-in it first, saving any pending changes before the disk goes away, so you do
-not have to eject by hand.
+Making a Disk Image drive the Hardware Floppy, or lowering the count below it,
+ejects whatever was in it first, saving any pending changes before the disk
+goes away, so you do not have to eject by hand.
 
 One combination is particularly useful: a real Amiga disk in the Hardware
 Floppy, a writable image in another drive, and the Amiga's own copy tools in
