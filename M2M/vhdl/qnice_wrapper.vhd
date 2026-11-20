@@ -216,7 +216,15 @@ begin
          G_VGA_DX                => VGA_DX,
          G_VGA_DY                => VGA_DY,
          G_FONT_DX               => FONT_DX,
-         G_FONT_DY               => FONT_DY
+         G_FONT_DY               => FONT_DY,
+         -- M2M-UPSTREAM sd-host (Megamiga 0.7, 2026-11-20): the R3's back slot (micro SD) is
+         -- SPI only. Its lines double as the JTAG port of the board's MAX10 (schematic
+         -- TE0765-03, 0R resistors R27/R32-R36: DAT2 = TCK, DAT1 = TMS, CMD = TDO, DAT0 = TDI,
+         -- DAT3/CLK = the MAX10's UART). In 4-bit mode the card's data on DAT2/DAT1 clocks the
+         -- MAX10's TAP into a shift state, whose TDO then drives CMD: the card no longer heard
+         -- the next command (HW-measured: no response after reading certain blocks). SPI
+         -- leaves DAT1/DAT2 idle. The bottom tray (SD2) has only pull-ups: 4-bit there.
+         G_SD_NATIVE_BACK        => G_BOARD /= "MEGA65_R3"
       )
       port map (
          clk50_i                 => clk_i,

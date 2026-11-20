@@ -37,7 +37,9 @@ use work.sdhost_pkg.all;
 entity sdslots is
    generic (
       G_ABSENT    : natural := 65535;    -- clocks without a card before the reset
-      G_MS        : natural := 100_000   -- clk2x_i clocks per millisecond (sdhost.vhd)
+      G_MS        : natural := 100_000;  -- clk2x_i clocks per millisecond (sdhost.vhd)
+      G_NATIVE_BACK : boolean := true    -- the back slot may use the native SD bus (Megamiga
+                                         -- 0.7: not on the R3, see qnice_wrapper.vhd)
    );
    port (
       clk_i       : in  std_logic;       -- QNICE clock (50 MHz)
@@ -190,7 +192,7 @@ begin
 
    g_ctrl : for i in 0 to 1 generate
       i_sdhost : entity work.sdhost
-         generic map (G_MS => G_MS)
+         generic map (G_MS => G_MS, G_NATIVE => G_NATIVE_BACK or i = 0)
          port map (
             clk_i       => clk_i,
             clk2x_i     => clk2x_i,

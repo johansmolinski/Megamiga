@@ -27,7 +27,9 @@ generic (
    G_VGA_DX          : natural;                          -- output screen width in pixel
    G_VGA_DY          : natural;                          -- ditto height
    G_FONT_DX         : natural;                          -- character width in pixel
-   G_FONT_DY         : natural                           -- ditto height
+   G_FONT_DY         : natural;                          -- ditto height
+   -- M2M-UPSTREAM sd-host (Megamiga 0.7): native 4-bit SD bus allowed in the back slot
+   G_SD_NATIVE_BACK  : boolean := true
 );
 port (
    -- QNICE MEGA65 hardware interface
@@ -407,6 +409,7 @@ begin
    -- Original: i_sdmux (mode_i/force_i from CSR bits 6/7, active_o to CSR bit 8) and sd_card
    -- (one sdhost behind the multiplexer).
    i_sdslots : entity work.sdslots
+      generic map (G_NATIVE_BACK => G_SD_NATIVE_BACK)
       port map
       (
          clk_i                => clk50_i,
