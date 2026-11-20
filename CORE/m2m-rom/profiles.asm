@@ -1667,19 +1667,30 @@ _P_SL_KEY       RSUB    HANDLE_IO, 1
                 RSUB    _P_ATTR, 1
                 CMP     M2M$KEY_UP, R4
                 RBRA    _P_SL_K1, !Z
-                SUB     1, R1                   ; up (wraps around)
-                RBRA    _P_SL_SEL, !N
-                MOVE    R0, R1
+                SUB     1, R1                   ; up (wraps around on a
+                RBRA    _P_SL_SEL, !N           ; new press, Megamiga 0.7;
+                MOVE    R0, R1                  ; a held key stops at the top)
+                MOVE    M2M$KEY_UP, R8
+                RSUB    KEYB$REPEAT, 1
+                RBRA    _P_SL_SEL, !C
+                XOR     R1, R1
                 RBRA    _P_SL_SEL, 1
 _P_SL_K1        CMP     M2M$KEY_DOWN, R4
                 RBRA    _P_SL_K2, !Z
-                ADD     1, R1                   ; down (wraps around)
-                CMP     R1, R0
-                RBRA    _P_SL_SEL, !N
+                ADD     1, R1                   ; down (wraps around on a
+                CMP     R1, R0                  ; new press; a held key
+                RBRA    _P_SL_SEL, !N           ; stops at the bottom)
+                MOVE    M2M$KEY_DOWN, R8
+                RSUB    KEYB$REPEAT, 1
+                MOVE    R0, R1
+                RBRA    _P_SL_SEL, C
                 XOR     R1, R1
                 RBRA    _P_SL_SEL, 1
 _P_SL_K2        CMP     M2M$KEY_LEFT, R4        ; Left: the profile moves up
                 RBRA    _P_SL_K3, !Z
+                MOVE    R4, R8                  ; (once per press: the keys
+                RSUB    KEYB$REPEAT, 1          ; repeat since Megamiga 0.7,
+                RBRA    _P_SL_SEL, C            ; each move renames files)
                 CMP     0, R1                   ; (not the first, not Add New)
                 RBRA    _P_SL_SEL, Z
                 CMP     R1, R0
@@ -1689,6 +1700,9 @@ _P_SL_K2        CMP     M2M$KEY_LEFT, R4        ; Left: the profile moves up
                 RBRA    _P_SL_MV, 1
 _P_SL_K3        CMP     M2M$KEY_RIGHT, R4       ; Right: down
                 RBRA    _P_SL_K4, !Z
+                MOVE    R4, R8                  ; (once per press)
+                RSUB    KEYB$REPEAT, 1
+                RBRA    _P_SL_SEL, C
                 MOVE    R1, R8                  ; (not the last, not Add New:
                 ADD     1, R8                   ; R1 + 1 >= R0)
                 CMP     R8, R0

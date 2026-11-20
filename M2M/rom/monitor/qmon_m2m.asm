@@ -390,8 +390,7 @@ QMON$MAYBE_H    CMP     'H', R8
                 RBRA    QMON$NOT_H, !Z          ; No H, try next...
 ;                 
 ; HELP:
-                MOVE    QMON$HELP, R8           ; H(elp) - print help text
-                RSUB    IO$PUTS, 1
+                RSUB    QMON_HELP, 1            ; H(elp) - print help text
                 RBRA    QMON$MAIN_LOOP, 1
 QMON$NOT_H      MOVE    QMON$ILLCMDGRP, R8      ; Illegal command group
                 RSUB    IO$PUTS, 1
@@ -650,23 +649,8 @@ QMON$WELCOME    .ASCII_P    "\n\nSimple QNICE-monitor - Version 1.6 (Bernd Ulman
 QMON$PROMPT     .ASCII_W    "QMON> "
 QMON$ILLCMDGRP  .ASCII_W    " *** Illegal command group ***\n"
 QMON$ILLCMD     .ASCII_W    " *** Illegal command ***\n"
-QMON$HELP       .ASCII_P    "ELP:\n\n"
-                .ASCII_P    "    C(control group):\n"
-                .ASCII_P    "        C(old start) H(alt) R(un) Clear(S)creen\n"
-                .ASCII_P    "    H(elp)\n"
-                .ASCII_P    "    M(emory group):\n"
-                .ASCII_P    "        C(hange) D(ump) E(xamine) F(ill) L(oad) M(ove)\n"
-                .ASCII_P    "        di(S)assemble\n"
-                .ASCII_P    "    F(ile group):\n"
-                .ASCII_P    "        List (D)irectory C(hange directory) L(oad) R(un)\n"
-                .ASCII_P    "\n    General: CTRL-E performs a warm start whenever an\n"
-                .ASCII_P    "        input from keyboard is expected.\n"
-                .ASCII_P    "\n    M(emory)L(oad) can be used to load assembler output\n"
-                .ASCII_P    "        by pasting it to the terminal. CTRL-E terminates.\n"
-                .ASCII_P    "\n    Scrolling (VGA): CTRL-(F)orward or (CsrDown) / CTRL-(B)ackward or (CsrUp)\n"
-                .ASCII_P    "        One page: (PgDown), (PgUp)  /  10 lines: CTRL-(PgDown), CTRL-(PgUp)\n"
-                .ASCII_P    "        First page: (Home) / last page: (End)\n"
-                .ASCII_W    "\n"
+; M2M-UPSTREAM code-banks (Megamiga 2026-11-19): the help text (694 words)
+; moved into a code bank for room in the fixed ROM: QMON_HELP prints it
 QMON$CG_C       .ASCII_W    "ONTROL/"
 QMON$CG_C_C     .ASCII_W    "COLD START"
 QMON$CG_C_H     .ASCII_W    "HALT\n\n"

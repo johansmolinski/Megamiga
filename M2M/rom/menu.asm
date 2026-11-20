@@ -704,6 +704,9 @@ _OPTM_RUN_SEL   MOVE    SP, R8                  ; update (SP+1), i.e. update..
                 RBRA    _OPTM_RUN_3, !Z         ; no: check other key
 _OPTM_RUN_1     CMP     0, R2                   ; yes: wrap around at top?
                 RBRA    _OPTM_KU_NWA, !Z        ; no: find next menu item
+                MOVE    M2M$KEY_UP, R8          ; M2M-UPSTREAM typematic-time:
+                RSUB    KEYB$REPEAT, 1          ; a held key stops at the top
+                RBRA    _OPTM_RUN_NOWR, C
                 MOVE    R0, R2                  ; yes: wrap around R2
                 SUB     1, R2
                 MOVE    SP, R7                  ; wrap around (SP+1)
@@ -765,6 +768,9 @@ _OPTM_RUN_4     MOVE    R0, R7                  ; yes: wrap around at bottom?
                 SUB     1, R7
                 CMP     R7, R2
                 RBRA    _OPTM_KD_NWA, !Z        ; no: find next menu item
+                MOVE    M2M$KEY_DOWN, R8        ; M2M-UPSTREAM typematic-time:
+                RSUB    KEYB$REPEAT, 1          ; a held key stops at the
+                RBRA    _OPTM_RUN_NOWR, C       ; bottom
                 XOR     R2, R2                  ; yes: wrap around R2
                 MOVE    SP, R7                  ; wrap around/reset (SP+1)
                 ADD     1, R7
@@ -801,6 +807,12 @@ _OPTM_RUN_DF    MOVE    R2, R8                  ; M2M-UPSTREAM menu-rows: as
                 RBRA    _OPTM_RUN_4, C
                 MOVE    R8, R2
                 RBRA    _OPTM_RUN_2, 1
+
+                ; M2M-UPSTREAM typematic-time (Megamiga 2026-11-19): the search
+                ; reached the end of the menu while the cursor key repeats:
+                ; the cursor stays on its line (R3); a new press wraps around
+_OPTM_RUN_NOWR  MOVE    R3, R2
+                RBRA    _OPTM_RUN_SEL, 1
 
                 ; Close menu key
 _OPTM_RUN_5A    CMP     OPTM_KEY_CLOSE, R8      ; key: close?

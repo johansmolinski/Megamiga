@@ -4609,6 +4609,11 @@ _IWF_RET        DECRB
 IDE_IDENTIFY    RSUB    FAR_CALL, 1
                 .DW     BANK_IDE, B3_IDE_IDENT
 
+; QMON_HELP: the H(elp) command of the QNICE monitor (M2M-UPSTREAM code-banks,
+; Megamiga 0.7: the text is in the bank BANK_IDE, B3_QMON_HELP). R8 clobbered.
+QMON_HELP       RSUB    FAR_CALL, 1
+                .DW     BANK_IDE, B3_QMON_HELP
+
 ; IDE_ID_PUT: store one IDENTIFY word, byte-swapped for the bus
 ; Input: R8: value, R9: word index; device selected. Registers preserved.
 IDE_ID_PUT      INCRB
@@ -9862,6 +9867,30 @@ _IID_M0         MOVE    IDE_IDW_MULT, R9
                 DECRB
                 RET
 
+; B3_QMON_HELP: the H(elp) command of the QNICE monitor (QMON_HELP, the stub
+; in the fixed ROM; M2M/rom/monitor/qmon_m2m.asm), whose 694-word text moved
+; here for room in the fixed ROM (Megamiga 0.7, typematic-time)
+B3_QMON_HELP    MOVE    B3_QMON_HTXT, R8
+                RSUB    IO$PUTS, 1
+                RET
+
+B3_QMON_HTXT    .ASCII_P    "ELP:\n\n"
+                .ASCII_P    "    C(control group):\n"
+                .ASCII_P    "        C(old start) H(alt) R(un) Clear(S)creen\n"
+                .ASCII_P    "    H(elp)\n"
+                .ASCII_P    "    M(emory group):\n"
+                .ASCII_P    "        C(hange) D(ump) E(xamine) F(ill) L(oad) M(ove)\n"
+                .ASCII_P    "        di(S)assemble\n"
+                .ASCII_P    "    F(ile group):\n"
+                .ASCII_P    "        List (D)irectory C(hange directory) L(oad) R(un)\n"
+                .ASCII_P    "\n    General: CTRL-E performs a warm start whenever an\n"
+                .ASCII_P    "        input from keyboard is expected.\n"
+                .ASCII_P    "\n    M(emory)L(oad) can be used to load assembler output\n"
+                .ASCII_P    "        by pasting it to the terminal. CTRL-E terminates.\n"
+                .ASCII_P    "\n    Scrolling (VGA): CTRL-(F)orward or (CsrDown) / CTRL-(B)ackward or (CsrUp)\n"
+                .ASCII_P    "        One page: (PgDown), (PgUp)  /  10 lines: CTRL-(PgDown), CTRL-(PgUp)\n"
+                .ASCII_P    "        First page: (Home) / last page: (End)\n"
+                .ASCII_W    "\n"
 ; End of the bank BANK_IDE
 
                 .ORG    0x9000                  ; M2M$CODE_WIN
@@ -10258,6 +10287,8 @@ HEAP            .BLOCK 1
 ; names and list entries, 138 words more: the combined total is 160 words
 ; smaller: 17248.
 ;HEAP_SIZE       .EQU 13984                      ; 17248 - 3264 = 13984
+; Megamiga 0.7 typematic-time: key repeat for all four cursor keys, 4 words
+; more: HEAP 0xB4D6 + 17248 = 0xF836, 1690 words for the stack (total kept).
 HEAP_SIZE       .EQU 13952                      ; 17248 - 3296 = 13952
 HEAP            .BLOCK 1
 

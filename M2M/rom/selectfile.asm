@@ -286,7 +286,7 @@ _IL_CUR_UP      CMP     R4, 0                   ; > 0?
                 SUB     1, R6
                 RBRA    _S_SELECT_LOOP, 1       ; select new line and continue
 _IL_CUR_UP_CHK  CMP     R5, R2                  ; # shown > max rows on scr.?
-                RBRA    _S_INPUT_LOOP, !N       ; no: do not scroll; ign. key
+                RBRA    _IL_UP_END, !N          ; no: the top of the list
                 MOVE    -1, R9                  ; R9: iterate backward
                 MOVE    1, R10                  ; R10: scroll by one element
                 RBRA    _SCROLL, 1              ; scroll, then input loop
@@ -295,7 +295,7 @@ _IL_CUR_UP_CHK  CMP     R5, R2                  ; # shown > max rows on scr.?
 _IL_CUR_DOWN    MOVE    R1, R8                  ; R1: amount of items in dir..
                 SUB     1, R8                   ; ..-1 as we count from zero
                 CMP     R4, R8                  ; R4 = R1 (bottom reached?)
-                RBRA    _S_INPUT_LOOP, Z        ; yes: ignore key press
+                RBRA    _IL_DN_END, Z           ; yes: the end of the list
                 MOVE    R2, R8                  ; R2: max rows on screen..
                 SUB     1, R8                   ; ..-1 as we count from zero
                 CMP     R4, R8                  ; R4 = R1: scrolling needed?
@@ -311,10 +311,41 @@ _IL_CUR_DOWN    MOVE    R1, R8                  ; R1: amount of items in dir..
                 ; SLL by 1 step; if this is not possible: do not scroll,
                 ; because we reached the end of the list
 _IL_SCRL_DN     CMP     R5, R1                  ; all items already shown?
-                RBRA    _S_INPUT_LOOP, Z        ; yes: ignore key press
+                RBRA    _IL_DN_END, Z           ; yes: the end of the list
                 MOVE    1, R9                   ; R9: iterate forward
                 MOVE    1, R10                  ; R10: scroll by one element
                 RBRA    _SCROLL, 1              ; scroll, then input loop
+
+                ; M2M-UPSTREAM typematic-time (Megamiga 2026-11-19): at the
+                ; end of the list a held cursor key stops, a new press wraps
+                ; around to the other end (paging never wraps). A list longer
+                ; than the screen scrolls: the cursor goes to the row and the
+                ; absolute index it will have once _SCROLL has moved the head
+                ; by the distance to the other end (_SCROLL adds the signed
+                ; distance to R6 and redraws).
+_IL_DN_END      MOVE    M2M$KEY_DOWN, R8
+                RSUB    KEYB$REPEAT, 1
+                RBRA    _S_INPUT_LOOP, C        ; held: stay
+                MOVE    R5, R10                 ; R10: entries above the screen
+                SUB     R2, R10
+                RBRA    _IL_GOTO_TOP, N         ; none: the cursor moves
+                RBRA    _IL_GOTO_TOP, Z
+                XOR     R4, R4                  ; the first row
+                MOVE    R10, R6                 ; (R6 - R10 = 0)
+                MOVE    -1, R9                  ; R9: iterate backward
+                RBRA    _SCROLL, 1
+_IL_UP_END      MOVE    M2M$KEY_UP, R8
+                RSUB    KEYB$REPEAT, 1
+                RBRA    _S_INPUT_LOOP, C        ; held: stay
+                MOVE    R1, R10                 ; R10: entries below the screen
+                SUB     R5, R10
+                RBRA    _IL_GOTO_BOTTOM, Z      ; none: the cursor moves
+                MOVE    R2, R4                  ; the last row
+                SUB     1, R4
+                MOVE    R5, R6                  ; (R5 - 1 + R10 = R1 - 1)
+                SUB     1, R6
+                MOVE    1, R9                   ; R9: iterate forward
+                RBRA    _SCROLL, 1
 
                 ; CURSOR LEFT has been pressed: previous page
                 ; check if amount of entries shown minus the amount

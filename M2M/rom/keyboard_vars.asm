@@ -12,9 +12,9 @@ KEYB_PRESSED    .BLOCK 1                        ; currently pressed
 KEYB_NEWKEYS    .BLOCK 1                        ; newly pressed since last..
                                                 ; ..call of KEYB_GETKEY
 
-; typematic delay variables (expected to be a consecutive block of for words
-; overall starting with KEYB_CDN_DELAY)
-KEYB_CDN_DELAY  .BLOCK 1
-KEYB_CDN_TRIG   .BLOCK 1
-KEYB_CUP_DELAY  .BLOCK 1
-KEYB_CUP_TRIG   .BLOCK 1
+; typematic repeat (M2M-UPSTREAM typematic-time, Megamiga 2026-11-19): two
+; words per key of _KEYB_TM_KEYS (keyboard.asm: down, up, left, right): the
+; IO$CYC_MID time of the press or of the last repeat, then the state
+; (0 = released, 1 = delay, 2 = repeating)
+KEYB_TM_SIZE    .EQU 8
+KEYB_TM         .BLOCK 8
