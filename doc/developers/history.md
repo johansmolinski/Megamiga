@@ -3474,6 +3474,35 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
     Builds dp-r6b (R6, WNS +0.052) and dp-r3b (R3 + the Fast RAM watchdog fix, WNS +0.117),
     both with `NO_REF_SYNTH=1` after incremental synthesis segfaulted (dp-r6a/dp-r3a). dp-r3b
     HW-confirmed by the user on the R3.
+  - **Faster key repeat in the menus (branch `keyrep` from main 29d3136, 2026-11-19, M2M
+    exception 24 `typematic-time`).** The user: scrolling long file lists was slow and the first
+    repeat took seconds. `KEYB$SCAN`'s typematic counted its own calls, and the core's
+    `HANDLE_CORE_IO` runs in every key-wait iteration, so the delay depended on the firmware's
+    load. Now it measures time with `IO$CYC_MID` (1.31 ms ticks): 200 ms delay, then a step every
+    20 ms, for Up/Down/Left/Right (per key a time and a state 0 released / 1 delay / 2
+    repeating in `KEYB_TM`). `KEYB$REPEAT` (C = 1 while the key repeats) makes the file browser,
+    the menu and the profile list stop at the end while a key is held; a new press at the end
+    wraps (the user's spec); Left/Right page with repeat and clamp. QMON's help text (694 words)
+    moved to code bank 3 for room; ROM 32144/32768, heap total kept (stack 1690 words). HW: R3
+    (keyrep-r3 "Much better!", keyrep2-r3 with stop/wrap/paging).
+  - **R3: the back SD slot is SPI only (2026-11-20).** From flash with NO SCROLL held at power-on
+    (the MEGA65's boot ROM does not touch the card) the R3 could not mount the back card: "Unable
+    to mount SD card", `SD1:-`; after re-inserting it in 4-bit, opening a folder gave EE31. The
+    internal slot worked in 4-bit with the same card. Not 50 MHz (a build without high speed,
+    keyrep3-r3, failed the same way). Diagnosis: a controller trace (failed init step, response,
+    counters; build sdtrace-r3), then reads by hand through QMON (`MC`/`ME` on 0xFF20..0xFF27,
+    script kept in `~/aexp-work/sddiag`): both inits work, single reads work, but after reading
+    block 0x800 (the FAT32 boot sector) the NEXT command gets no response at all, whatever its
+    block; after block 0 it does. Driving CMD high between commands (sdcmd-r3) changed nothing.
+    Cause, from the schematic TE0765-03: the R3's micro SD lines also go through 0R resistors
+    (R27, R32-R36) to the MAX10's JTAG port and UART: DAT2 = TCK, DAT1 = TMS, CMD = TDO,
+    DAT0 = TDI, DAT3/CLK = M_RX/M_TX. The card's 4-bit data clocks the MAX10's TAP; with the
+    right data it ends in a shift state and TDO drives CMD. SPI leaves DAT1/DAT2 idle, the bottom
+    tray has only pull-ups, R4+ have no MAX10. Fix: `G_SD_NATIVE_BACK` (false on the R3) gives
+    the back slot's sdhost `G_NATIVE` = false; high speed back on for the R3 (the R3-only switch
+    of keyrep3 is gone). Build sdspi-r3 (WNS +0.069; its ROM images and sources match the commit):
+    started with NO SCROLL held, the R3 loads its settings and ROMs from the back card (SPI 25);
+    QMON shows the internal card at 4-bit 50 MHz (mode 0x0035) and the back card SPI (0x0004).
   - **Upstream AExp V2 (2026-11-14, branch `aexp-v2` from main 7c7f884, 2026-11-19).** Seven
     upstream commits since WIP-V2-B3, no functional change: comments, version, docs, `.xpr`
     re-saves. Taken: `tools/check_firmware.py` (tracked now), whose correction matters: QNICE's

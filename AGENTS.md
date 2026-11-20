@@ -265,7 +265,7 @@ the dated facts.
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with TWENTY-THREE sanctioned
+- `M2M/` — the framework. **NEVER modify**, with TWENTY-FOUR sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -449,7 +449,12 @@ the dated facts.
   shared folder is the back card only, the engine mode registers get bit 2 =
   slot. TBs `~/aexp-work/sdslots` (HDL), `~/aexp-work/sdcards` (+ `mut.py`).
   TBs `~/aexp-work/sdhost`, `~/aexp-work/ideng`. Added in the JS fork
-  2026-10-14.
+  2026-10-14. **R3: the back slot is SPI only** (2026-11-20, generic
+  `G_SD_NATIVE_BACK` qnice_wrapper -> qnice -> sdslots `G_NATIVE_BACK` -> slot 1's
+  `G_NATIVE`): on the R3 the micro SD lines are also the MAX10's JTAG port (DAT2 = TCK,
+  DAT1 = TMS, CMD = TDO; schematic TE0765-03, 0R R27/R32-R36), so 4-bit data walks
+  the MAX10's TAP into a shift state and its TDO drowns CMD. Never enable native mode
+  there.
   (19) `rtg-native-modes` — two HDMI modes for a core that shows a framebuffer
   in its own resolution: VESA 1024x768 @ 60 Hz (`C_SVGA_1024_768_60`,
   `C_VIDEO_SVGA_1024_60`) and 1080p @ 30 Hz (`C_HDMI_1080p_30`, VIC 34,
@@ -529,6 +534,15 @@ the dated facts.
   `config.vhd` (new generic, default `"MEGA65_R6"`), so the menu can follow the board: on the
   R3/R3A (no SDRAM) the greyed-out rules and the Fast RAM label differ (`OPTM_AVAIL_R3`,
   `f_items`). Added in the JS fork 2026-11-03 for the R3 port (doc/developers/r3.md).
+  (24) `typematic-time` — `M2M/rom/keyboard.asm`: the typematic repeat counts the
+  cycle counter (`IO$CYC_MID` ticks of 1.31 ms: `M2M$TYPEMATIC_DLY` 153 = 200 ms first
+  delay, `M2M$TYPEMATIC_SPD` 15 = 20 ms per step, `M2M/rom/sysdef.asm`) instead of
+  scan calls (a core's `HANDLE_CORE_IO` in every key wait made the first repeat take
+  seconds), for all four cursor keys (`KEYB_TM`: time + state per key); new
+  `KEYB$REPEAT` (C = 1 while key R8 auto-repeats) lets lists stop at their end while a
+  key is held and wrap only on a new press (`selectfile.asm` `_IL_DN_END`/`_IL_UP_END`,
+  `menu.asm` `_OPTM_RUN_NOWR`; paging clamps). Room: QMON's help text moved into
+  code bank 3 (`QMON_HELP` stub, `qmon_m2m.asm`). Added in the JS fork 2026-11-19.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

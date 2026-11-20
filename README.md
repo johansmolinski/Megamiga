@@ -322,6 +322,10 @@ demos and Workbench run at their normal speed. Compared with R4/R5/R6:
 * Zorro II Fast RAM 4 MB instead of 8 MB; no Zorro III RAM, no graphics card
   (RTG), no freezer cartridges
 * Kickstarts up to 512 KB (no 1 MB AROS ROM)
+* The external (micro SD) card always runs in SPI mode at 25 MHz: on the R3
+  its lines double as the programming port of the board's MAX10 chip, and the
+  4-bit bus would disturb it. The internal card runs at 4-bit, 50 MHz; put
+  your hard disks there for speed
 * The network card and the PMOD serial port are there but untested on the R3
 * Use the `*-R3.cor` (or `mega65_r3.bit`) file; R4/R5/R6 files do not work
   on an R3, and the R3 file does not work on newer boards
@@ -1140,7 +1144,8 @@ floppy images on the other, in any combination.
   The external card normally runs in SPI mode at 25 MHz: the MEGA65 reads it
   in SPI mode before the core starts, and a card leaves SPI mode only when it
   loses power. Taking it out and putting it back in while the core runs gives
-  4-bit there too. The last line of the main menu shows the mode of both
+  4-bit there too (not on the R3/R3A, where the external card is always SPI,
+  see [MEGA65 R3 and R3A](#mega65-r3-and-r3a)). The last line of the main menu shows the mode of both
   cards, for example `SD0:4-bit  SD1:SPI 25`. For the fastest hard disk, put
   it on the internal card.
 
